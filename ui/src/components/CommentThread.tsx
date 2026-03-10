@@ -335,10 +335,16 @@ export function CommentThread({
 
   async function handleAttachFile(evt: ChangeEvent<HTMLInputElement>) {
     const file = evt.target.files?.[0];
-    if (!file || !onAttachImage) return;
+    if (!file) return;
     setAttaching(true);
     try {
-      await onAttachImage(file);
+      if (imageUploadHandler) {
+        const url = await imageUploadHandler(file);
+        const markdown = `![${file.name}](${url})`;
+        setBody((prev) => prev ? `${prev}\n${markdown}` : markdown);
+      } else if (onAttachImage) {
+        await onAttachImage(file);
+      }
     } finally {
       setAttaching(false);
       if (attachInputRef.current) attachInputRef.current.value = "";
@@ -367,7 +373,7 @@ export function CommentThread({
           contentClassName="min-h-[60px] text-sm"
         />
         <div className="flex items-center justify-end gap-3">
-          {onAttachImage && (
+          {(imageUploadHandler || onAttachImage) && (
             <div className="mr-auto flex items-center gap-3">
               <input
                 ref={attachInputRef}
