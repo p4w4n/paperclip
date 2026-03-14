@@ -9,7 +9,7 @@ See [the evals framework plan](../doc/plans/2026-03-13-agent-evals-framework.md)
 ### Prerequisites
 
 ```bash
-npm install -g promptfoo
+pnpm add -g promptfoo
 ```
 
 You need an API key for at least one provider. Set one of:
