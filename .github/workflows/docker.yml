@@ -11,6 +11,7 @@ permissions:
   contents: read
   packages: write
 
+jobs:
   build-and-push:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -34,6 +35,8 @@ permissions:
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=semver,pattern={{version}}
