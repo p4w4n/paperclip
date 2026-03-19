@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "@/lib/router";
+import { useNavigate } from "@/lib/router";
 import { ChevronDown, ChevronRight, MoreHorizontal, Play, Plus, Repeat } from "lucide-react";
 import { routinesApi } from "../api/routines";
 import { agentsApi } from "../api/agents";
@@ -535,12 +535,16 @@ export function Routines() {
                   const isArchived = routine.status === "archived";
                   const isStatusPending = statusMutationRoutineId === routine.id;
                   return (
-                    <tr key={routine.id} className="align-middle border-b border-border transition-colors hover:bg-accent/50 last:border-b-0">
+                    <tr
+                      key={routine.id}
+                      className="align-middle border-b border-border transition-colors hover:bg-accent/50 last:border-b-0 cursor-pointer"
+                      onClick={() => navigate(`/routines/${routine.id}`)}
+                    >
                       <td className="px-3 py-2.5">
                         <div className="min-w-[180px]">
-                          <Link to={`/routines/${routine.id}`} className="font-medium hover:underline">
+                          <span className="font-medium">
                             {routine.title}
-                          </Link>
+                          </span>
                           {(isArchived || routine.status === "paused") && (
                             <div className="mt-1 text-xs text-muted-foreground">
                               {isArchived ? "archived" : "paused"}
@@ -582,7 +586,7 @@ export function Routines() {
                           <div className="mt-1 text-xs">{routine.lastRun.status.replaceAll("_", " ")}</div>
                         ) : null}
                       </td>
-                      <td className="px-3 py-2.5">
+                      <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center gap-3">
                           <button
                             type="button"
@@ -611,7 +615,7 @@ export function Routines() {
                           </span>
                         </div>
                       </td>
-                      <td className="px-3 py-2.5 text-right">
+                      <td className="px-3 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="icon-sm" aria-label={`More actions for ${routine.title}`}>
@@ -620,7 +624,7 @@ export function Routines() {
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem onClick={() => navigate(`/routines/${routine.id}`)}>
-                              Open
+                              Edit
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               disabled={runningRoutineId === routine.id || isArchived}
