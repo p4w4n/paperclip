@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@/lib/router";
-import { ChevronDown, ChevronRight, Clock3, Play, Plus, Repeat, Webhook } from "lucide-react";
+import { ChevronDown, ChevronRight, MoreHorizontal, Play, Plus, Repeat } from "lucide-react";
 import { routinesApi } from "../api/routines";
 import { agentsApi } from "../api/agents";
 import { projectsApi } from "../api/projects";
@@ -18,7 +18,14 @@ import { MarkdownEditor, type MarkdownEditorRef } from "../components/MarkdownEd
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Select,
   SelectContent,
@@ -26,7 +33,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { timeAgo } from "../lib/timeAgo";
 
 const priorities = ["critical", "high", "medium", "low"];
 const concurrencyPolicies = ["coalesce_if_active", "always_enqueue", "skip_if_active"];
@@ -41,16 +47,20 @@ const catchUpPolicyDescriptions: Record<string, string> = {
   enqueue_missed_with_cap: "Catch up missed schedule windows with a capped backlog after recovery.",
 };
 
-function triggerIcon(kind: string) {
-  if (kind === "schedule") return <Clock3 className="h-3.5 w-3.5" />;
-  if (kind === "webhook") return <Webhook className="h-3.5 w-3.5" />;
-  return <Play className="h-3.5 w-3.5" />;
-}
-
 function autoResizeTextarea(element: HTMLTextAreaElement | null) {
   if (!element) return;
   element.style.height = "auto";
   element.style.height = `${element.scrollHeight}px`;
+}
+
+function formatLastRunTimestamp(value: Date | string | null | undefined) {
+  if (!value) return "Never";
+  return new Date(value).toLocaleString();
+}
+
+function nextRoutineStatus(currentStatus: string, enabled: boolean) {
+  if (currentStatus === "archived" && enabled) return "active";
+  return enabled ? "active" : "paused";
 }
 
 export function Routines() {
@@ -64,6 +74,7 @@ export function Routines() {
   const assigneeSelectorRef = useRef<HTMLButtonElement | null>(null);
   const projectSelectorRef = useRef<HTMLButtonElement | null>(null);
   const [runningRoutineId, setRunningRoutineId] = useState<string | null>(null);
+  const [statusMutationRoutineId, setStatusMutationRoutineId] = useState<string | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [draft, setDraft] = useState({
@@ -97,12 +108,6 @@ export function Routines() {
   });
 
   useEffect(() => {
-    if (!isLoading && (routines?.length ?? 0) === 0) {
-      setComposerOpen(true);
-    }
-  }, [isLoading, routines]);
-
-  useEffect(() => {
     autoResizeTextarea(titleInputRef.current);
   }, [draft.title, composerOpen]);
 
@@ -134,13 +139,39 @@ export function Routines() {
     },
   });
 
+  const updateRoutineStatus = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) => routinesApi.update(id, { status }),
+    onMutate: ({ id }) => {
+      setStatusMutationRoutineId(id);
+    },
+    onSuccess: async (_, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.routines.list(selectedCompanyId!) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.routines.detail(variables.id) }),
+      ]);
+    },
+    onSettled: () => {
+      setStatusMutationRoutineId(null);
+    },
+    onError: (mutationError) => {
+      pushToast({
+        title: "Failed to update routine",
+        body: mutationError instanceof Error ? mutationError.message : "Paperclip could not update the routine.",
+        tone: "error",
+      });
+    },
+  });
+
   const runRoutine = useMutation({
     mutationFn: (id: string) => routinesApi.run(id),
     onMutate: (id) => {
       setRunningRoutineId(id);
     },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.routines.list(selectedCompanyId!) });
+    onSuccess: async (_, id) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.routines.list(selectedCompanyId!) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.routines.detail(id) }),
+      ]);
     },
     onSettled: () => {
       setRunningRoutineId(null);
@@ -176,17 +207,9 @@ export function Routines() {
       })),
     [projects],
   );
-  const agentName = useMemo(
-    () => new Map((agents ?? []).map((agent) => [agent.id, agent.name])),
-    [agents],
-  );
   const agentById = useMemo(
     () => new Map((agents ?? []).map((agent) => [agent.id, agent])),
     [agents],
-  );
-  const projectName = useMemo(
-    () => new Map((projects ?? []).map((project) => [project.id, project.name])),
-    [projects],
   );
   const projectById = useMemo(
     () => new Map((projects ?? []).map((project) => [project.id, project])),
@@ -209,20 +232,24 @@ export function Routines() {
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-tight">Routines</h1>
           <p className="text-sm text-muted-foreground">
-            Define recurring work once, then let Paperclip materialize each execution as an auditable issue.
+            Recurring work definitions that materialize into auditable execution issues.
           </p>
         </div>
-        <Button
-          onClick={() => setComposerOpen((open) => !open)}
-          variant={composerOpen ? "outline" : "default"}
-        >
+        <Button onClick={() => setComposerOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
-          {composerOpen ? "Hide composer" : "Create routine"}
+          Create routine
         </Button>
       </div>
 
-      {composerOpen ? (
-        <Card className="overflow-hidden">
+      <Dialog
+        open={composerOpen}
+        onOpenChange={(open) => {
+          if (!createRoutine.isPending) {
+            setComposerOpen(open);
+          }
+        }}
+      >
+        <DialogContent showCloseButton={false} className="max-w-3xl gap-0 overflow-hidden p-0">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 px-5 py-3">
             <div>
               <p className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">New routine</p>
@@ -470,8 +497,8 @@ export function Routines() {
               ) : null}
             </div>
           </div>
-        </Card>
-      ) : null}
+        </DialogContent>
+      </Dialog>
 
       {error ? (
         <Card>
@@ -481,92 +508,129 @@ export function Routines() {
         </Card>
       ) : null}
 
-      <div className="grid gap-4">
+      <Card className="overflow-hidden">
         {(routines ?? []).length === 0 ? (
-          <EmptyState
-            icon={Repeat}
-            message="No routines yet. Use Create routine to define the first recurring workflow."
-          />
+          <CardContent className="py-12">
+            <EmptyState
+              icon={Repeat}
+              message="No routines yet. Use Create routine to define the first recurring workflow."
+            />
+          </CardContent>
         ) : (
-          (routines ?? []).map((routine) => (
-            <Card key={routine.id}>
-              <CardContent className="flex flex-col gap-4 pt-6 md:flex-row md:items-start md:justify-between">
-                <div className="min-w-0 space-y-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Link to={`/routines/${routine.id}`} className="text-base font-medium hover:underline">
-                      {routine.title}
-                    </Link>
-                    <Badge variant={routine.status === "active" ? "default" : "secondary"}>
-                      {routine.status.replaceAll("_", " ")}
-                    </Badge>
-                    <Badge variant="outline">{routine.priority}</Badge>
-                  </div>
-                  {routine.description ? (
-                    <p className="line-clamp-2 text-sm text-muted-foreground">
-                      {routine.description}
-                    </p>
-                  ) : null}
-                  <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                    <span>Project: {projectName.get(routine.projectId) ?? routine.projectId.slice(0, 8)}</span>
-                    <span>Assignee: {agentName.get(routine.assigneeAgentId) ?? routine.assigneeAgentId.slice(0, 8)}</span>
-                    <span>Concurrency: {routine.concurrencyPolicy.replaceAll("_", " ")}</span>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {routine.triggers.length === 0 ? (
-                      <Badge variant="outline">No triggers</Badge>
-                    ) : (
-                      routine.triggers.map((trigger) => (
-                        <Badge key={trigger.id} variant="outline" className="gap-1">
-                          {triggerIcon(trigger.kind)}
-                          {trigger.label ?? trigger.kind}
-                          {!trigger.enabled && " paused"}
-                        </Badge>
-                      ))
-                    )}
-                  </div>
-                </div>
-                <div className="flex shrink-0 flex-col gap-3 md:min-w-[250px]">
-                  <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm">
-                    <p className="font-medium">Last run</p>
-                    {routine.lastRun ? (
-                      <div className="mt-1 space-y-1 text-muted-foreground">
-                        <p>{routine.lastRun.status.replaceAll("_", " ")}</p>
-                        <p>{timeAgo(routine.lastRun.triggeredAt)}</p>
-                      </div>
-                    ) : (
-                      <p className="mt-1 text-muted-foreground">No executions yet.</p>
-                    )}
-                  </div>
-                  <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm">
-                    <p className="font-medium">Active execution issue</p>
-                    {routine.activeIssue ? (
-                      <Link to={`/issues/${routine.activeIssue.identifier ?? routine.activeIssue.id}`} className="mt-1 block text-muted-foreground hover:underline">
-                        {routine.activeIssue.identifier ?? routine.activeIssue.id.slice(0, 8)} · {routine.activeIssue.title}
-                      </Link>
-                    ) : (
-                      <p className="mt-1 text-muted-foreground">Nothing open.</p>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => runRoutine.mutate(routine.id)}
-                      disabled={runningRoutineId === routine.id}
-                    >
-                      <Play className="mr-2 h-4 w-4" />
-                      {runningRoutineId === routine.id ? "Running..." : "Run now"}
-                    </Button>
-                    <Button asChild className="flex-1">
-                      <Link to={`/routines/${routine.id}`}>Open</Link>
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-border text-sm">
+              <thead className="bg-muted/30">
+                <tr className="text-left text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                  <th className="px-4 py-3 font-medium">Name</th>
+                  <th className="px-4 py-3 font-medium">Last run</th>
+                  <th className="px-4 py-3 font-medium">Enabled</th>
+                  <th className="w-12 px-4 py-3" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {(routines ?? []).map((routine) => {
+                  const enabled = routine.status === "active";
+                  const isArchived = routine.status === "archived";
+                  const isStatusPending = statusMutationRoutineId === routine.id;
+                  return (
+                    <tr key={routine.id} className="align-middle">
+                      <td className="px-4 py-3">
+                        <div className="min-w-[240px]">
+                          <Link to={`/routines/${routine.id}`} className="font-medium hover:underline">
+                            {routine.title}
+                          </Link>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {routine.projectId ? `${projectById.get(routine.projectId)?.name ?? "Unknown project"}` : "No project"}
+                            {isArchived ? " · archived" : routine.status === "paused" ? " · paused" : ""}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        <div>{formatLastRunTimestamp(routine.lastRun?.triggeredAt)}</div>
+                        {routine.lastRun ? (
+                          <div className="mt-1 text-xs">{routine.lastRun.status.replaceAll("_", " ")}</div>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={enabled}
+                            aria-label={enabled ? `Disable ${routine.title}` : `Enable ${routine.title}`}
+                            disabled={isStatusPending || isArchived}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                              enabled ? "bg-foreground" : "bg-muted"
+                            } ${isStatusPending || isArchived ? "cursor-not-allowed opacity-50" : ""}`}
+                            onClick={() =>
+                              updateRoutineStatus.mutate({
+                                id: routine.id,
+                                status: nextRoutineStatus(routine.status, !enabled),
+                              })
+                            }
+                          >
+                            <span
+                              className={`inline-block h-5 w-5 rounded-full bg-background shadow-sm transition-transform ${
+                                enabled ? "translate-x-5" : "translate-x-0.5"
+                              }`}
+                            />
+                          </button>
+                          <span className="text-xs text-muted-foreground">
+                            {isArchived ? "Archived" : enabled ? "On" : "Off"}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon-sm" aria-label={`More actions for ${routine.title}`}>
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => navigate(`/routines/${routine.id}`)}>
+                              Open
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              disabled={runningRoutineId === routine.id || isArchived}
+                              onClick={() => runRoutine.mutate(routine.id)}
+                            >
+                              {runningRoutineId === routine.id ? "Running..." : "Run now"}
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() =>
+                                updateRoutineStatus.mutate({
+                                  id: routine.id,
+                                  status: enabled ? "paused" : "active",
+                                })
+                              }
+                              disabled={isStatusPending || isArchived}
+                            >
+                              {enabled ? "Pause" : "Enable"}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() =>
+                                updateRoutineStatus.mutate({
+                                  id: routine.id,
+                                  status: routine.status === "archived" ? "active" : "archived",
+                                })
+                              }
+                              disabled={isStatusPending}
+                            >
+                              {routine.status === "archived" ? "Restore" : "Archive"}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
-      </div>
+      </Card>
     </div>
   );
 }
