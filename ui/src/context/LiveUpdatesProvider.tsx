@@ -422,6 +422,11 @@ function invalidateActivityQueries(
     return;
   }
 
+  if (entityType === "routine" || entityType === "routine_trigger" || entityType === "routine_run") {
+    queryClient.invalidateQueries({ queryKey: ["routines"] });
+    return;
+  }
+
   if (entityType === "company") {
     queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
   }

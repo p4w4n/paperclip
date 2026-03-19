@@ -172,6 +172,33 @@ export function routineRoutes(db: Db) {
     res.json(updated);
   });
 
+  router.delete("/routine-triggers/:id", async (req, res) => {
+    const trigger = await svc.getTrigger(req.params.id as string);
+    if (!trigger) {
+      res.status(404).json({ error: "Routine trigger not found" });
+      return;
+    }
+    const routine = await assertCanManageExistingRoutine(req, trigger.routineId);
+    if (!routine) {
+      res.status(404).json({ error: "Routine not found" });
+      return;
+    }
+    await svc.deleteTrigger(trigger.id);
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: routine.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "routine.trigger_deleted",
+      entityType: "routine_trigger",
+      entityId: trigger.id,
+      details: { routineId: routine.id, kind: trigger.kind },
+    });
+    res.status(204).end();
+  });
+
   router.post(
     "/routine-triggers/:id/rotate-secret",
     validate(rotateRoutineTriggerSecretSchema),

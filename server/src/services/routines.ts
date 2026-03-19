@@ -843,6 +843,13 @@ export function routineService(db: Db) {
       return (updated as RoutineTrigger | undefined) ?? null;
     },
 
+    deleteTrigger: async (id: string): Promise<boolean> => {
+      const existing = await getTriggerById(id);
+      if (!existing) return false;
+      await db.delete(routineTriggers).where(eq(routineTriggers.id, id));
+      return true;
+    },
+
     rotateTriggerSecret: async (
       id: string,
       actor: Actor,

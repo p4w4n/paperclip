@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Repeat,
   Save,
+  Trash2,
   Webhook,
   Zap,
 } from "lucide-react";
@@ -115,10 +116,12 @@ function TriggerEditor({
   trigger,
   onSave,
   onRotate,
+  onDelete,
 }: {
   trigger: RoutineTrigger;
   onSave: (id: string, patch: Record<string, unknown>) => void;
   onRotate: (id: string) => void;
+  onDelete: (id: string) => void;
 }) {
   const [draft, setDraft] = useState({
     label: trigger.label ?? "",
@@ -241,6 +244,16 @@ function TriggerEditor({
             Rotate secret
           </Button>
         )}
+        <div className="ml-auto">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground hover:text-destructive"
+            onClick={() => onDelete(trigger.id)}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
         {trigger.lastResult && <span className="text-xs text-muted-foreground">Last: {trigger.lastResult}</span>}
       </div>
     </div>
@@ -405,11 +418,13 @@ export function RoutineDetail() {
   };
 
   const saveRoutine = useMutation({
-    mutationFn: () =>
-      routinesApi.update(routineId!, {
-        ...editDraft,
-        description: editDraft.description.trim() || null,
-      }),
+    mutationFn: () => {
+      const { status: _status, ...payload } = editDraft;
+      return routinesApi.update(routineId!, {
+        ...payload,
+        description: payload.description.trim() || null,
+      });
+    },
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.routines.detail(routineId!) }),
@@ -429,6 +444,8 @@ export function RoutineDetail() {
   const runRoutine = useMutation({
     mutationFn: () => routinesApi.run(routineId!),
     onSuccess: async () => {
+      pushToast({ title: "Routine run started", tone: "success" });
+      setActiveTab("runs");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.routines.detail(routineId!) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.routines.runs(routineId!) }),
@@ -447,7 +464,11 @@ export function RoutineDetail() {
 
   const updateRoutineStatus = useMutation({
     mutationFn: (status: string) => routinesApi.update(routineId!, { status }),
-    onSuccess: async () => {
+    onSuccess: async (_data, status) => {
+      pushToast({
+        title: status === "paused" ? "Routine paused" : "Routine resumed",
+        tone: "success",
+      });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.routines.detail(routineId!) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.routines.list(selectedCompanyId!) }),
@@ -516,6 +537,24 @@ export function RoutineDetail() {
       pushToast({
         title: "Failed to update trigger",
         body: error instanceof Error ? error.message : "Paperclip could not update the trigger.",
+        tone: "error",
+      });
+    },
+  });
+
+  const deleteTrigger = useMutation({
+    mutationFn: (id: string) => routinesApi.deleteTrigger(id),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.routines.detail(routineId!) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.routines.list(selectedCompanyId!) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.routines.activity(selectedCompanyId!, routineId!) }),
+      ]);
+    },
+    onError: (error) => {
+      pushToast({
+        title: "Failed to delete trigger",
+        body: error instanceof Error ? error.message : "Paperclip could not delete the trigger.",
         tone: "error",
       });
     },
@@ -933,6 +972,7 @@ export function RoutineDetail() {
                   trigger={trigger}
                   onSave={(id, patch) => updateTrigger.mutate({ id, patch })}
                   onRotate={(id) => rotateTrigger.mutate(id)}
+                  onDelete={(id) => deleteTrigger.mutate(id)}
                 />
               ))}
             </div>
