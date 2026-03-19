@@ -885,7 +885,7 @@ export function routineService(db: Db) {
     runRoutine: async (id: string, input: RunRoutine) => {
       const routine = await getRoutineById(id);
       if (!routine) throw notFound("Routine not found");
-      if (routine.status !== "active") throw conflict("Routine is not active");
+      if (routine.status === "archived") throw conflict("Routine is archived");
       const trigger = input.triggerId ? await getTriggerById(input.triggerId) : null;
       if (trigger && trigger.routineId !== routine.id) throw forbidden("Trigger does not belong to routine");
       if (trigger && !trigger.enabled) throw conflict("Routine trigger is not active");
