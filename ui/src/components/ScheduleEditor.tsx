@@ -4,9 +4,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
-type SchedulePreset = "every_hour" | "every_day" | "weekdays" | "weekly" | "monthly" | "custom";
+type SchedulePreset = "every_minute" | "every_hour" | "every_day" | "weekdays" | "weekly" | "monthly" | "custom";
 
 const PRESETS: { value: SchedulePreset; label: string }[] = [
+  { value: "every_minute", label: "Every minute" },
   { value: "every_hour", label: "Every hour" },
   { value: "every_day", label: "Every day" },
   { value: "weekdays", label: "Weekdays" },
@@ -60,6 +61,11 @@ function parseCronToPreset(cron: string): {
 
   const [min, hr, dom, , dow] = parts;
 
+  // Every minute: "* * * * *"
+  if (min === "*" && hr === "*" && dom === "*" && dow === "*") {
+    return { preset: "every_minute", ...defaults };
+  }
+
   // Every hour: "0 * * * *"
   if (hr === "*" && dom === "*" && dow === "*") {
     return { preset: "every_hour", ...defaults, minute: min === "*" ? "0" : min };
@@ -90,6 +96,8 @@ function parseCronToPreset(cron: string): {
 
 function buildCron(preset: SchedulePreset, hour: string, minute: string, dayOfWeek: string, dayOfMonth: string): string {
   switch (preset) {
+    case "every_minute":
+      return "* * * * *";
     case "every_hour":
       return `${minute} * * * *`;
     case "every_day":
@@ -110,6 +118,8 @@ function describeSchedule(cron: string): string {
   const timeStr = HOURS.find((h) => h.value === hour)?.label?.replace(":00", `:${minute.padStart(2, "0")}`) ?? `${hour}:${minute.padStart(2, "0")}`;
 
   switch (preset) {
+    case "every_minute":
+      return "Every minute";
     case "every_hour":
       return `Every hour at :${minute.padStart(2, "0")}`;
     case "every_day":

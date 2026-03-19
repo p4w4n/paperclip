@@ -49,8 +49,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import type { RoutineTrigger } from "@paperclipai/shared";
 
-const priorities = ["critical", "high", "medium", "low"];
-const routineStatuses = ["active", "paused", "archived"];
 const concurrencyPolicies = ["coalesce_if_active", "always_enqueue", "skip_if_active"];
 const catchUpPolicies = ["skip_missed", "enqueue_missed_with_cap"];
 const triggerKinds = ["schedule", "webhook", "api"];
@@ -266,7 +264,6 @@ export function RoutineDetail() {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [newTrigger, setNewTrigger] = useState({
     kind: "schedule",
-    label: "",
     cronExpression: "0 10 * * *",
     signingMode: "bearer",
     replayWindowSec: "300",
@@ -466,10 +463,12 @@ export function RoutineDetail() {
   });
 
   const createTrigger = useMutation({
-    mutationFn: async (): Promise<RoutineTriggerResponse> =>
-      routinesApi.createTrigger(routineId!, {
+    mutationFn: async (): Promise<RoutineTriggerResponse> => {
+      const existingOfKind = (routine?.triggers ?? []).filter((t) => t.kind === newTrigger.kind).length;
+      const autoLabel = existingOfKind > 0 ? `${newTrigger.kind}-${existingOfKind + 1}` : newTrigger.kind;
+      return routinesApi.createTrigger(routineId!, {
         kind: newTrigger.kind,
-        label: newTrigger.label.trim() || null,
+        label: autoLabel,
         ...(newTrigger.kind === "schedule"
           ? { cronExpression: newTrigger.cronExpression.trim(), timezone: getLocalTimezone() }
           : {}),
@@ -479,7 +478,8 @@ export function RoutineDetail() {
             replayWindowSec: Number(newTrigger.replayWindowSec || "300"),
           }
           : {}),
-      }),
+      });
+    },
     onSuccess: async (result) => {
       if (result.secretMaterial) {
         setSecretMessage({
@@ -787,33 +787,7 @@ export function RoutineDetail() {
           {advancedOpen ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
         </CollapsibleTrigger>
         <CollapsibleContent className="pt-3">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <div className="space-y-2">
-              <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Status</p>
-              <Select value={editDraft.status} onValueChange={(status) => setEditDraft((current) => ({ ...current, status }))}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {routineStatuses.map((status) => (
-                    <SelectItem key={status} value={status}>{status.replaceAll("_", " ")}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Priority</p>
-              <Select value={editDraft.priority} onValueChange={(priority) => setEditDraft((current) => ({ ...current, priority }))}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {priorities.map((priority) => (
-                    <SelectItem key={priority} value={priority}>{priority.replaceAll("_", " ")}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+          <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Concurrency</p>
               <Select
@@ -908,10 +882,6 @@ export function RoutineDetail() {
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Label</Label>
-                <Input value={newTrigger.label} onChange={(event) => setNewTrigger((current) => ({ ...current, label: event.target.value }))} />
               </div>
               {newTrigger.kind === "schedule" && (
                 <div className="md:col-span-2 space-y-1.5">
