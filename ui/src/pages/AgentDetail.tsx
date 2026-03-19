@@ -28,6 +28,7 @@ import { CopyText } from "../components/CopyText";
 import { EntityRow } from "../components/EntityRow";
 import { Identity } from "../components/Identity";
 import { PageSkeleton } from "../components/PageSkeleton";
+import { RunButton, PauseResumeButton } from "../components/AgentActionButtons";
 import { BudgetPolicyCard } from "../components/BudgetPolicyCard";
 import { PackageFileTree, buildFileTree } from "../components/PackageFileTree";
 import { ScrollToBottom } from "../components/ScrollToBottom";
@@ -44,8 +45,6 @@ import {
 } from "@/components/ui/popover";
 import {
   MoreHorizontal,
-  Play,
-  Pause,
   CheckCircle2,
   XCircle,
   Clock,
@@ -801,36 +800,17 @@ export function AgentDetail() {
             <Plus className="h-3.5 w-3.5 sm:mr-1" />
             <span className="hidden sm:inline">Assign Task</span>
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
+          <RunButton
             onClick={() => agentAction.mutate("invoke")}
             disabled={agentAction.isPending || isPendingApproval}
-          >
-            <Play className="h-3.5 w-3.5 sm:mr-1" />
-            <span className="hidden sm:inline">Run Heartbeat</span>
-          </Button>
-          {agent.status === "paused" ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => agentAction.mutate("resume")}
-              disabled={agentAction.isPending || isPendingApproval}
-            >
-              <Play className="h-3.5 w-3.5 sm:mr-1" />
-              <span className="hidden sm:inline">Resume</span>
-            </Button>
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => agentAction.mutate("pause")}
-              disabled={agentAction.isPending || isPendingApproval}
-            >
-              <Pause className="h-3.5 w-3.5 sm:mr-1" />
-              <span className="hidden sm:inline">Pause</span>
-            </Button>
-          )}
+            label="Run Heartbeat"
+          />
+          <PauseResumeButton
+            isPaused={agent.status === "paused"}
+            onPause={() => agentAction.mutate("pause")}
+            onResume={() => agentAction.mutate("resume")}
+            disabled={agentAction.isPending || isPendingApproval}
+          />
           <span className="hidden sm:inline"><StatusBadge status={agent.status} /></span>
           {mobileLiveRun && (
             <Link

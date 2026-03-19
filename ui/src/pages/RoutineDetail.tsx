@@ -2,10 +2,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Activity as ActivityIcon,
   ChevronDown,
   ChevronRight,
   Clock3,
   Copy,
+  ListTree,
   Play,
   RefreshCw,
   Repeat,
@@ -21,18 +23,21 @@ import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useToast } from "../context/ToastContext";
 import { queryKeys } from "../lib/queryKeys";
+import { timeAgo } from "../lib/timeAgo";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { AgentIcon } from "../components/AgentIconPicker";
 import { IssueRow } from "../components/IssueRow";
 import { InlineEntitySelector, type InlineEntityOption } from "../components/InlineEntitySelector";
 import { MarkdownEditor, type MarkdownEditorRef } from "../components/MarkdownEditor";
+import { ScheduleEditor, describeSchedule } from "../components/ScheduleEditor";
+import { RunButton, PauseResumeButton } from "../components/AgentActionButtons";
 import { getRecentAssigneeIds, sortAgentsByRecency, trackRecentAssignee } from "../lib/recent-assignees";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import {
   Select,
   SelectContent,
@@ -42,7 +47,6 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { timeAgo } from "../lib/timeAgo";
 import type { RoutineTrigger } from "@paperclipai/shared";
 
 const priorities = ["critical", "high", "medium", "low"];
@@ -101,6 +105,14 @@ function formatActivityDetailValue(value: unknown): string {
   }
 }
 
+function getLocalTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    return "UTC";
+  }
+}
+
 function TriggerEditor({
   trigger,
   onSave,
@@ -114,7 +126,6 @@ function TriggerEditor({
     label: trigger.label ?? "",
     enabled: trigger.enabled ? "true" : "false",
     cronExpression: trigger.cronExpression ?? "",
-    timezone: trigger.timezone ?? "UTC",
     signingMode: trigger.signingMode ?? "bearer",
     replayWindowSec: String(trigger.replayWindowSec ?? 300),
   });
@@ -124,37 +135,37 @@ function TriggerEditor({
       label: trigger.label ?? "",
       enabled: trigger.enabled ? "true" : "false",
       cronExpression: trigger.cronExpression ?? "",
-      timezone: trigger.timezone ?? "UTC",
       signingMode: trigger.signingMode ?? "bearer",
       replayWindowSec: String(trigger.replayWindowSec ?? 300),
     });
   }, [trigger]);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          {trigger.kind === "schedule" ? <Clock3 className="h-4 w-4" /> : trigger.kind === "webhook" ? <Webhook className="h-4 w-4" /> : <Zap className="h-4 w-4" />}
+    <div className="rounded-lg border border-border p-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          {trigger.kind === "schedule" ? <Clock3 className="h-3.5 w-3.5" /> : trigger.kind === "webhook" ? <Webhook className="h-3.5 w-3.5" /> : <Zap className="h-3.5 w-3.5" />}
           {trigger.label ?? trigger.kind}
-        </CardTitle>
-        <CardDescription>
+        </div>
+        <span className="text-xs text-muted-foreground">
           {trigger.kind === "schedule" && trigger.nextRunAt
-            ? `Next run ${new Date(trigger.nextRunAt).toLocaleString()}`
+            ? `Next: ${new Date(trigger.nextRunAt).toLocaleString()}`
             : trigger.kind === "webhook"
-              ? "Public webhook trigger"
-              : "Authenticated API/manual trigger"}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-4 md:grid-cols-2">
-        <div className="space-y-2">
-          <Label>Label</Label>
+              ? "Webhook"
+              : "API"}
+        </span>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label className="text-xs">Label</Label>
           <Input
             value={draft.label}
             onChange={(event) => setDraft((current) => ({ ...current, label: event.target.value }))}
           />
         </div>
-        <div className="space-y-2">
-          <Label>Enabled</Label>
+        <div className="space-y-1.5">
+          <Label className="text-xs">Enabled</Label>
           <Select value={draft.enabled} onValueChange={(enabled) => setDraft((current) => ({ ...current, enabled }))}>
             <SelectTrigger>
               <SelectValue />
@@ -166,29 +177,18 @@ function TriggerEditor({
           </Select>
         </div>
         {trigger.kind === "schedule" && (
-          <>
-            <div className="space-y-2">
-              <Label>Cron</Label>
-              <Input
-                value={draft.cronExpression}
-                onChange={(event) => setDraft((current) => ({ ...current, cronExpression: event.target.value }))}
-                placeholder="0 10 * * *"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Timezone</Label>
-              <Input
-                value={draft.timezone}
-                onChange={(event) => setDraft((current) => ({ ...current, timezone: event.target.value }))}
-                placeholder="America/Chicago"
-              />
-            </div>
-          </>
+          <div className="md:col-span-2 space-y-1.5">
+            <Label className="text-xs">Schedule</Label>
+            <ScheduleEditor
+              value={draft.cronExpression}
+              onChange={(cronExpression) => setDraft((current) => ({ ...current, cronExpression }))}
+            />
+          </div>
         )}
         {trigger.kind === "webhook" && (
           <>
-            <div className="space-y-2">
-              <Label>Signing mode</Label>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Signing mode</Label>
               <Select
                 value={draft.signingMode}
                 onValueChange={(signingMode) => setDraft((current) => ({ ...current, signingMode }))}
@@ -203,8 +203,8 @@ function TriggerEditor({
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label>Replay window seconds</Label>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Replay window (seconds)</Label>
               <Input
                 value={draft.replayWindowSec}
                 onChange={(event) => setDraft((current) => ({ ...current, replayWindowSec: event.target.value }))}
@@ -212,38 +212,40 @@ function TriggerEditor({
             </div>
           </>
         )}
-        <div className="md:col-span-2 flex flex-wrap items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={() =>
-              onSave(trigger.id, {
-                label: draft.label.trim() || null,
-                enabled: draft.enabled === "true",
-                ...(trigger.kind === "schedule"
-                  ? { cronExpression: draft.cronExpression.trim(), timezone: draft.timezone.trim() }
-                  : {}),
-                ...(trigger.kind === "webhook"
-                  ? {
-                    signingMode: draft.signingMode,
-                    replayWindowSec: Number(draft.replayWindowSec || "300"),
-                  }
-                  : {}),
-              })
-            }
-          >
-            <Save className="mr-2 h-4 w-4" />
-            Save trigger
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() =>
+            onSave(trigger.id, {
+              label: draft.label.trim() || null,
+              enabled: draft.enabled === "true",
+              ...(trigger.kind === "schedule"
+                ? { cronExpression: draft.cronExpression.trim(), timezone: getLocalTimezone() }
+                : {}),
+              ...(trigger.kind === "webhook"
+                ? {
+                  signingMode: draft.signingMode,
+                  replayWindowSec: Number(draft.replayWindowSec || "300"),
+                }
+                : {}),
+            })
+          }
+        >
+          <Save className="mr-1.5 h-3.5 w-3.5" />
+          Save
+        </Button>
+        {trigger.kind === "webhook" && (
+          <Button variant="outline" size="sm" onClick={() => onRotate(trigger.id)}>
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+            Rotate secret
           </Button>
-          {trigger.kind === "webhook" && (
-            <Button variant="outline" onClick={() => onRotate(trigger.id)}>
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Rotate secret
-            </Button>
-          )}
-          {trigger.lastResult && <span className="text-sm text-muted-foreground">Last result: {trigger.lastResult}</span>}
-        </div>
-      </CardContent>
-    </Card>
+        )}
+        {trigger.lastResult && <span className="text-xs text-muted-foreground">Last: {trigger.lastResult}</span>}
+      </div>
+    </div>
   );
 }
 
@@ -266,7 +268,6 @@ export function RoutineDetail() {
     kind: "schedule",
     label: "",
     cronExpression: "0 10 * * *",
-    timezone: "UTC",
     signingMode: "bearer",
     replayWindowSec: "300",
   });
@@ -447,13 +448,30 @@ export function RoutineDetail() {
     },
   });
 
+  const updateRoutineStatus = useMutation({
+    mutationFn: (status: string) => routinesApi.update(routineId!, { status }),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.routines.detail(routineId!) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.routines.list(selectedCompanyId!) }),
+      ]);
+    },
+    onError: (error) => {
+      pushToast({
+        title: "Failed to update routine",
+        body: error instanceof Error ? error.message : "Paperclip could not update the routine.",
+        tone: "error",
+      });
+    },
+  });
+
   const createTrigger = useMutation({
     mutationFn: async (): Promise<RoutineTriggerResponse> =>
       routinesApi.createTrigger(routineId!, {
         kind: newTrigger.kind,
         label: newTrigger.label.trim() || null,
         ...(newTrigger.kind === "schedule"
-          ? { cronExpression: newTrigger.cronExpression.trim(), timezone: newTrigger.timezone.trim() }
+          ? { cronExpression: newTrigger.cronExpression.trim(), timezone: getLocalTimezone() }
           : {}),
         ...(newTrigger.kind === "webhook"
           ? {
@@ -568,330 +586,318 @@ export function RoutineDetail() {
 
   if (error || !routine) {
     return (
-      <Card>
-        <CardContent className="pt-6 text-sm text-destructive">
-          {error instanceof Error ? error.message : "Routine not found"}
-        </CardContent>
-      </Card>
+      <p className="pt-6 text-sm text-destructive">
+        {error instanceof Error ? error.message : "Routine not found"}
+      </p>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-2xl space-y-6">
+      {/* Header: status + actions */}
+      <div className="flex items-center gap-2">
+        <Badge variant={routine.status === "active" ? "default" : "secondary"}>
+          {routine.status.replaceAll("_", " ")}
+        </Badge>
+        {routine.activeIssue && (
+          <Link
+            to={`/issues/${routine.activeIssue.identifier ?? routine.activeIssue.id}`}
+            className="text-xs text-muted-foreground hover:underline"
+          >
+            {routine.activeIssue.identifier ?? routine.activeIssue.id.slice(0, 8)}
+          </Link>
+        )}
+        <div className="ml-auto flex items-center gap-2">
+          <RunButton onClick={() => runRoutine.mutate()} disabled={runRoutine.isPending} />
+          <PauseResumeButton
+            isPaused={routine.status === "paused"}
+            onPause={() => updateRoutineStatus.mutate("paused")}
+            onResume={() => updateRoutineStatus.mutate("active")}
+            disabled={updateRoutineStatus.isPending || routine.status === "archived"}
+          />
+        </div>
+      </div>
+
+      {/* Secret message banner */}
       {secretMessage && (
-        <Card className="border-blue-500/30 bg-blue-500/5">
-          <CardHeader>
-            <CardTitle className="text-base">{secretMessage.title}</CardTitle>
-            <CardDescription>
-              Save this now. Paperclip will not show the secret value again.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <div className="space-y-1">
-              <Label>Webhook URL</Label>
-              <div className="flex items-center gap-2">
-                <Input value={secretMessage.webhookUrl} readOnly />
-                <Button variant="outline" onClick={() => copySecretValue("Webhook URL", secretMessage.webhookUrl)}>
-                  <Copy className="h-4 w-4" />
-                  Copy URL
-                </Button>
-              </div>
+        <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-4 space-y-3 text-sm">
+          <div>
+            <p className="font-medium">{secretMessage.title}</p>
+            <p className="text-xs text-muted-foreground">Save this now. Paperclip will not show the secret value again.</p>
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Input value={secretMessage.webhookUrl} readOnly className="flex-1" />
+              <Button variant="outline" size="sm" onClick={() => copySecretValue("Webhook URL", secretMessage.webhookUrl)}>
+                <Copy className="h-3.5 w-3.5 mr-1" />
+                URL
+              </Button>
             </div>
-            <div className="space-y-1">
-              <Label>Secret</Label>
-              <div className="flex items-center gap-2">
-                <Input value={secretMessage.webhookSecret} readOnly />
-                <Button variant="outline" onClick={() => copySecretValue("Webhook secret", secretMessage.webhookSecret)}>
-                  <Copy className="h-4 w-4" />
-                  Copy secret
-                </Button>
-              </div>
+            <div className="flex items-center gap-2">
+              <Input value={secretMessage.webhookSecret} readOnly className="flex-1" />
+              <Button variant="outline" size="sm" onClick={() => copySecretValue("Webhook secret", secretMessage.webhookSecret)}>
+                <Copy className="h-3.5 w-3.5 mr-1" />
+                Secret
+              </Button>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
-      <Card className="overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 px-5 py-3">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">Routine definition</p>
-            <p className="text-sm text-muted-foreground">
-              Keep the work definition primary. Triggers, runs, and audit history branch off this source object.
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Badge variant={routine.status === "active" ? "default" : "secondary"}>
-              {routine.status.replaceAll("_", " ")}
-            </Badge>
-            <Button onClick={() => runRoutine.mutate()} disabled={runRoutine.isPending}>
-              <Play className="mr-2 h-4 w-4" />
-              Run now
-            </Button>
-          </div>
-        </div>
-
-        <div className="px-5 pt-5 pb-3">
-          <textarea
-            ref={titleInputRef}
-            className="w-full resize-none overflow-hidden bg-transparent text-xl font-semibold outline-none placeholder:text-muted-foreground/50"
-            placeholder="Routine title"
-            rows={1}
-            value={editDraft.title}
-            onChange={(event) => {
-              setEditDraft((current) => ({ ...current, title: event.target.value }));
-              autoResizeTextarea(event.target);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.metaKey && !event.ctrlKey && !event.nativeEvent.isComposing) {
-                event.preventDefault();
+      {/* Title */}
+      <textarea
+        ref={titleInputRef}
+        className="w-full resize-none overflow-hidden bg-transparent text-xl font-bold outline-none placeholder:text-muted-foreground/50"
+        placeholder="Routine title"
+        rows={1}
+        value={editDraft.title}
+        onChange={(event) => {
+          setEditDraft((current) => ({ ...current, title: event.target.value }));
+          autoResizeTextarea(event.target);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.metaKey && !event.ctrlKey && !event.nativeEvent.isComposing) {
+            event.preventDefault();
+            descriptionEditorRef.current?.focus();
+            return;
+          }
+          if (event.key === "Tab" && !event.shiftKey) {
+            event.preventDefault();
+            if (editDraft.assigneeAgentId) {
+              if (editDraft.projectId) {
                 descriptionEditorRef.current?.focus();
-                return;
+              } else {
+                projectSelectorRef.current?.focus();
               }
-              if (event.key === "Tab" && !event.shiftKey) {
-                event.preventDefault();
-                if (editDraft.assigneeAgentId) {
-                  if (editDraft.projectId) {
-                    descriptionEditorRef.current?.focus();
-                  } else {
-                    projectSelectorRef.current?.focus();
-                  }
-                } else {
-                  assigneeSelectorRef.current?.focus();
-                }
+            } else {
+              assigneeSelectorRef.current?.focus();
+            }
+          }
+        }}
+      />
+
+      {/* Assignment row */}
+      <div className="overflow-x-auto overscroll-x-contain">
+        <div className="inline-flex min-w-full flex-wrap items-center gap-2 text-sm text-muted-foreground sm:min-w-max sm:flex-nowrap">
+          <span>For</span>
+          <InlineEntitySelector
+            ref={assigneeSelectorRef}
+            value={editDraft.assigneeAgentId}
+            options={assigneeOptions}
+            placeholder="Assignee"
+            noneLabel="No assignee"
+            searchPlaceholder="Search assignees..."
+            emptyMessage="No assignees found."
+            onChange={(assigneeAgentId) => {
+              if (assigneeAgentId) trackRecentAssignee(assigneeAgentId);
+              setEditDraft((current) => ({ ...current, assigneeAgentId }));
+            }}
+            onConfirm={() => {
+              if (editDraft.projectId) {
+                descriptionEditorRef.current?.focus();
+              } else {
+                projectSelectorRef.current?.focus();
               }
+            }}
+            renderTriggerValue={(option) =>
+              option ? (
+                currentAssignee ? (
+                  <>
+                    <AgentIcon icon={currentAssignee.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="truncate">{option.label}</span>
+                  </>
+                ) : (
+                  <span className="truncate">{option.label}</span>
+                )
+              ) : (
+                <span className="text-muted-foreground">Assignee</span>
+              )
+            }
+            renderOption={(option) => {
+              if (!option.id) return <span className="truncate">{option.label}</span>;
+              const assignee = agentById.get(option.id);
+              return (
+                <>
+                  {assignee ? <AgentIcon icon={assignee.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : null}
+                  <span className="truncate">{option.label}</span>
+                </>
+              );
+            }}
+          />
+          <span>in</span>
+          <InlineEntitySelector
+            ref={projectSelectorRef}
+            value={editDraft.projectId}
+            options={projectOptions}
+            placeholder="Project"
+            noneLabel="No project"
+            searchPlaceholder="Search projects..."
+            emptyMessage="No projects found."
+            onChange={(projectId) => setEditDraft((current) => ({ ...current, projectId }))}
+            onConfirm={() => descriptionEditorRef.current?.focus()}
+            renderTriggerValue={(option) =>
+              option && currentProject ? (
+                <>
+                  <span
+                    className="h-3.5 w-3.5 shrink-0 rounded-sm"
+                    style={{ backgroundColor: currentProject.color ?? "#64748b" }}
+                  />
+                  <span className="truncate">{option.label}</span>
+                </>
+              ) : (
+                <span className="text-muted-foreground">Project</span>
+              )
+            }
+            renderOption={(option) => {
+              if (!option.id) return <span className="truncate">{option.label}</span>;
+              const project = projectById.get(option.id);
+              return (
+                <>
+                  <span
+                    className="h-3.5 w-3.5 shrink-0 rounded-sm"
+                    style={{ backgroundColor: project?.color ?? "#64748b" }}
+                  />
+                  <span className="truncate">{option.label}</span>
+                </>
+              );
             }}
           />
         </div>
+      </div>
 
-        <div className="px-5 pb-3">
-          <div className="overflow-x-auto overscroll-x-contain">
-            <div className="inline-flex min-w-full flex-wrap items-center gap-2 text-sm text-muted-foreground sm:min-w-max sm:flex-nowrap">
-              <span>For</span>
-              <InlineEntitySelector
-                ref={assigneeSelectorRef}
-                value={editDraft.assigneeAgentId}
-                options={assigneeOptions}
-                placeholder="Assignee"
-                noneLabel="No assignee"
-                searchPlaceholder="Search assignees..."
-                emptyMessage="No assignees found."
-                onChange={(assigneeAgentId) => {
-                  if (assigneeAgentId) trackRecentAssignee(assigneeAgentId);
-                  setEditDraft((current) => ({ ...current, assigneeAgentId }));
-                }}
-                onConfirm={() => {
-                  if (editDraft.projectId) {
-                    descriptionEditorRef.current?.focus();
-                  } else {
-                    projectSelectorRef.current?.focus();
-                  }
-                }}
-                renderTriggerValue={(option) =>
-                  option ? (
-                    currentAssignee ? (
-                      <>
-                        <AgentIcon icon={currentAssignee.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                        <span className="truncate">{option.label}</span>
-                      </>
-                    ) : (
-                      <span className="truncate">{option.label}</span>
-                    )
-                  ) : (
-                    <span className="text-muted-foreground">Assignee</span>
-                  )
-                }
-                renderOption={(option) => {
-                  if (!option.id) return <span className="truncate">{option.label}</span>;
-                  const assignee = agentById.get(option.id);
-                  return (
-                    <>
-                      {assignee ? <AgentIcon icon={assignee.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : null}
-                      <span className="truncate">{option.label}</span>
-                    </>
-                  );
-                }}
-              />
-              <span>in</span>
-              <InlineEntitySelector
-                ref={projectSelectorRef}
-                value={editDraft.projectId}
-                options={projectOptions}
-                placeholder="Project"
-                noneLabel="No project"
-                searchPlaceholder="Search projects..."
-                emptyMessage="No projects found."
-                onChange={(projectId) => setEditDraft((current) => ({ ...current, projectId }))}
-                onConfirm={() => descriptionEditorRef.current?.focus()}
-                renderTriggerValue={(option) =>
-                  option && currentProject ? (
-                    <>
-                      <span
-                        className="h-3.5 w-3.5 shrink-0 rounded-sm"
-                        style={{ backgroundColor: currentProject.color ?? "#64748b" }}
-                      />
-                      <span className="truncate">{option.label}</span>
-                    </>
-                  ) : (
-                    <span className="text-muted-foreground">Project</span>
-                  )
-                }
-                renderOption={(option) => {
-                  if (!option.id) return <span className="truncate">{option.label}</span>;
-                  const project = projectById.get(option.id);
-                  return (
-                    <>
-                      <span
-                        className="h-3.5 w-3.5 shrink-0 rounded-sm"
-                        style={{ backgroundColor: project?.color ?? "#64748b" }}
-                      />
-                      <span className="truncate">{option.label}</span>
-                    </>
-                  );
-                }}
-              />
+      {/* Instructions */}
+      <MarkdownEditor
+        ref={descriptionEditorRef}
+        value={editDraft.description}
+        onChange={(description) => setEditDraft((current) => ({ ...current, description }))}
+        placeholder="Add instructions..."
+        bordered={false}
+        contentClassName="min-h-[120px] text-[15px] leading-7"
+        onSubmit={() => {
+          if (!saveRoutine.isPending && editDraft.title.trim() && editDraft.projectId && editDraft.assigneeAgentId) {
+            saveRoutine.mutate();
+          }
+        }}
+      />
+
+      {/* Advanced delivery settings */}
+      <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+        <CollapsibleTrigger className="flex w-full items-center justify-between text-left">
+          <span className="text-sm font-medium">Advanced delivery settings</span>
+          {advancedOpen ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+        </CollapsibleTrigger>
+        <CollapsibleContent className="pt-3">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="space-y-2">
+              <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Status</p>
+              <Select value={editDraft.status} onValueChange={(status) => setEditDraft((current) => ({ ...current, status }))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {routineStatuses.map((status) => (
+                    <SelectItem key={status} value={status}>{status.replaceAll("_", " ")}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Priority</p>
+              <Select value={editDraft.priority} onValueChange={(priority) => setEditDraft((current) => ({ ...current, priority }))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {priorities.map((priority) => (
+                    <SelectItem key={priority} value={priority}>{priority.replaceAll("_", " ")}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Concurrency</p>
+              <Select
+                value={editDraft.concurrencyPolicy}
+                onValueChange={(concurrencyPolicy) => setEditDraft((current) => ({ ...current, concurrencyPolicy }))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {concurrencyPolicies.map((value) => (
+                    <SelectItem key={value} value={value}>{value.replaceAll("_", " ")}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">{concurrencyPolicyDescriptions[editDraft.concurrencyPolicy]}</p>
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Catch-up</p>
+              <Select
+                value={editDraft.catchUpPolicy}
+                onValueChange={(catchUpPolicy) => setEditDraft((current) => ({ ...current, catchUpPolicy }))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {catchUpPolicies.map((value) => (
+                    <SelectItem key={value} value={value}>{value.replaceAll("_", " ")}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">{catchUpPolicyDescriptions[editDraft.catchUpPolicy]}</p>
             </div>
           </div>
-        </div>
+        </CollapsibleContent>
+      </Collapsible>
 
-        <div className="border-t border-border/60 px-5 py-4">
-          <MarkdownEditor
-            ref={descriptionEditorRef}
-            value={editDraft.description}
-            onChange={(description) => setEditDraft((current) => ({ ...current, description }))}
-            placeholder="Add instructions..."
-            bordered={false}
-            contentClassName="min-h-[180px] text-sm text-muted-foreground"
-            onSubmit={() => {
-              if (!saveRoutine.isPending && editDraft.title.trim() && editDraft.projectId && editDraft.assigneeAgentId) {
-                saveRoutine.mutate();
-              }
-            }}
-          />
-        </div>
+      {/* Save bar */}
+      <div className="flex items-center justify-between">
+        {isEditDirty ? (
+          <span className="text-xs text-amber-600">Unsaved changes</span>
+        ) : (
+          <span />
+        )}
+        <Button
+          onClick={() => saveRoutine.mutate()}
+          disabled={saveRoutine.isPending || !editDraft.title.trim() || !editDraft.projectId || !editDraft.assigneeAgentId}
+        >
+          <Save className="mr-2 h-4 w-4" />
+          Save routine
+        </Button>
+      </div>
 
-        <div className="border-t border-border/60 px-5 py-3">
-          <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-            <CollapsibleTrigger className="flex w-full items-center justify-between text-left">
-              <div>
-                <p className="text-sm font-medium">Advanced delivery settings</p>
-                <p className="text-sm text-muted-foreground">Status and execution policy stay secondary to the work definition.</p>
-              </div>
-              {advancedOpen ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
-            </CollapsibleTrigger>
-            <CollapsibleContent className="pt-3">
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <div className="space-y-2">
-                  <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Status</p>
-                  <Select value={editDraft.status} onValueChange={(status) => setEditDraft((current) => ({ ...current, status }))}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {routineStatuses.map((status) => (
-                        <SelectItem key={status} value={status}>{status.replaceAll("_", " ")}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Priority</p>
-                  <Select value={editDraft.priority} onValueChange={(priority) => setEditDraft((current) => ({ ...current, priority }))}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {priorities.map((priority) => (
-                        <SelectItem key={priority} value={priority}>{priority.replaceAll("_", " ")}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Concurrency</p>
-                  <Select
-                    value={editDraft.concurrencyPolicy}
-                    onValueChange={(concurrencyPolicy) => setEditDraft((current) => ({ ...current, concurrencyPolicy }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {concurrencyPolicies.map((value) => (
-                        <SelectItem key={value} value={value}>{value.replaceAll("_", " ")}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">{concurrencyPolicyDescriptions[editDraft.concurrencyPolicy]}</p>
-                </div>
-                <div className="space-y-2">
-                  <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Catch-up</p>
-                  <Select
-                    value={editDraft.catchUpPolicy}
-                    onValueChange={(catchUpPolicy) => setEditDraft((current) => ({ ...current, catchUpPolicy }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {catchUpPolicies.map((value) => (
-                        <SelectItem key={value} value={value}>{value.replaceAll("_", " ")}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">{catchUpPolicyDescriptions[editDraft.catchUpPolicy]}</p>
-                </div>
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
-        </div>
+      <Separator />
 
-        <div className="flex flex-col gap-3 border-t border-border/60 px-5 py-4 md:flex-row md:items-center md:justify-between">
-          <div className="text-sm text-muted-foreground">
-            {routine.activeIssue ? (
-              <span>
-                Active issue:{" "}
-                <Link to={`/issues/${routine.activeIssue.identifier ?? routine.activeIssue.id}`} className="hover:underline">
-                  {routine.activeIssue.identifier ?? routine.activeIssue.id.slice(0, 8)}
-                </Link>
-              </span>
-            ) : (
-              "No active execution issue."
-            )}
-          </div>
-          <div className="flex flex-col gap-2 md:items-end">
-            {isEditDirty ? (
-              <span className="text-xs text-amber-600">Unsaved routine edits stay local until you save.</span>
-            ) : null}
-            <Button
-              onClick={() => saveRoutine.mutate()}
-              disabled={saveRoutine.isPending || !editDraft.title.trim() || !editDraft.projectId || !editDraft.assigneeAgentId}
-            >
-              <Save className="mr-2 h-4 w-4" />
-              Save routine
-            </Button>
-          </div>
-        </div>
-      </Card>
-
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-3">
         <TabsList variant="line" className="w-full justify-start gap-1">
-          <TabsTrigger value="triggers">Triggers</TabsTrigger>
-          <TabsTrigger value="runs">Runs</TabsTrigger>
-          <TabsTrigger value="issues">Execution Issues</TabsTrigger>
-          <TabsTrigger value="activity">Activity</TabsTrigger>
+          <TabsTrigger value="triggers" className="gap-1.5">
+            <Clock3 className="h-3.5 w-3.5" />
+            Triggers
+          </TabsTrigger>
+          <TabsTrigger value="runs" className="gap-1.5">
+            <Play className="h-3.5 w-3.5" />
+            Runs
+          </TabsTrigger>
+          <TabsTrigger value="issues" className="gap-1.5">
+            <ListTree className="h-3.5 w-3.5" />
+            Issues
+          </TabsTrigger>
+          <TabsTrigger value="activity" className="gap-1.5">
+            <ActivityIcon className="h-3.5 w-3.5" />
+            Activity
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="triggers" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Add Trigger</CardTitle>
-              <CardDescription>
-                Schedules, public webhooks, or authenticated internal runs all flow into the same routine run log.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Trigger kind</Label>
+          {/* Add trigger form */}
+          <div className="rounded-lg border border-border p-4 space-y-3">
+            <p className="text-sm font-medium">Add trigger</p>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Kind</Label>
                 <Select value={newTrigger.kind} onValueChange={(kind) => setNewTrigger((current) => ({ ...current, kind }))}>
                   <SelectTrigger>
                     <SelectValue />
@@ -903,32 +909,23 @@ export function RoutineDetail() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <Label>Label</Label>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Label</Label>
                 <Input value={newTrigger.label} onChange={(event) => setNewTrigger((current) => ({ ...current, label: event.target.value }))} />
               </div>
               {newTrigger.kind === "schedule" && (
-                <>
-                  <div className="space-y-2">
-                    <Label>Cron</Label>
-                    <Input value={newTrigger.cronExpression} onChange={(event) => setNewTrigger((current) => ({ ...current, cronExpression: event.target.value }))} />
-                    <p className="text-xs text-muted-foreground">
-                      Five fields, minute first. Example: <code>0 10 * * 1-5</code> runs at 10:00 on weekdays.
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Timezone</Label>
-                    <Input value={newTrigger.timezone} onChange={(event) => setNewTrigger((current) => ({ ...current, timezone: event.target.value }))} />
-                    <p className="text-xs text-muted-foreground">
-                      Use an IANA timezone such as <code>America/Chicago</code> so schedules follow local time.
-                    </p>
-                  </div>
-                </>
+                <div className="md:col-span-2 space-y-1.5">
+                  <Label className="text-xs">Schedule</Label>
+                  <ScheduleEditor
+                    value={newTrigger.cronExpression}
+                    onChange={(cronExpression) => setNewTrigger((current) => ({ ...current, cronExpression }))}
+                  />
+                </div>
               )}
               {newTrigger.kind === "webhook" && (
                 <>
-                  <div className="space-y-2">
-                    <Label>Signing mode</Label>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Signing mode</Label>
                     <Select value={newTrigger.signingMode} onValueChange={(signingMode) => setNewTrigger((current) => ({ ...current, signingMode }))}>
                       <SelectTrigger>
                         <SelectValue />
@@ -939,136 +936,101 @@ export function RoutineDetail() {
                         ))}
                       </SelectContent>
                     </Select>
-                    <p className="text-xs text-muted-foreground">
-                      {signingModeDescriptions[newTrigger.signingMode]}
-                    </p>
+                    <p className="text-xs text-muted-foreground">{signingModeDescriptions[newTrigger.signingMode]}</p>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Replay window seconds</Label>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Replay window (seconds)</Label>
                     <Input value={newTrigger.replayWindowSec} onChange={(event) => setNewTrigger((current) => ({ ...current, replayWindowSec: event.target.value }))} />
-                    <p className="text-xs text-muted-foreground">
-                      Reject webhook requests that arrive too late. A common starting point is 300 seconds.
-                    </p>
                   </div>
                 </>
               )}
-              <div className="md:col-span-2 flex items-center justify-between">
-                <p className="text-sm text-muted-foreground">
-                  Webhook triggers return a one-time URL and secret. Copy them immediately.
-                </p>
-                <Button onClick={() => createTrigger.mutate()} disabled={createTrigger.isPending}>
-                  {createTrigger.isPending ? "Adding..." : "Add trigger"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+            </div>
+            <div className="flex items-center justify-end">
+              <Button size="sm" onClick={() => createTrigger.mutate()} disabled={createTrigger.isPending}>
+                {createTrigger.isPending ? "Adding..." : "Add trigger"}
+              </Button>
+            </div>
+          </div>
 
-          <div className="grid gap-4">
-            {routine.triggers.length === 0 ? (
-              <EmptyState icon={Repeat} message="No triggers configured yet. Add the first trigger above to make this routine run." />
-            ) : (
-              routine.triggers.map((trigger) => (
+          {/* Existing triggers */}
+          {routine.triggers.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No triggers configured yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {routine.triggers.map((trigger) => (
                 <TriggerEditor
                   key={trigger.id}
                   trigger={trigger}
                   onSave={(id, patch) => updateTrigger.mutate({ id, patch })}
                   onRotate={(id) => rotateTrigger.mutate(id)}
                 />
-              ))
-            )}
-          </div>
+              ))}
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="runs">
-          <Card>
-            <CardHeader>
-              <CardTitle>Run History</CardTitle>
-              <CardDescription>Every trigger occurrence is captured here, whether it created work or was coalesced.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {(routineRuns ?? []).length === 0 ? (
-                <p className="text-sm text-muted-foreground">No runs yet.</p>
-              ) : (
-                (routineRuns ?? []).map((run) => (
-                  <div key={run.id} className="rounded-lg border border-border p-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant="outline">{run.source}</Badge>
-                      <Badge variant={run.status === "failed" ? "destructive" : "secondary"}>
-                        {run.status.replaceAll("_", " ")}
-                      </Badge>
-                      <span className="text-sm text-muted-foreground">{timeAgo(run.triggeredAt)}</span>
-                    </div>
+          {(routineRuns ?? []).length === 0 ? (
+            <p className="text-xs text-muted-foreground">No runs yet.</p>
+          ) : (
+            <div className="border border-border rounded-lg divide-y divide-border">
+              {(routineRuns ?? []).map((run) => (
+                <div key={run.id} className="flex items-center justify-between px-3 py-2 text-sm">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Badge variant="outline" className="shrink-0">{run.source}</Badge>
+                    <Badge variant={run.status === "failed" ? "destructive" : "secondary"} className="shrink-0">
+                      {run.status.replaceAll("_", " ")}
+                    </Badge>
                     {run.trigger && (
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        Trigger: {run.trigger.label ?? run.trigger.kind}
-                      </p>
+                      <span className="text-muted-foreground truncate">{run.trigger.label ?? run.trigger.kind}</span>
                     )}
                     {run.linkedIssue && (
-                      <Link to={`/issues/${run.linkedIssue.identifier ?? run.linkedIssue.id}`} className="mt-2 block text-sm hover:underline">
-                        {run.linkedIssue.identifier ?? run.linkedIssue.id.slice(0, 8)} · {run.linkedIssue.title}
+                      <Link to={`/issues/${run.linkedIssue.identifier ?? run.linkedIssue.id}`} className="text-muted-foreground hover:underline truncate">
+                        {run.linkedIssue.identifier ?? run.linkedIssue.id.slice(0, 8)}
                       </Link>
                     )}
-                    {run.failureReason && (
-                      <p className="mt-2 text-sm text-destructive">{run.failureReason}</p>
-                    )}
                   </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
+                  <span className="text-xs text-muted-foreground shrink-0 ml-2">{timeAgo(run.triggeredAt)}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="issues">
-          <Card>
-            <CardHeader>
-              <CardTitle>Execution Issues</CardTitle>
-              <CardDescription>These are the actual issue records created from the routine.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {(executionIssues ?? []).length === 0 ? (
-                <p className="text-sm text-muted-foreground">No execution issues yet.</p>
-              ) : (
-                <div>
-                  {(executionIssues ?? []).map((issue) => (
-                    <IssueRow key={issue.id} issue={issue} />
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          {(executionIssues ?? []).length === 0 ? (
+            <p className="text-xs text-muted-foreground">No execution issues yet.</p>
+          ) : (
+            <div className="border border-border rounded-lg divide-y divide-border">
+              {(executionIssues ?? []).map((issue) => (
+                <IssueRow key={issue.id} issue={issue} />
+              ))}
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="activity">
-          <Card>
-            <CardHeader>
-              <CardTitle>Activity</CardTitle>
-              <CardDescription>Routine-level mutations and operator actions.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {(activity ?? []).length === 0 ? (
-                <p className="text-sm text-muted-foreground">No activity yet.</p>
-              ) : (
-                (activity ?? []).map((event) => (
-                  <div key={event.id} className="rounded-lg border border-border p-3 text-sm">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="font-medium">{event.action.replaceAll(".", " ")}</span>
-                      <span className="text-muted-foreground">{timeAgo(event.createdAt)}</span>
-                    </div>
-                    {event.details && Object.keys(event.details).length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                        {Object.entries(event.details).map(([key, value]) => (
-                          <span key={key} className="rounded-full border border-border bg-muted/40 px-2 py-1">
-                            <span className="font-medium text-foreground/80">{key.replaceAll("_", " ")}:</span>{" "}
-                            {formatActivityDetailValue(value)}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
+          {(activity ?? []).length === 0 ? (
+            <p className="text-xs text-muted-foreground">No activity yet.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {(activity ?? []).map((event) => (
+                <div key={event.id} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground/80">{event.action.replaceAll(".", " ")}</span>
+                  {event.details && Object.keys(event.details).length > 0 && (
+                    <>
+                      {Object.entries(event.details).slice(0, 3).map(([key, value]) => (
+                        <span key={key} className="rounded-full border border-border px-1.5 py-0.5">
+                          {key.replaceAll("_", " ")}: {formatActivityDetailValue(value)}
+                        </span>
+                      ))}
+                    </>
+                  )}
+                  <span className="ml-auto shrink-0">{timeAgo(event.createdAt)}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </TabsContent>
       </Tabs>
     </div>
