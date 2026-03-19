@@ -508,35 +508,35 @@ export function Routines() {
         </Card>
       ) : null}
 
-      <Card className="overflow-hidden">
+      <div>
         {(routines ?? []).length === 0 ? (
-          <CardContent className="py-12">
+          <div className="py-12">
             <EmptyState
               icon={Repeat}
               message="No routines yet. Use Create routine to define the first recurring workflow."
             />
-          </CardContent>
+          </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-border text-sm">
-              <thead className="bg-muted/30">
-                <tr className="text-left text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                  <th className="px-4 py-3 font-medium">Name</th>
-                  <th className="px-4 py-3 font-medium">Project</th>
-                  <th className="px-4 py-3 font-medium">Agent</th>
-                  <th className="px-4 py-3 font-medium">Last run</th>
-                  <th className="px-4 py-3 font-medium">Enabled</th>
-                  <th className="w-12 px-4 py-3" />
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-muted-foreground border-b border-border">
+                  <th className="px-3 py-2 font-medium">Name</th>
+                  <th className="px-3 py-2 font-medium">Project</th>
+                  <th className="px-3 py-2 font-medium">Agent</th>
+                  <th className="px-3 py-2 font-medium">Last run</th>
+                  <th className="px-3 py-2 font-medium">Enabled</th>
+                  <th className="w-12 px-3 py-2" />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border">
+              <tbody>
                 {(routines ?? []).map((routine) => {
                   const enabled = routine.status === "active";
                   const isArchived = routine.status === "archived";
                   const isStatusPending = statusMutationRoutineId === routine.id;
                   return (
-                    <tr key={routine.id} className="align-middle">
-                      <td className="px-4 py-3">
+                    <tr key={routine.id} className="align-middle border-b border-border transition-colors hover:bg-accent/50 last:border-b-0">
+                      <td className="px-3 py-2.5">
                         <div className="min-w-[180px]">
                           <Link to={`/routines/${routine.id}`} className="font-medium hover:underline">
                             {routine.title}
@@ -548,7 +548,7 @@ export function Routines() {
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-2.5">
                         {routine.projectId ? (
                           <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <span
@@ -561,7 +561,7 @@ export function Routines() {
                           <span className="text-xs text-muted-foreground">—</span>
                         )}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-2.5">
                         {routine.assigneeAgentId ? (() => {
                           const agent = agentById.get(routine.assigneeAgentId);
                           return agent ? (
@@ -576,13 +576,13 @@ export function Routines() {
                           <span className="text-xs text-muted-foreground">—</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-muted-foreground">
+                      <td className="px-3 py-2.5 text-muted-foreground">
                         <div>{formatLastRunTimestamp(routine.lastRun?.triggeredAt)}</div>
                         {routine.lastRun ? (
                           <div className="mt-1 text-xs">{routine.lastRun.status.replaceAll("_", " ")}</div>
                         ) : null}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-2.5">
                         <div className="flex items-center gap-3">
                           <button
                             type="button"
@@ -611,7 +611,7 @@ export function Routines() {
                           </span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-3 py-2.5 text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="icon-sm" aria-label={`More actions for ${routine.title}`}>
@@ -661,7 +661,7 @@ export function Routines() {
             </table>
           </div>
         )}
-      </Card>
+      </div>
     </div>
   );
 }
