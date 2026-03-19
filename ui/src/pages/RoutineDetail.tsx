@@ -16,6 +16,7 @@ import {
   Zap,
 } from "lucide-react";
 import { routinesApi, type RoutineTriggerResponse, type RotateRoutineTriggerResponse } from "../api/routines";
+import { LiveRunWidget } from "../components/LiveRunWidget";
 import { agentsApi } from "../api/agents";
 import { projectsApi } from "../api/projects";
 import { useCompany } from "../context/CompanyContext";
@@ -279,11 +280,14 @@ export function RoutineDetail() {
     queryKey: queryKeys.routines.detail(routineId!),
     queryFn: () => routinesApi.get(routineId!),
     enabled: !!routineId,
+    refetchInterval: (query) => query.state.data?.activeIssue ? 5000 : false,
   });
+  const hasLiveRun = !!routine?.activeIssue;
   const { data: routineRuns } = useQuery({
     queryKey: queryKeys.routines.runs(routineId!),
     queryFn: () => routinesApi.listRuns(routineId!),
     enabled: !!routineId,
+    refetchInterval: hasLiveRun ? 3000 : false,
   });
   const relatedActivityIds = useMemo(
     () => ({
@@ -865,6 +869,7 @@ export function RoutineDetail() {
           <TabsTrigger value="runs" className="gap-1.5">
             <Play className="h-3.5 w-3.5" />
             Runs
+            {hasLiveRun && <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />}
           </TabsTrigger>
 <TabsTrigger value="activity" className="gap-1.5">
             <ActivityIcon className="h-3.5 w-3.5" />
@@ -947,7 +952,10 @@ export function RoutineDetail() {
           )}
         </TabsContent>
 
-        <TabsContent value="runs">
+        <TabsContent value="runs" className="space-y-4">
+          {routine?.activeIssue && (
+            <LiveRunWidget issueId={routine.activeIssue.id} companyId={routine.companyId} />
+          )}
           {(routineRuns ?? []).length === 0 ? (
             <p className="text-xs text-muted-foreground">No runs yet.</p>
           ) : (
