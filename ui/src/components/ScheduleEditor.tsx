@@ -18,7 +18,7 @@ const PRESETS: { value: SchedulePreset; label: string }[] = [
 
 const HOURS = Array.from({ length: 24 }, (_, i) => ({
   value: String(i),
-  label: i === 0 ? "12:00 AM" : i < 12 ? `${i}:00 AM` : i === 12 ? "12:00 PM" : `${i - 12}:00 PM`,
+  label: i === 0 ? "12 AM" : i < 12 ? `${i} AM` : i === 12 ? "12 PM" : `${i - 12} PM`,
 }));
 
 const MINUTES = Array.from({ length: 12 }, (_, i) => ({
@@ -115,7 +115,8 @@ function buildCron(preset: SchedulePreset, hour: string, minute: string, dayOfWe
 
 function describeSchedule(cron: string): string {
   const { preset, hour, minute, dayOfWeek, dayOfMonth } = parseCronToPreset(cron);
-  const timeStr = HOURS.find((h) => h.value === hour)?.label?.replace(":00", `:${minute.padStart(2, "0")}`) ?? `${hour}:${minute.padStart(2, "0")}`;
+  const hourLabel = HOURS.find((h) => h.value === hour)?.label ?? `${hour}`;
+  const timeStr = `${hourLabel.replace(/ (AM|PM)$/, "")}:${minute.padStart(2, "0")} ${hourLabel.match(/(AM|PM)$/)?.[0] ?? ""}`;
 
   switch (preset) {
     case "every_minute":
@@ -223,7 +224,7 @@ export function ScheduleEditor({
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-2">
-          {preset !== "every_hour" && (
+          {preset !== "every_minute" && preset !== "every_hour" && (
             <>
               <span className="text-sm text-muted-foreground">at</span>
               <Select
