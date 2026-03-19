@@ -7,7 +7,6 @@ import {
   ChevronRight,
   Clock3,
   Copy,
-  ListTree,
   Play,
   RefreshCw,
   Repeat,
@@ -17,7 +16,6 @@ import {
   Zap,
 } from "lucide-react";
 import { routinesApi, type RoutineTriggerResponse, type RotateRoutineTriggerResponse } from "../api/routines";
-import { issuesApi } from "../api/issues";
 import { agentsApi } from "../api/agents";
 import { projectsApi } from "../api/projects";
 import { useCompany } from "../context/CompanyContext";
@@ -28,7 +26,6 @@ import { timeAgo } from "../lib/timeAgo";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { AgentIcon } from "../components/AgentIconPicker";
-import { IssueRow } from "../components/IssueRow";
 import { InlineEntitySelector, type InlineEntityOption } from "../components/InlineEntitySelector";
 import { MarkdownEditor, type MarkdownEditorRef } from "../components/MarkdownEditor";
 import { ScheduleEditor, describeSchedule } from "../components/ScheduleEditor";
@@ -54,7 +51,7 @@ const concurrencyPolicies = ["coalesce_if_active", "always_enqueue", "skip_if_ac
 const catchUpPolicies = ["skip_missed", "enqueue_missed_with_cap"];
 const triggerKinds = ["schedule", "webhook", "api"];
 const signingModes = ["bearer", "hmac_sha256"];
-const routineTabs = ["triggers", "runs", "issues", "activity"] as const;
+const routineTabs = ["triggers", "runs", "activity"] as const;
 const concurrencyPolicyDescriptions: Record<string, string> = {
   coalesce_if_active: "Keep one follow-up run queued while an active run is still working.",
   always_enqueue: "Queue every trigger occurrence, even if several runs stack up.",
@@ -295,16 +292,6 @@ export function RoutineDetail() {
     }),
     [routine?.triggers, routineRuns],
   );
-  const { data: executionIssues } = useQuery({
-    queryKey: ["routine-execution-issues", selectedCompanyId, routineId],
-    queryFn: () =>
-      issuesApi.list(selectedCompanyId!, {
-        originKind: "routine_execution",
-        originId: routineId!,
-        includeRoutineExecutions: true,
-      }),
-    enabled: !!selectedCompanyId && !!routineId,
-  });
   const { data: activity } = useQuery({
     queryKey: [
       ...queryKeys.routines.activity(selectedCompanyId!, routineId!),
@@ -879,11 +866,7 @@ export function RoutineDetail() {
             <Play className="h-3.5 w-3.5" />
             Runs
           </TabsTrigger>
-          <TabsTrigger value="issues" className="gap-1.5">
-            <ListTree className="h-3.5 w-3.5" />
-            Issues
-          </TabsTrigger>
-          <TabsTrigger value="activity" className="gap-1.5">
+<TabsTrigger value="activity" className="gap-1.5">
             <ActivityIcon className="h-3.5 w-3.5" />
             Activity
           </TabsTrigger>
@@ -987,18 +970,6 @@ export function RoutineDetail() {
                   </div>
                   <span className="text-xs text-muted-foreground shrink-0 ml-2">{timeAgo(run.triggeredAt)}</span>
                 </div>
-              ))}
-            </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="issues">
-          {(executionIssues ?? []).length === 0 ? (
-            <p className="text-xs text-muted-foreground">No execution issues yet.</p>
-          ) : (
-            <div className="border border-border rounded-lg divide-y divide-border">
-              {(executionIssues ?? []).map((issue) => (
-                <IssueRow key={issue.id} issue={issue} />
               ))}
             </div>
           )}
