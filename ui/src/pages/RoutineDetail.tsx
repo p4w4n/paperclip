@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  ChevronDown,
+  ChevronRight,
   Clock3,
   Copy,
   Play,
@@ -21,12 +23,16 @@ import { useToast } from "../context/ToastContext";
 import { queryKeys } from "../lib/queryKeys";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
+import { AgentIcon } from "../components/AgentIconPicker";
 import { IssueRow } from "../components/IssueRow";
+import { InlineEntitySelector, type InlineEntityOption } from "../components/InlineEntitySelector";
+import { MarkdownEditor, type MarkdownEditorRef } from "../components/MarkdownEditor";
+import { getRecentAssigneeIds, sortAgentsByRecency, trackRecentAssignee } from "../lib/recent-assignees";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -67,6 +73,12 @@ type SecretMessage = {
   webhookUrl: string;
   webhookSecret: string;
 };
+
+function autoResizeTextarea(element: HTMLTextAreaElement | null) {
+  if (!element) return;
+  element.style.height = "auto";
+  element.style.height = `${element.scrollHeight}px`;
+}
 
 function isRoutineTab(value: string | null): value is RoutineTab {
   return value !== null && routineTabs.includes(value as RoutineTab);
@@ -244,7 +256,12 @@ export function RoutineDetail() {
   const location = useLocation();
   const { pushToast } = useToast();
   const hydratedRoutineIdRef = useRef<string | null>(null);
+  const titleInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const descriptionEditorRef = useRef<MarkdownEditorRef>(null);
+  const assigneeSelectorRef = useRef<HTMLButtonElement | null>(null);
+  const projectSelectorRef = useRef<HTMLButtonElement | null>(null);
   const [secretMessage, setSecretMessage] = useState<SecretMessage | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [newTrigger, setNewTrigger] = useState({
     kind: "schedule",
     label: "",
@@ -353,6 +370,10 @@ export function RoutineDetail() {
       hydratedRoutineIdRef.current = routine.id;
     }
   }, [routine, routineDefaults, isEditDirty, setBreadcrumbs]);
+
+  useEffect(() => {
+    autoResizeTextarea(titleInputRef.current);
+  }, [editDraft.title, routine?.id]);
 
   const copySecretValue = async (label: string, value: string) => {
     try {
@@ -504,14 +525,38 @@ export function RoutineDetail() {
     },
   });
 
-  const agentName = useMemo(
-    () => new Map((agents ?? []).map((agent) => [agent.id, agent.name])),
+  const agentById = useMemo(
+    () => new Map((agents ?? []).map((agent) => [agent.id, agent])),
     [agents],
   );
-  const projectName = useMemo(
-    () => new Map((projects ?? []).map((project) => [project.id, project.name])),
+  const projectById = useMemo(
+    () => new Map((projects ?? []).map((project) => [project.id, project])),
     [projects],
   );
+  const recentAssigneeIds = useMemo(() => getRecentAssigneeIds(), [routine?.id]);
+  const assigneeOptions = useMemo<InlineEntityOption[]>(
+    () =>
+      sortAgentsByRecency(
+        (agents ?? []).filter((agent) => agent.status !== "terminated"),
+        recentAssigneeIds,
+      ).map((agent) => ({
+        id: agent.id,
+        label: agent.name,
+        searchText: `${agent.name} ${agent.role} ${agent.title ?? ""}`,
+      })),
+    [agents, recentAssigneeIds],
+  );
+  const projectOptions = useMemo<InlineEntityOption[]>(
+    () =>
+      (projects ?? []).map((project) => ({
+        id: project.id,
+        label: project.name,
+        searchText: project.description ?? "",
+      })),
+    [projects],
+  );
+  const currentAssignee = editDraft.assigneeAgentId ? agentById.get(editDraft.assigneeAgentId) ?? null : null;
+  const currentProject = editDraft.projectId ? projectById.get(editDraft.projectId) ?? null : null;
 
   if (!selectedCompanyId) {
     return <EmptyState icon={Repeat} message="Select a company to view routines." />;
@@ -566,149 +611,266 @@ export function RoutineDetail() {
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <CardTitle>{routine.title}</CardTitle>
-              <CardDescription>
-                Project {projectName.get(routine.projectId) ?? routine.projectId.slice(0, 8)} · Assignee {agentName.get(routine.assigneeAgentId) ?? routine.assigneeAgentId.slice(0, 8)}
-              </CardDescription>
-            </div>
-            <div className="flex gap-2">
-              <Badge variant={routine.status === "active" ? "default" : "secondary"}>
-                {routine.status.replaceAll("_", " ")}
-              </Badge>
-              <Button onClick={() => runRoutine.mutate()} disabled={runRoutine.isPending}>
-                <Play className="mr-2 h-4 w-4" />
-                Run now
-              </Button>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2 md:col-span-2">
-            <Label>Title</Label>
-            <Input value={editDraft.title} onChange={(event) => setEditDraft((current) => ({ ...current, title: event.target.value }))} />
-          </div>
-          <div className="space-y-2 md:col-span-2">
-            <Label>Instructions</Label>
-            <Textarea
-              rows={4}
-              value={editDraft.description}
-              onChange={(event) => setEditDraft((current) => ({ ...current, description: event.target.value }))}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Project</Label>
-            <Select value={editDraft.projectId} onValueChange={(projectId) => setEditDraft((current) => ({ ...current, projectId }))}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(projects ?? []).map((project) => (
-                  <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label>Assignee</Label>
-            <Select value={editDraft.assigneeAgentId} onValueChange={(assigneeAgentId) => setEditDraft((current) => ({ ...current, assigneeAgentId }))}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(agents ?? []).map((agent) => (
-                  <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label>Status</Label>
-            <Select value={editDraft.status} onValueChange={(status) => setEditDraft((current) => ({ ...current, status }))}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {routineStatuses.map((status) => (
-                  <SelectItem key={status} value={status}>{status.replaceAll("_", " ")}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label>Priority</Label>
-            <Select value={editDraft.priority} onValueChange={(priority) => setEditDraft((current) => ({ ...current, priority }))}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {priorities.map((priority) => (
-                  <SelectItem key={priority} value={priority}>{priority}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label>Concurrency</Label>
-            <Select value={editDraft.concurrencyPolicy} onValueChange={(concurrencyPolicy) => setEditDraft((current) => ({ ...current, concurrencyPolicy }))}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {concurrencyPolicies.map((value) => (
-                  <SelectItem key={value} value={value}>{value.replaceAll("_", " ")}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              {concurrencyPolicyDescriptions[editDraft.concurrencyPolicy]}
+      <Card className="overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 px-5 py-3">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">Routine definition</p>
+            <p className="text-sm text-muted-foreground">
+              Keep the work definition primary. Triggers, runs, and audit history branch off this source object.
             </p>
           </div>
-          <div className="space-y-2">
-            <Label>Catch-up</Label>
-            <Select value={editDraft.catchUpPolicy} onValueChange={(catchUpPolicy) => setEditDraft((current) => ({ ...current, catchUpPolicy }))}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {catchUpPolicies.map((value) => (
-                  <SelectItem key={value} value={value}>{value.replaceAll("_", " ")}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              {catchUpPolicyDescriptions[editDraft.catchUpPolicy]}
-            </p>
+          <div className="flex gap-2">
+            <Badge variant={routine.status === "active" ? "default" : "secondary"}>
+              {routine.status.replaceAll("_", " ")}
+            </Badge>
+            <Button onClick={() => runRoutine.mutate()} disabled={runRoutine.isPending}>
+              <Play className="mr-2 h-4 w-4" />
+              Run now
+            </Button>
           </div>
-          <div className="md:col-span-2 flex items-center justify-between">
-            <div className="text-sm text-muted-foreground">
-              {routine.activeIssue ? (
-                <span>
-                  Active issue:{" "}
-                  <Link to={`/issues/${routine.activeIssue.identifier ?? routine.activeIssue.id}`} className="hover:underline">
-                    {routine.activeIssue.identifier ?? routine.activeIssue.id.slice(0, 8)}
-                  </Link>
-                </span>
-              ) : (
-                "No active execution issue."
-              )}
-            </div>
-            <div className="flex items-center gap-3">
-              {isEditDirty && (
-                <span className="text-xs text-amber-600">
-                  Unsaved routine edits stay local until you save.
-                </span>
-              )}
-              <Button onClick={() => saveRoutine.mutate()} disabled={saveRoutine.isPending}>
-                <Save className="mr-2 h-4 w-4" />
-                Save routine
-              </Button>
+        </div>
+
+        <div className="px-5 pt-5 pb-3">
+          <textarea
+            ref={titleInputRef}
+            className="w-full resize-none overflow-hidden bg-transparent text-xl font-semibold outline-none placeholder:text-muted-foreground/50"
+            placeholder="Routine title"
+            rows={1}
+            value={editDraft.title}
+            onChange={(event) => {
+              setEditDraft((current) => ({ ...current, title: event.target.value }));
+              autoResizeTextarea(event.target);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.metaKey && !event.ctrlKey && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                descriptionEditorRef.current?.focus();
+                return;
+              }
+              if (event.key === "Tab" && !event.shiftKey) {
+                event.preventDefault();
+                if (editDraft.assigneeAgentId) {
+                  if (editDraft.projectId) {
+                    descriptionEditorRef.current?.focus();
+                  } else {
+                    projectSelectorRef.current?.focus();
+                  }
+                } else {
+                  assigneeSelectorRef.current?.focus();
+                }
+              }
+            }}
+          />
+        </div>
+
+        <div className="px-5 pb-3">
+          <div className="overflow-x-auto overscroll-x-contain">
+            <div className="inline-flex min-w-full flex-wrap items-center gap-2 text-sm text-muted-foreground sm:min-w-max sm:flex-nowrap">
+              <span>For</span>
+              <InlineEntitySelector
+                ref={assigneeSelectorRef}
+                value={editDraft.assigneeAgentId}
+                options={assigneeOptions}
+                placeholder="Assignee"
+                noneLabel="No assignee"
+                searchPlaceholder="Search assignees..."
+                emptyMessage="No assignees found."
+                onChange={(assigneeAgentId) => {
+                  if (assigneeAgentId) trackRecentAssignee(assigneeAgentId);
+                  setEditDraft((current) => ({ ...current, assigneeAgentId }));
+                }}
+                onConfirm={() => {
+                  if (editDraft.projectId) {
+                    descriptionEditorRef.current?.focus();
+                  } else {
+                    projectSelectorRef.current?.focus();
+                  }
+                }}
+                renderTriggerValue={(option) =>
+                  option ? (
+                    currentAssignee ? (
+                      <>
+                        <AgentIcon icon={currentAssignee.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{option.label}</span>
+                      </>
+                    ) : (
+                      <span className="truncate">{option.label}</span>
+                    )
+                  ) : (
+                    <span className="text-muted-foreground">Assignee</span>
+                  )
+                }
+                renderOption={(option) => {
+                  if (!option.id) return <span className="truncate">{option.label}</span>;
+                  const assignee = agentById.get(option.id);
+                  return (
+                    <>
+                      {assignee ? <AgentIcon icon={assignee.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : null}
+                      <span className="truncate">{option.label}</span>
+                    </>
+                  );
+                }}
+              />
+              <span>in</span>
+              <InlineEntitySelector
+                ref={projectSelectorRef}
+                value={editDraft.projectId}
+                options={projectOptions}
+                placeholder="Project"
+                noneLabel="No project"
+                searchPlaceholder="Search projects..."
+                emptyMessage="No projects found."
+                onChange={(projectId) => setEditDraft((current) => ({ ...current, projectId }))}
+                onConfirm={() => descriptionEditorRef.current?.focus()}
+                renderTriggerValue={(option) =>
+                  option && currentProject ? (
+                    <>
+                      <span
+                        className="h-3.5 w-3.5 shrink-0 rounded-sm"
+                        style={{ backgroundColor: currentProject.color ?? "#64748b" }}
+                      />
+                      <span className="truncate">{option.label}</span>
+                    </>
+                  ) : (
+                    <span className="text-muted-foreground">Project</span>
+                  )
+                }
+                renderOption={(option) => {
+                  if (!option.id) return <span className="truncate">{option.label}</span>;
+                  const project = projectById.get(option.id);
+                  return (
+                    <>
+                      <span
+                        className="h-3.5 w-3.5 shrink-0 rounded-sm"
+                        style={{ backgroundColor: project?.color ?? "#64748b" }}
+                      />
+                      <span className="truncate">{option.label}</span>
+                    </>
+                  );
+                }}
+              />
             </div>
           </div>
-        </CardContent>
+        </div>
+
+        <div className="border-t border-border/60 px-5 py-4">
+          <MarkdownEditor
+            ref={descriptionEditorRef}
+            value={editDraft.description}
+            onChange={(description) => setEditDraft((current) => ({ ...current, description }))}
+            placeholder="Add instructions..."
+            bordered={false}
+            contentClassName="min-h-[180px] text-sm text-muted-foreground"
+            onSubmit={() => {
+              if (!saveRoutine.isPending && editDraft.title.trim() && editDraft.projectId && editDraft.assigneeAgentId) {
+                saveRoutine.mutate();
+              }
+            }}
+          />
+        </div>
+
+        <div className="border-t border-border/60 px-5 py-3">
+          <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+            <CollapsibleTrigger className="flex w-full items-center justify-between text-left">
+              <div>
+                <p className="text-sm font-medium">Advanced delivery settings</p>
+                <p className="text-sm text-muted-foreground">Status and execution policy stay secondary to the work definition.</p>
+              </div>
+              {advancedOpen ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+            </CollapsibleTrigger>
+            <CollapsibleContent className="pt-3">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Status</p>
+                  <Select value={editDraft.status} onValueChange={(status) => setEditDraft((current) => ({ ...current, status }))}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {routineStatuses.map((status) => (
+                        <SelectItem key={status} value={status}>{status.replaceAll("_", " ")}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Priority</p>
+                  <Select value={editDraft.priority} onValueChange={(priority) => setEditDraft((current) => ({ ...current, priority }))}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {priorities.map((priority) => (
+                        <SelectItem key={priority} value={priority}>{priority.replaceAll("_", " ")}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Concurrency</p>
+                  <Select
+                    value={editDraft.concurrencyPolicy}
+                    onValueChange={(concurrencyPolicy) => setEditDraft((current) => ({ ...current, concurrencyPolicy }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {concurrencyPolicies.map((value) => (
+                        <SelectItem key={value} value={value}>{value.replaceAll("_", " ")}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">{concurrencyPolicyDescriptions[editDraft.concurrencyPolicy]}</p>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Catch-up</p>
+                  <Select
+                    value={editDraft.catchUpPolicy}
+                    onValueChange={(catchUpPolicy) => setEditDraft((current) => ({ ...current, catchUpPolicy }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {catchUpPolicies.map((value) => (
+                        <SelectItem key={value} value={value}>{value.replaceAll("_", " ")}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">{catchUpPolicyDescriptions[editDraft.catchUpPolicy]}</p>
+                </div>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+        </div>
+
+        <div className="flex flex-col gap-3 border-t border-border/60 px-5 py-4 md:flex-row md:items-center md:justify-between">
+          <div className="text-sm text-muted-foreground">
+            {routine.activeIssue ? (
+              <span>
+                Active issue:{" "}
+                <Link to={`/issues/${routine.activeIssue.identifier ?? routine.activeIssue.id}`} className="hover:underline">
+                  {routine.activeIssue.identifier ?? routine.activeIssue.id.slice(0, 8)}
+                </Link>
+              </span>
+            ) : (
+              "No active execution issue."
+            )}
+          </div>
+          <div className="flex flex-col gap-2 md:items-end">
+            {isEditDirty ? (
+              <span className="text-xs text-amber-600">Unsaved routine edits stay local until you save.</span>
+            ) : null}
+            <Button
+              onClick={() => saveRoutine.mutate()}
+              disabled={saveRoutine.isPending || !editDraft.title.trim() || !editDraft.projectId || !editDraft.assigneeAgentId}
+            >
+              <Save className="mr-2 h-4 w-4" />
+              Save routine
+            </Button>
+          </div>
+        </div>
       </Card>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">

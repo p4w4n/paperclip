@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, ne, or } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   agents,
@@ -1030,8 +1030,8 @@ export function routineService(db: Db) {
             eq(routineTriggers.kind, "schedule"),
             eq(routineTriggers.enabled, true),
             eq(routines.status, "active"),
-            sql`${routineTriggers.nextRunAt} is not null`,
-            sql`${routineTriggers.nextRunAt} <= ${now}`,
+            isNotNull(routineTriggers.nextRunAt),
+            lte(routineTriggers.nextRunAt, now),
           ),
         )
         .orderBy(asc(routineTriggers.nextRunAt), asc(routineTriggers.createdAt));

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@/lib/router";
-import { Repeat, Plus, Play, Clock3, Webhook } from "lucide-react";
+import { ChevronDown, ChevronRight, Clock3, Play, Plus, Repeat, Webhook } from "lucide-react";
 import { routinesApi } from "../api/routines";
 import { agentsApi } from "../api/agents";
 import { projectsApi } from "../api/projects";
@@ -9,13 +9,16 @@ import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useToast } from "../context/ToastContext";
 import { queryKeys } from "../lib/queryKeys";
+import { getRecentAssigneeIds, sortAgentsByRecency, trackRecentAssignee } from "../lib/recent-assignees";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
+import { AgentIcon } from "../components/AgentIconPicker";
+import { InlineEntitySelector, type InlineEntityOption } from "../components/InlineEntitySelector";
+import { MarkdownEditor, type MarkdownEditorRef } from "../components/MarkdownEditor";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { Card, CardContent } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -23,7 +26,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import { timeAgo } from "../lib/timeAgo";
 
 const priorities = ["critical", "high", "medium", "low"];
@@ -45,13 +47,25 @@ function triggerIcon(kind: string) {
   return <Play className="h-3.5 w-3.5" />;
 }
 
+function autoResizeTextarea(element: HTMLTextAreaElement | null) {
+  if (!element) return;
+  element.style.height = "auto";
+  element.style.height = `${element.scrollHeight}px`;
+}
+
 export function Routines() {
   const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { pushToast } = useToast();
+  const descriptionEditorRef = useRef<MarkdownEditorRef>(null);
+  const titleInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const assigneeSelectorRef = useRef<HTMLButtonElement | null>(null);
+  const projectSelectorRef = useRef<HTMLButtonElement | null>(null);
   const [runningRoutineId, setRunningRoutineId] = useState<string | null>(null);
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [draft, setDraft] = useState({
     title: "",
     description: "",
@@ -82,6 +96,16 @@ export function Routines() {
     enabled: !!selectedCompanyId,
   });
 
+  useEffect(() => {
+    if (!isLoading && (routines?.length ?? 0) === 0) {
+      setComposerOpen(true);
+    }
+  }, [isLoading, routines]);
+
+  useEffect(() => {
+    autoResizeTextarea(titleInputRef.current);
+  }, [draft.title, composerOpen]);
+
   const createRoutine = useMutation({
     mutationFn: () =>
       routinesApi.create(selectedCompanyId!, {
@@ -98,6 +122,8 @@ export function Routines() {
         concurrencyPolicy: "coalesce_if_active",
         catchUpPolicy: "skip_missed",
       });
+      setComposerOpen(false);
+      setAdvancedOpen(false);
       await queryClient.invalidateQueries({ queryKey: queryKeys.routines.list(selectedCompanyId!) });
       pushToast({
         title: "Routine created",
@@ -119,14 +145,55 @@ export function Routines() {
     onSettled: () => {
       setRunningRoutineId(null);
     },
-    onError: (error) => {
+    onError: (mutationError) => {
       pushToast({
         title: "Routine run failed",
-        body: error instanceof Error ? error.message : "Paperclip could not start the routine run.",
+        body: mutationError instanceof Error ? mutationError.message : "Paperclip could not start the routine run.",
         tone: "error",
       });
     },
   });
+
+  const recentAssigneeIds = useMemo(() => getRecentAssigneeIds(), [composerOpen]);
+  const assigneeOptions = useMemo<InlineEntityOption[]>(
+    () =>
+      sortAgentsByRecency(
+        (agents ?? []).filter((agent) => agent.status !== "terminated"),
+        recentAssigneeIds,
+      ).map((agent) => ({
+        id: agent.id,
+        label: agent.name,
+        searchText: `${agent.name} ${agent.role} ${agent.title ?? ""}`,
+      })),
+    [agents, recentAssigneeIds],
+  );
+  const projectOptions = useMemo<InlineEntityOption[]>(
+    () =>
+      (projects ?? []).map((project) => ({
+        id: project.id,
+        label: project.name,
+        searchText: project.description ?? "",
+      })),
+    [projects],
+  );
+  const agentName = useMemo(
+    () => new Map((agents ?? []).map((agent) => [agent.id, agent.name])),
+    [agents],
+  );
+  const agentById = useMemo(
+    () => new Map((agents ?? []).map((agent) => [agent.id, agent])),
+    [agents],
+  );
+  const projectName = useMemo(
+    () => new Map((projects ?? []).map((project) => [project.id, project.name])),
+    [projects],
+  );
+  const projectById = useMemo(
+    () => new Map((projects ?? []).map((project) => [project.id, project])),
+    [projects],
+  );
+  const currentAssignee = draft.assigneeAgentId ? agentById.get(draft.assigneeAgentId) ?? null : null;
+  const currentProject = draft.projectId ? projectById.get(draft.projectId) ?? null : null;
 
   if (!selectedCompanyId) {
     return <EmptyState icon={Repeat} message="Select a company to view routines." />;
@@ -136,162 +203,295 @@ export function Routines() {
     return <PageSkeleton variant="issues-list" />;
   }
 
-  const agentName = new Map((agents ?? []).map((agent) => [agent.id, agent.name]));
-  const projectName = new Map((projects ?? []).map((project) => [project.id, project.name]));
-
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Create Routine</CardTitle>
-          <CardDescription>
-            Define recurring work once, then add the first trigger on the next screen to make it live.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2 md:col-span-2">
-            <Label htmlFor="routine-title">Title</Label>
-            <Input
-              id="routine-title"
-              value={draft.title}
-              onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
-              placeholder="Review the last 24 hours of merged code"
-            />
-          </div>
-          <div className="space-y-2 md:col-span-2">
-            <Label htmlFor="routine-description">Instructions</Label>
-            <Textarea
-              id="routine-description"
-              value={draft.description}
-              onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
-              rows={4}
-              placeholder="Summarize noteworthy changes, update docs if needed, and leave a concise report."
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Project</Label>
-            <Select value={draft.projectId} onValueChange={(projectId) => setDraft((current) => ({ ...current, projectId }))}>
-              <SelectTrigger>
-                <SelectValue placeholder="Choose project" />
-              </SelectTrigger>
-              <SelectContent>
-                {(projects ?? []).map((project) => (
-                  <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label>Assignee</Label>
-            <Select
-              value={draft.assigneeAgentId}
-              onValueChange={(assigneeAgentId) => setDraft((current) => ({ ...current, assigneeAgentId }))}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Choose assignee" />
-              </SelectTrigger>
-              <SelectContent>
-                {(agents ?? []).map((agent) => (
-                  <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label>Priority</Label>
-            <Select value={draft.priority} onValueChange={(priority) => setDraft((current) => ({ ...current, priority }))}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {priorities.map((priority) => (
-                  <SelectItem key={priority} value={priority}>{priority.replace("_", " ")}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label>Concurrency</Label>
-            <Select
-              value={draft.concurrencyPolicy}
-              onValueChange={(concurrencyPolicy) => setDraft((current) => ({ ...current, concurrencyPolicy }))}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {concurrencyPolicies.map((value) => (
-                  <SelectItem key={value} value={value}>{value.replaceAll("_", " ")}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              {concurrencyPolicyDescriptions[draft.concurrencyPolicy]}
-            </p>
-          </div>
-          <div className="space-y-2">
-            <Label>Catch-up</Label>
-            <Select
-              value={draft.catchUpPolicy}
-              onValueChange={(catchUpPolicy) => setDraft((current) => ({ ...current, catchUpPolicy }))}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {catchUpPolicies.map((value) => (
-                  <SelectItem key={value} value={value}>{value.replaceAll("_", " ")}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              {catchUpPolicyDescriptions[draft.catchUpPolicy]}
-            </p>
-          </div>
-          <div className="md:col-span-2 flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">
-              After creation, Paperclip takes you straight to trigger setup for schedule, webhook, or API entrypoints.
-            </p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight">Routines</h1>
+          <p className="text-sm text-muted-foreground">
+            Define recurring work once, then let Paperclip materialize each execution as an auditable issue.
+          </p>
+        </div>
+        <Button
+          onClick={() => setComposerOpen((open) => !open)}
+          variant={composerOpen ? "outline" : "default"}
+        >
+          <Plus className="mr-2 h-4 w-4" />
+          {composerOpen ? "Hide composer" : "Create routine"}
+        </Button>
+      </div>
+
+      {composerOpen ? (
+        <Card className="overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 px-5 py-3">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">New routine</p>
+              <p className="text-sm text-muted-foreground">
+                Define the recurring work first. Trigger setup comes next on the detail page.
+              </p>
+            </div>
             <Button
-              onClick={() => createRoutine.mutate()}
-              disabled={
-                createRoutine.isPending ||
-                !draft.title.trim() ||
-                !draft.projectId ||
-                !draft.assigneeAgentId
-              }
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setComposerOpen(false);
+                setAdvancedOpen(false);
+              }}
+              disabled={createRoutine.isPending}
             >
-              <Plus className="mr-2 h-4 w-4" />
-              {createRoutine.isPending ? "Creating..." : "Create Routine"}
+              Cancel
             </Button>
           </div>
-          {createRoutine.isError && (
-            <p className="md:col-span-2 text-sm text-destructive">
-              {createRoutine.error instanceof Error ? createRoutine.error.message : "Failed to create routine"}
-            </p>
-          )}
-        </CardContent>
-      </Card>
 
-      {error && (
+          <div className="px-5 pt-5 pb-3">
+            <textarea
+              ref={titleInputRef}
+              className="w-full resize-none overflow-hidden bg-transparent text-xl font-semibold outline-none placeholder:text-muted-foreground/50"
+              placeholder="Routine title"
+              rows={1}
+              value={draft.title}
+              onChange={(event) => {
+                setDraft((current) => ({ ...current, title: event.target.value }));
+                autoResizeTextarea(event.target);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.metaKey && !event.ctrlKey && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  descriptionEditorRef.current?.focus();
+                  return;
+                }
+                if (event.key === "Tab" && !event.shiftKey) {
+                  event.preventDefault();
+                  if (draft.assigneeAgentId) {
+                    if (draft.projectId) {
+                      descriptionEditorRef.current?.focus();
+                    } else {
+                      projectSelectorRef.current?.focus();
+                    }
+                  } else {
+                    assigneeSelectorRef.current?.focus();
+                  }
+                }
+              }}
+              autoFocus
+            />
+          </div>
+
+          <div className="px-5 pb-3">
+            <div className="overflow-x-auto overscroll-x-contain">
+              <div className="inline-flex min-w-full flex-wrap items-center gap-2 text-sm text-muted-foreground sm:min-w-max sm:flex-nowrap">
+                <span>For</span>
+                <InlineEntitySelector
+                  ref={assigneeSelectorRef}
+                  value={draft.assigneeAgentId}
+                  options={assigneeOptions}
+                  placeholder="Assignee"
+                  noneLabel="No assignee"
+                  searchPlaceholder="Search assignees..."
+                  emptyMessage="No assignees found."
+                  onChange={(assigneeAgentId) => {
+                    if (assigneeAgentId) trackRecentAssignee(assigneeAgentId);
+                    setDraft((current) => ({ ...current, assigneeAgentId }));
+                  }}
+                  onConfirm={() => {
+                    if (draft.projectId) {
+                      descriptionEditorRef.current?.focus();
+                    } else {
+                      projectSelectorRef.current?.focus();
+                    }
+                  }}
+                  renderTriggerValue={(option) =>
+                    option ? (
+                      currentAssignee ? (
+                        <>
+                          <AgentIcon icon={currentAssignee.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          <span className="truncate">{option.label}</span>
+                        </>
+                      ) : (
+                        <span className="truncate">{option.label}</span>
+                      )
+                    ) : (
+                      <span className="text-muted-foreground">Assignee</span>
+                    )
+                  }
+                  renderOption={(option) => {
+                    if (!option.id) return <span className="truncate">{option.label}</span>;
+                    const assignee = agentById.get(option.id);
+                    return (
+                      <>
+                        {assignee ? <AgentIcon icon={assignee.icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : null}
+                        <span className="truncate">{option.label}</span>
+                      </>
+                    );
+                  }}
+                />
+                <span>in</span>
+                <InlineEntitySelector
+                  ref={projectSelectorRef}
+                  value={draft.projectId}
+                  options={projectOptions}
+                  placeholder="Project"
+                  noneLabel="No project"
+                  searchPlaceholder="Search projects..."
+                  emptyMessage="No projects found."
+                  onChange={(projectId) => setDraft((current) => ({ ...current, projectId }))}
+                  onConfirm={() => descriptionEditorRef.current?.focus()}
+                  renderTriggerValue={(option) =>
+                    option && currentProject ? (
+                      <>
+                        <span
+                          className="h-3.5 w-3.5 shrink-0 rounded-sm"
+                          style={{ backgroundColor: currentProject.color ?? "#64748b" }}
+                        />
+                        <span className="truncate">{option.label}</span>
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">Project</span>
+                    )
+                  }
+                  renderOption={(option) => {
+                    if (!option.id) return <span className="truncate">{option.label}</span>;
+                    const project = projectById.get(option.id);
+                    return (
+                      <>
+                        <span
+                          className="h-3.5 w-3.5 shrink-0 rounded-sm"
+                          style={{ backgroundColor: project?.color ?? "#64748b" }}
+                        />
+                        <span className="truncate">{option.label}</span>
+                      </>
+                    );
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t border-border/60 px-5 py-4">
+            <MarkdownEditor
+              ref={descriptionEditorRef}
+              value={draft.description}
+              onChange={(description) => setDraft((current) => ({ ...current, description }))}
+              placeholder="Add instructions..."
+              bordered={false}
+              contentClassName="min-h-[160px] text-sm text-muted-foreground"
+              onSubmit={() => {
+                if (!createRoutine.isPending && draft.title.trim() && draft.projectId && draft.assigneeAgentId) {
+                  createRoutine.mutate();
+                }
+              }}
+            />
+          </div>
+
+          <div className="border-t border-border/60 px-5 py-3">
+            <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+              <CollapsibleTrigger className="flex w-full items-center justify-between text-left">
+                <div>
+                  <p className="text-sm font-medium">Advanced delivery settings</p>
+                  <p className="text-sm text-muted-foreground">Keep policy controls secondary to the work definition.</p>
+                </div>
+                {advancedOpen ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-3">
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Priority</p>
+                    <Select value={draft.priority} onValueChange={(priority) => setDraft((current) => ({ ...current, priority }))}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {priorities.map((priority) => (
+                          <SelectItem key={priority} value={priority}>{priority.replace("_", " ")}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Concurrency</p>
+                    <Select
+                      value={draft.concurrencyPolicy}
+                      onValueChange={(concurrencyPolicy) => setDraft((current) => ({ ...current, concurrencyPolicy }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {concurrencyPolicies.map((value) => (
+                          <SelectItem key={value} value={value}>{value.replaceAll("_", " ")}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">{concurrencyPolicyDescriptions[draft.concurrencyPolicy]}</p>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Catch-up</p>
+                    <Select
+                      value={draft.catchUpPolicy}
+                      onValueChange={(catchUpPolicy) => setDraft((current) => ({ ...current, catchUpPolicy }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {catchUpPolicies.map((value) => (
+                          <SelectItem key={value} value={value}>{value.replaceAll("_", " ")}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">{catchUpPolicyDescriptions[draft.catchUpPolicy]}</p>
+                  </div>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          </div>
+
+          <div className="flex flex-col gap-3 border-t border-border/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm text-muted-foreground">
+              After creation, Paperclip takes you straight to trigger setup for schedules, webhooks, or internal runs.
+            </div>
+            <div className="flex flex-col gap-2 sm:items-end">
+              <Button
+                onClick={() => createRoutine.mutate()}
+                disabled={
+                  createRoutine.isPending ||
+                  !draft.title.trim() ||
+                  !draft.projectId ||
+                  !draft.assigneeAgentId
+                }
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                {createRoutine.isPending ? "Creating..." : "Create routine"}
+              </Button>
+              {createRoutine.isError ? (
+                <p className="text-sm text-destructive">
+                  {createRoutine.error instanceof Error ? createRoutine.error.message : "Failed to create routine"}
+                </p>
+              ) : null}
+            </div>
+          </div>
+        </Card>
+      ) : null}
+
+      {error ? (
         <Card>
           <CardContent className="pt-6 text-sm text-destructive">
             {error instanceof Error ? error.message : "Failed to load routines"}
           </CardContent>
         </Card>
-      )}
+      ) : null}
 
       <div className="grid gap-4">
         {(routines ?? []).length === 0 ? (
           <EmptyState
             icon={Repeat}
-            message="No routines yet. Create the first recurring workflow above."
+            message="No routines yet. Use Create routine to define the first recurring workflow."
           />
         ) : (
           (routines ?? []).map((routine) => (
             <Card key={routine.id}>
               <CardContent className="flex flex-col gap-4 pt-6 md:flex-row md:items-start md:justify-between">
-                <div className="space-y-3 min-w-0">
+                <div className="min-w-0 space-y-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <Link to={`/routines/${routine.id}`} className="text-base font-medium hover:underline">
                       {routine.title}
@@ -301,11 +501,11 @@ export function Routines() {
                     </Badge>
                     <Badge variant="outline">{routine.priority}</Badge>
                   </div>
-                  {routine.description && (
+                  {routine.description ? (
                     <p className="line-clamp-2 text-sm text-muted-foreground">
                       {routine.description}
                     </p>
-                  )}
+                  ) : null}
                   <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                     <span>Project: {projectName.get(routine.projectId) ?? routine.projectId.slice(0, 8)}</span>
                     <span>Assignee: {agentName.get(routine.assigneeAgentId) ?? routine.assigneeAgentId.slice(0, 8)}</span>
