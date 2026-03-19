@@ -522,6 +522,8 @@ export function Routines() {
               <thead className="bg-muted/30">
                 <tr className="text-left text-xs uppercase tracking-[0.16em] text-muted-foreground">
                   <th className="px-4 py-3 font-medium">Name</th>
+                  <th className="px-4 py-3 font-medium">Project</th>
+                  <th className="px-4 py-3 font-medium">Agent</th>
                   <th className="px-4 py-3 font-medium">Last run</th>
                   <th className="px-4 py-3 font-medium">Enabled</th>
                   <th className="w-12 px-4 py-3" />
@@ -535,15 +537,44 @@ export function Routines() {
                   return (
                     <tr key={routine.id} className="align-middle">
                       <td className="px-4 py-3">
-                        <div className="min-w-[240px]">
+                        <div className="min-w-[180px]">
                           <Link to={`/routines/${routine.id}`} className="font-medium hover:underline">
                             {routine.title}
                           </Link>
-                          <div className="mt-1 text-xs text-muted-foreground">
-                            {routine.projectId ? `${projectById.get(routine.projectId)?.name ?? "Unknown project"}` : "No project"}
-                            {isArchived ? " · archived" : routine.status === "paused" ? " · paused" : ""}
-                          </div>
+                          {(isArchived || routine.status === "paused") && (
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              {isArchived ? "archived" : "paused"}
+                            </div>
+                          )}
                         </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        {routine.projectId ? (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <span
+                              className="shrink-0 h-3 w-3 rounded-sm"
+                              style={{ backgroundColor: projectById.get(routine.projectId)?.color ?? "#6366f1" }}
+                            />
+                            <span className="truncate">{projectById.get(routine.projectId)?.name ?? "Unknown"}</span>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {routine.assigneeAgentId ? (() => {
+                          const agent = agentById.get(routine.assigneeAgentId);
+                          return agent ? (
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                              <AgentIcon icon={agent.icon} className="h-4 w-4 shrink-0" />
+                              <span className="truncate">{agent.name}</span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">Unknown</span>
+                          );
+                        })() : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">
                         <div>{formatLastRunTimestamp(routine.lastRun?.triggeredAt)}</div>
