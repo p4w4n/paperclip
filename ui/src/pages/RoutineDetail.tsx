@@ -51,7 +51,7 @@ import type { RoutineTrigger } from "@paperclipai/shared";
 
 const concurrencyPolicies = ["coalesce_if_active", "always_enqueue", "skip_if_active"];
 const catchUpPolicies = ["skip_missed", "enqueue_missed_with_cap"];
-const triggerKinds = ["schedule", "webhook", "api"];
+const triggerKinds = ["schedule", "webhook"];
 const signingModes = ["bearer", "hmac_sha256"];
 const routineTabs = ["triggers", "runs", "activity"] as const;
 const concurrencyPolicyDescriptions: Record<string, string> = {
@@ -907,7 +907,9 @@ export function RoutineDetail() {
                   </SelectTrigger>
                   <SelectContent>
                     {triggerKinds.map((kind) => (
-                      <SelectItem key={kind} value={kind}>{kind}</SelectItem>
+                      <SelectItem key={kind} value={kind} disabled={kind === "webhook"}>
+                        {kind}{kind === "webhook" ? " — COMING SOON" : ""}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

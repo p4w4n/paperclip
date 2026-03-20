@@ -3076,6 +3076,15 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
         }
 
         let created = await agents.create(targetCompany.id, patch);
+        await access.ensureMembership(targetCompany.id, "agent", created.id, "member", "active");
+        await access.setPrincipalPermission(
+          targetCompany.id,
+          "agent",
+          created.id,
+          "tasks:assign",
+          true,
+          actorUserId ?? null,
+        );
         try {
           const materialized = await instructions.materializeManagedBundle(created, bundleFiles, {
             clearLegacyPromptTemplate: true,

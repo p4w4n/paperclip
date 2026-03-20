@@ -5341,6 +5341,31 @@
           "primaryKey": false,
           "notNull": false
         },
+        "process_pid": {
+          "name": "process_pid",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "process_started_at": {
+          "name": "process_started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "retry_of_run_id": {
+          "name": "retry_of_run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "process_loss_retry_count": {
+          "name": "process_loss_retry_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
         "context_snapshot": {
           "name": "context_snapshot",
           "type": "jsonb",
@@ -5429,6 +5454,19 @@
             "id"
           ],
           "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "heartbeat_runs_retry_of_run_id_heartbeat_runs_id_fk": {
+          "name": "heartbeat_runs_retry_of_run_id_heartbeat_runs_id_fk",
+          "tableFrom": "heartbeat_runs",
+          "tableTo": "heartbeat_runs",
+          "columnsFrom": [
+            "retry_of_run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
