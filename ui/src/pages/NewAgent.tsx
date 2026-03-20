@@ -4,9 +4,11 @@ import { useNavigate, useSearchParams } from "@/lib/router";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { agentsApi } from "../api/agents";
+import { companySkillsApi } from "../api/companySkills";
 import { queryKeys } from "../lib/queryKeys";
 import { AGENT_ROLES } from "@paperclipai/shared";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Popover,
   PopoverContent,
@@ -68,6 +70,7 @@ export function NewAgent() {
   const [role, setRole] = useState("general");
   const [reportsTo, setReportsTo] = useState<string | null>(null);
   const [configValues, setConfigValues] = useState<CreateConfigValues>(defaultCreateValues);
+  const [selectedSkillKeys, setSelectedSkillKeys] = useState<string[]>([]);
   const [roleOpen, setRoleOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -87,6 +90,12 @@ export function NewAgent() {
       ? queryKeys.agents.adapterModels(selectedCompanyId, configValues.adapterType)
       : ["agents", "none", "adapter-models", configValues.adapterType],
     queryFn: () => agentsApi.adapterModels(selectedCompanyId!, configValues.adapterType),
+    enabled: Boolean(selectedCompanyId),
+  });
+
+  const { data: companySkills } = useQuery({
+    queryKey: queryKeys.companySkills.list(selectedCompanyId ?? ""),
+    queryFn: () => companySkillsApi.list(selectedCompanyId!),
     enabled: Boolean(selectedCompanyId),
   });
 
@@ -172,7 +181,8 @@ export function NewAgent() {
       name: name.trim(),
       role: effectiveRole,
       ...(title.trim() ? { title: title.trim() } : {}),
-      ...(reportsTo != null ? { reportsTo } : {}),
+      ...(reportsTo ? { reportsTo } : {}),
+      ...(selectedSkillKeys.length > 0 ? { desiredSkills: selectedSkillKeys } : {}),
       adapterType: configValues.adapterType,
       adapterConfig: buildAdapterConfig(),
       runtimeConfig: {
@@ -185,6 +195,17 @@ export function NewAgent() {
         },
       },
       budgetMonthlyCents: 0,
+    });
+  }
+
+  const availableSkills = (companySkills ?? []).filter((skill) => !skill.key.startsWith("paperclipai/paperclip/"));
+
+  function toggleSkill(key: string, checked: boolean) {
+    setSelectedSkillKeys((prev) => {
+      if (checked) {
+        return prev.includes(key) ? prev : [...prev, key];
+      }
+      return prev.filter((value) => value !== key);
     });
   }
 
@@ -265,6 +286,44 @@ export function NewAgent() {
           onChange={(patch) => setConfigValues((prev) => ({ ...prev, ...patch }))}
           adapterModels={adapterModels}
         />
+
+        <div className="border-t border-border px-4 py-4">
+          <div className="space-y-3">
+            <div>
+              <h2 className="text-sm font-medium">Company skills</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Optional skills from the company library. Built-in Paperclip runtime skills are added automatically.
+              </p>
+            </div>
+            {availableSkills.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No optional company skills installed yet.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {availableSkills.map((skill) => {
+                  const inputId = `skill-${skill.id}`;
+                  const checked = selectedSkillKeys.includes(skill.key);
+                  return (
+                    <div key={skill.id} className="flex items-start gap-3">
+                      <Checkbox
+                        id={inputId}
+                        checked={checked}
+                        onCheckedChange={(next) => toggleSkill(skill.key, next === true)}
+                      />
+                      <label htmlFor={inputId} className="grid gap-1 leading-none">
+                        <span className="text-sm font-medium">{skill.name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {skill.description ?? skill.key}
+                        </span>
+                      </label>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
 
         {/* Footer */}
         <div className="border-t border-border px-4 py-3">
