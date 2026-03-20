@@ -101,6 +101,13 @@ export function routineRoutes(db: Db) {
     if (assigneeWillChange) {
       await assertBoardCanAssignTasks(req, routine.companyId);
     }
+    const statusWillActivate =
+      req.body.status !== undefined &&
+      req.body.status === "active" &&
+      routine.status !== "active";
+    if (statusWillActivate) {
+      await assertBoardCanAssignTasks(req, routine.companyId);
+    }
     if (req.actor.type === "agent" && req.body.assigneeAgentId && req.body.assigneeAgentId !== req.actor.agentId) {
       throw forbidden("Agents can only assign routines to themselves");
     }
@@ -141,6 +148,7 @@ export function routineRoutes(db: Db) {
       res.status(404).json({ error: "Routine not found" });
       return;
     }
+    await assertBoardCanAssignTasks(req, routine.companyId);
     const created = await svc.createTrigger(routine.id, req.body, {
       agentId: req.actor.type === "agent" ? req.actor.agentId : null,
       userId: req.actor.type === "board" ? req.actor.userId ?? "board" : null,
@@ -171,6 +179,7 @@ export function routineRoutes(db: Db) {
       res.status(404).json({ error: "Routine not found" });
       return;
     }
+    await assertBoardCanAssignTasks(req, routine.companyId);
     const updated = await svc.updateTrigger(trigger.id, req.body, {
       agentId: req.actor.type === "agent" ? req.actor.agentId : null,
       userId: req.actor.type === "board" ? req.actor.userId ?? "board" : null,
@@ -257,6 +266,7 @@ export function routineRoutes(db: Db) {
       res.status(404).json({ error: "Routine not found" });
       return;
     }
+    await assertBoardCanAssignTasks(req, routine.companyId);
     const run = await svc.runRoutine(routine.id, req.body);
     const actor = getActorInfo(req);
     await logActivity(db, {

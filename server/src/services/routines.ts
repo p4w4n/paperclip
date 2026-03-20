@@ -561,6 +561,7 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
         ? nextCronTickInTimeZone(input.trigger.cronExpression, input.trigger.timezone, triggeredAt)
         : undefined;
 
+      let createdIssue: Awaited<ReturnType<typeof issueSvc.create>> | null = null;
       try {
         const activeIssue = await findLiveExecutionIssue(input.routine, txDb);
         if (activeIssue && input.routine.concurrencyPolicy !== "always_enqueue") {
@@ -582,7 +583,6 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
           return updated ?? createdRun;
         }
 
-        let createdIssue;
         try {
           createdIssue = await issueSvc.create(input.routine.companyId, {
             projectId: input.routine.projectId,
@@ -637,6 +637,7 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
           mutation: "create",
           contextSource: "routine.dispatch",
           requestedByActorType: input.source === "schedule" ? "system" : undefined,
+          rethrowOnError: true,
         });
         const updated = await finalizeRun(createdRun.id, {
           status: "issue_created",
@@ -652,6 +653,9 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
         }, txDb);
         return updated ?? createdRun;
       } catch (error) {
+        if (createdIssue) {
+          await txDb.delete(issues).where(eq(issues.id, createdIssue.id));
+        }
         const failureReason = error instanceof Error ? error.message : String(error);
         const failed = await finalizeRun(createdRun.id, {
           status: "failed",

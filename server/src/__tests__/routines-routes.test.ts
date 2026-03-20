@@ -32,6 +32,34 @@ const routine = {
   createdAt: new Date("2026-03-20T00:00:00.000Z"),
   updatedAt: new Date("2026-03-20T00:00:00.000Z"),
 };
+const pausedRoutine = {
+  ...routine,
+  status: "paused",
+};
+const trigger = {
+  id: "66666666-6666-4666-8666-666666666666",
+  companyId,
+  routineId,
+  kind: "schedule",
+  label: "weekday",
+  enabled: false,
+  cronExpression: "0 10 * * 1-5",
+  timezone: "UTC",
+  nextRunAt: null,
+  lastFiredAt: null,
+  publicId: null,
+  secretId: null,
+  signingMode: null,
+  replayWindowSec: null,
+  lastRotatedAt: null,
+  lastResult: null,
+  createdByAgentId: null,
+  createdByUserId: null,
+  updatedByAgentId: null,
+  updatedByUserId: null,
+  createdAt: new Date("2026-03-20T00:00:00.000Z"),
+  updatedAt: new Date("2026-03-20T00:00:00.000Z"),
+};
 
 const mockRoutineService = vi.hoisted(() => ({
   list: vi.fn(),
@@ -78,7 +106,13 @@ describe("routine routes", () => {
     vi.clearAllMocks();
     mockRoutineService.create.mockResolvedValue(routine);
     mockRoutineService.get.mockResolvedValue(routine);
+    mockRoutineService.getTrigger.mockResolvedValue(trigger);
     mockRoutineService.update.mockResolvedValue({ ...routine, assigneeAgentId: otherAgentId });
+    mockRoutineService.runRoutine.mockResolvedValue({
+      id: "run-1",
+      source: "manual",
+      status: "issue_created",
+    });
     mockAccessService.canUser.mockResolvedValue(false);
     mockLogActivity.mockResolvedValue(undefined);
   });
@@ -123,6 +157,87 @@ describe("routine routes", () => {
     expect(res.status).toBe(403);
     expect(res.body.error).toContain("tasks:assign");
     expect(mockRoutineService.update).not.toHaveBeenCalled();
+  });
+
+  it("requires tasks:assign permission to reactivate a routine", async () => {
+    mockRoutineService.get.mockResolvedValue(pausedRoutine);
+    const app = createApp({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: [companyId],
+    });
+
+    const res = await request(app)
+      .patch(`/api/routines/${routineId}`)
+      .send({
+        status: "active",
+      });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain("tasks:assign");
+    expect(mockRoutineService.update).not.toHaveBeenCalled();
+  });
+
+  it("requires tasks:assign permission to create a trigger", async () => {
+    const app = createApp({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: [companyId],
+    });
+
+    const res = await request(app)
+      .post(`/api/routines/${routineId}/triggers`)
+      .send({
+        kind: "schedule",
+        cronExpression: "0 10 * * *",
+        timezone: "UTC",
+      });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain("tasks:assign");
+    expect(mockRoutineService.createTrigger).not.toHaveBeenCalled();
+  });
+
+  it("requires tasks:assign permission to update a trigger", async () => {
+    const app = createApp({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: [companyId],
+    });
+
+    const res = await request(app)
+      .patch(`/api/routine-triggers/${trigger.id}`)
+      .send({
+        enabled: true,
+      });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain("tasks:assign");
+    expect(mockRoutineService.updateTrigger).not.toHaveBeenCalled();
+  });
+
+  it("requires tasks:assign permission to manually run a routine", async () => {
+    const app = createApp({
+      type: "board",
+      userId: "board-user",
+      source: "session",
+      isInstanceAdmin: false,
+      companyIds: [companyId],
+    });
+
+    const res = await request(app)
+      .post(`/api/routines/${routineId}/run`)
+      .send({});
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain("tasks:assign");
+    expect(mockRoutineService.runRoutine).not.toHaveBeenCalled();
   });
 
   it("allows routine creation when the board user has tasks:assign", async () => {
