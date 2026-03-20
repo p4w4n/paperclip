@@ -9,13 +9,24 @@ import {
   updateRoutineTriggerSchema,
 } from "@paperclipai/shared";
 import { validate } from "../middleware/validate.js";
-import { logActivity, routineService } from "../services/index.js";
+import { accessService, logActivity, routineService } from "../services/index.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
 import { forbidden, unauthorized } from "../errors.js";
 
 export function routineRoutes(db: Db) {
   const router = Router();
   const svc = routineService(db);
+  const access = accessService(db);
+
+  async function assertBoardCanAssignTasks(req: Request, companyId: string) {
+    assertCompanyAccess(req, companyId);
+    if (req.actor.type !== "board") return;
+    if (req.actor.source === "local_implicit" || req.actor.isInstanceAdmin) return;
+    const allowed = await access.canUser(companyId, req.actor.userId, "tasks:assign");
+    if (!allowed) {
+      throw forbidden("Missing permission: tasks:assign");
+    }
+  }
 
   function assertCanManageCompanyRoutine(req: Request, companyId: string, assigneeAgentId?: string | null) {
     assertCompanyAccess(req, companyId);
@@ -47,6 +58,7 @@ export function routineRoutes(db: Db) {
 
   router.post("/companies/:companyId/routines", validate(createRoutineSchema), async (req, res) => {
     const companyId = req.params.companyId as string;
+    await assertBoardCanAssignTasks(req, companyId);
     assertCanManageCompanyRoutine(req, companyId, req.body.assigneeAgentId);
     const created = await svc.create(companyId, req.body, {
       agentId: req.actor.type === "agent" ? req.actor.agentId : null,
@@ -82,6 +94,12 @@ export function routineRoutes(db: Db) {
     if (!routine) {
       res.status(404).json({ error: "Routine not found" });
       return;
+    }
+    const assigneeWillChange =
+      req.body.assigneeAgentId !== undefined &&
+      req.body.assigneeAgentId !== routine.assigneeAgentId;
+    if (assigneeWillChange) {
+      await assertBoardCanAssignTasks(req, routine.companyId);
     }
     if (req.actor.type === "agent" && req.body.assigneeAgentId && req.body.assigneeAgentId !== req.actor.agentId) {
       throw forbidden("Agents can only assign routines to themselves");

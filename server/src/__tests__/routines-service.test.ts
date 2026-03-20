@@ -176,7 +176,30 @@ describe("routine service live-execution coalescing", () => {
       heartbeat: {
         wakeup: async (wakeupAgentId, wakeupOpts) => {
           wakeups.push({ agentId: wakeupAgentId, opts: wakeupOpts });
-          return opts?.wakeup ? opts.wakeup(wakeupAgentId, wakeupOpts) : null;
+          if (opts?.wakeup) return opts.wakeup(wakeupAgentId, wakeupOpts);
+          const issueId =
+            (typeof wakeupOpts.payload?.issueId === "string" && wakeupOpts.payload.issueId) ||
+            (typeof wakeupOpts.contextSnapshot?.issueId === "string" && wakeupOpts.contextSnapshot.issueId) ||
+            null;
+          if (!issueId) return null;
+          const queuedRunId = randomUUID();
+          await db.insert(heartbeatRuns).values({
+            id: queuedRunId,
+            companyId,
+            agentId: wakeupAgentId,
+            invocationSource: wakeupOpts.source ?? "assignment",
+            triggerDetail: wakeupOpts.triggerDetail ?? null,
+            status: "queued",
+            contextSnapshot: { ...(wakeupOpts.contextSnapshot ?? {}), issueId },
+          });
+          await db
+            .update(issues)
+            .set({
+              executionRunId: queuedRunId,
+              executionLockedAt: new Date(),
+            })
+            .where(eq(issues.id, issueId));
+          return { id: queuedRunId };
         },
       },
     });
@@ -349,5 +372,53 @@ describe("routine service live-execution coalescing", () => {
 
     expect(routineIssues).toHaveLength(1);
     expect(routineIssues[0]?.id).toBe(previousIssue.id);
+  });
+
+  it("serializes concurrent dispatches until the first execution issue is linked to a queued run", async () => {
+    const { routine, svc } = await seedFixture({
+      wakeup: async (wakeupAgentId, wakeupOpts) => {
+        const issueId =
+          (typeof wakeupOpts.payload?.issueId === "string" && wakeupOpts.payload.issueId) ||
+          (typeof wakeupOpts.contextSnapshot?.issueId === "string" && wakeupOpts.contextSnapshot.issueId) ||
+          null;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        if (!issueId) return null;
+        const queuedRunId = randomUUID();
+        await db.insert(heartbeatRuns).values({
+          id: queuedRunId,
+          companyId: routine.companyId,
+          agentId: wakeupAgentId,
+          invocationSource: wakeupOpts.source ?? "assignment",
+          triggerDetail: wakeupOpts.triggerDetail ?? null,
+          status: "queued",
+          contextSnapshot: { ...(wakeupOpts.contextSnapshot ?? {}), issueId },
+        });
+        await db
+          .update(issues)
+          .set({
+            executionRunId: queuedRunId,
+            executionLockedAt: new Date(),
+          })
+          .where(eq(issues.id, issueId));
+        return { id: queuedRunId };
+      },
+    });
+
+    const [first, second] = await Promise.all([
+      svc.runRoutine(routine.id, { source: "manual" }),
+      svc.runRoutine(routine.id, { source: "manual" }),
+    ]);
+
+    expect([first.status, second.status].sort()).toEqual(["coalesced", "issue_created"]);
+    expect(first.linkedIssueId).toBeTruthy();
+    expect(second.linkedIssueId).toBeTruthy();
+    expect(first.linkedIssueId).toBe(second.linkedIssueId);
+
+    const routineIssues = await db
+      .select({ id: issues.id })
+      .from(issues)
+      .where(eq(issues.originId, routine.id));
+
+    expect(routineIssues).toHaveLength(1);
   });
 });
