@@ -29,6 +29,8 @@ import { conflict, forbidden, notFound, unauthorized, unprocessable } from "../e
 import { issueService } from "./issues.js";
 import { secretService } from "./secrets.js";
 import { parseCron, validateCron } from "./cron.js";
+import { heartbeatService } from "./heartbeat.js";
+import { queueIssueAssignmentWakeup, type IssueAssignmentWakeupDeps } from "./issue-assignment-wakeup.js";
 
 const OPEN_ISSUE_STATUSES = ["backlog", "todo", "in_progress", "in_review", "blocked"];
 const LIVE_HEARTBEAT_RUN_STATUSES = ["queued", "running"];
@@ -128,9 +130,10 @@ function nextResultText(status: string, issueId?: string | null) {
   return status;
 }
 
-export function routineService(db: Db) {
+export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeupDeps } = {}) {
   const issueSvc = issueService(db);
   const secretsSvc = secretService(db);
+  const heartbeat = deps.heartbeat ?? heartbeatService(db);
 
   async function getRoutineById(id: string) {
     return db
@@ -615,6 +618,14 @@ export function routineService(db: Db) {
       const updated = await finalizeRun(run.id, {
         status: "issue_created",
         linkedIssueId: createdIssue.id,
+      });
+      queueIssueAssignmentWakeup({
+        heartbeat,
+        issue: createdIssue,
+        reason: "issue_assigned",
+        mutation: "create",
+        contextSource: "routine.dispatch",
+        requestedByActorType: input.source === "schedule" ? "system" : undefined,
       });
       await updateRoutineTouchedState({
         routineId: input.routine.id,

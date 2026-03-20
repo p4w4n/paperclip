@@ -120,6 +120,18 @@ describe("routine service live-execution coalescing", () => {
     const agentId = randomUUID();
     const projectId = randomUUID();
     const issuePrefix = `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
+    const wakeups: Array<{
+      agentId: string;
+      opts: {
+        source?: string;
+        triggerDetail?: string;
+        reason?: string | null;
+        payload?: Record<string, unknown> | null;
+        requestedByActorType?: "user" | "agent" | "system";
+        requestedByActorId?: string | null;
+        contextSnapshot?: Record<string, unknown>;
+      };
+    }> = [];
 
     await db.insert(companies).values({
       id: companyId,
@@ -147,7 +159,14 @@ describe("routine service live-execution coalescing", () => {
       status: "in_progress",
     });
 
-    const svc = routineService(db);
+    const svc = routineService(db, {
+      heartbeat: {
+        wakeup: async (agentId, opts) => {
+          wakeups.push({ agentId, opts });
+          return null;
+        },
+      },
+    });
     const issueSvc = issueService(db);
     const routine = await svc.create(
       companyId,
@@ -166,7 +185,7 @@ describe("routine service live-execution coalescing", () => {
       {},
     );
 
-    return { companyId, agentId, issueSvc, projectId, routine, svc };
+    return { companyId, agentId, issueSvc, projectId, routine, svc, wakeups };
   }
 
   it("creates a fresh execution issue when the previous routine issue is open but idle", async () => {
@@ -214,6 +233,29 @@ describe("routine service live-execution coalescing", () => {
     expect(routineIssues).toHaveLength(2);
     expect(routineIssues.map((issue) => issue.id)).toContain(previousIssue.id);
     expect(routineIssues.map((issue) => issue.id)).toContain(run.linkedIssueId);
+  });
+
+  it("wakes the assignee when a routine creates a fresh execution issue", async () => {
+    const { agentId, routine, svc, wakeups } = await seedFixture();
+
+    const run = await svc.runRoutine(routine.id, { source: "manual" });
+
+    expect(run.status).toBe("issue_created");
+    expect(run.linkedIssueId).toBeTruthy();
+    expect(wakeups).toEqual([
+      {
+        agentId,
+        opts: {
+          source: "assignment",
+          triggerDetail: "system",
+          reason: "issue_assigned",
+          payload: { issueId: run.linkedIssueId, mutation: "create" },
+          requestedByActorType: undefined,
+          requestedByActorId: null,
+          contextSnapshot: { issueId: run.linkedIssueId, source: "routine.dispatch" },
+        },
+      },
+    ]);
   });
 
   it("coalesces only when the existing routine issue has a live execution run", async () => {
