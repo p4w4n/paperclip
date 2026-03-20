@@ -14,6 +14,10 @@ const mockAgentService = vi.hoisted(() => ({
 const mockAccessService = vi.hoisted(() => ({
   canUser: vi.fn(),
   hasPermission: vi.fn(),
+  getMembership: vi.fn(),
+  listPrincipalGrants: vi.fn(),
+  ensureMembership: vi.fn(),
+  setPrincipalPermission: vi.fn(),
 }));
 
 const mockApprovalService = vi.hoisted(() => ({}));
@@ -186,6 +190,10 @@ describe("agent skill routes", () => {
     mockLogActivity.mockResolvedValue(undefined);
     mockAccessService.canUser.mockResolvedValue(true);
     mockAccessService.hasPermission.mockResolvedValue(true);
+    mockAccessService.getMembership.mockResolvedValue(null);
+    mockAccessService.listPrincipalGrants.mockResolvedValue([]);
+    mockAccessService.ensureMembership.mockResolvedValue(undefined);
+    mockAccessService.setPrincipalPermission.mockResolvedValue(undefined);
   });
 
   it("skips runtime materialization when listing Claude skills", async () => {

@@ -17,6 +17,7 @@ const accessSvc = {
   ensureMembership: vi.fn(),
   listActiveUserMemberships: vi.fn(),
   copyActiveUserMemberships: vi.fn(),
+  setPrincipalPermission: vi.fn(),
 };
 
 const projectSvc = {
@@ -258,6 +259,7 @@ describe("company portability", () => {
     assetSvc.getById.mockReset();
     assetSvc.getById.mockResolvedValue(null);
     assetSvc.create.mockReset();
+    accessSvc.setPrincipalPermission.mockResolvedValue(undefined);
     assetSvc.create.mockResolvedValue({
       id: "asset-created",
     });
