@@ -1004,20 +1004,24 @@ export function RoutineDetail() {
           {(activity ?? []).length === 0 ? (
             <p className="text-xs text-muted-foreground">No activity yet.</p>
           ) : (
-            <div className="space-y-1.5">
+            <div className="border border-border rounded-lg divide-y divide-border">
               {(activity ?? []).map((event) => (
-                <div key={event.id} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <span className="font-medium text-foreground/80">{event.action.replaceAll(".", " ")}</span>
-                  {event.details && Object.keys(event.details).length > 0 && (
-                    <>
-                      {Object.entries(event.details).slice(0, 3).map(([key, value]) => (
-                        <span key={key} className="rounded-full border border-border px-1.5 py-0.5">
-                          {key.replaceAll("_", " ")}: {formatActivityDetailValue(value)}
-                        </span>
-                      ))}
-                    </>
-                  )}
-                  <span className="ml-auto shrink-0">{timeAgo(event.createdAt)}</span>
+                <div key={event.id} className="flex items-center justify-between px-3 py-2 text-xs gap-4">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="font-medium text-foreground/90 shrink-0">{event.action.replaceAll(".", " ")}</span>
+                    {event.details && Object.keys(event.details).length > 0 && (
+                      <span className="text-muted-foreground truncate">
+                        {Object.entries(event.details).slice(0, 3).map(([key, value], i) => (
+                          <span key={key}>
+                            {i > 0 && <span className="mx-1 text-border">·</span>}
+                            <span className="text-muted-foreground/70">{key.replaceAll("_", " ")}:</span>{" "}
+                            {formatActivityDetailValue(value)}
+                          </span>
+                        ))}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-muted-foreground/60 shrink-0">{timeAgo(event.createdAt)}</span>
                 </div>
               ))}
             </div>
