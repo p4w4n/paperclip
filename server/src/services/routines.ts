@@ -132,6 +132,12 @@ function nextResultText(status: string, issueId?: string | null) {
   return status;
 }
 
+function normalizeWebhookTimestampMs(rawTimestamp: string) {
+  const parsed = Number(rawTimestamp);
+  if (!Number.isFinite(parsed)) return null;
+  return parsed > 1e12 ? parsed : parsed * 1000;
+}
+
 export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeupDeps } = {}) {
   const issueSvc = issueService(db);
   const secretsSvc = secretService(db);
@@ -1064,8 +1070,8 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
         const providedSignature = input.signatureHeader?.trim() ?? "";
         const providedTimestamp = input.timestampHeader?.trim() ?? "";
         if (!providedSignature || !providedTimestamp) throw unauthorized();
-        const tsMillis = Number(providedTimestamp);
-        if (!Number.isFinite(tsMillis)) throw unauthorized();
+        const tsMillis = normalizeWebhookTimestampMs(providedTimestamp);
+        if (tsMillis == null) throw unauthorized();
         const replayWindowSec = trigger.replayWindowSec ?? 300;
         if (Math.abs(Date.now() - tsMillis) > replayWindowSec * 1000) {
           throw unauthorized();

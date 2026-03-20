@@ -24,6 +24,7 @@ import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useToast } from "../context/ToastContext";
 import { queryKeys } from "../lib/queryKeys";
+import { buildRoutineTriggerPatch } from "../lib/routine-trigger-patch";
 import { timeAgo } from "../lib/timeAgo";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
@@ -61,7 +62,7 @@ const concurrencyPolicyDescriptions: Record<string, string> = {
 };
 const catchUpPolicyDescriptions: Record<string, string> = {
   skip_missed: "Ignore schedule windows that were missed while the routine or scheduler was paused.",
-  enqueue_missed_with_cap: "Catch up missed schedule windows with a capped backlog after recovery.",
+  enqueue_missed_with_cap: "Catch up missed schedule windows in capped batches after recovery.",
 };
 const signingModeDescriptions: Record<string, string> = {
   bearer: "Expect a shared bearer token in the Authorization header.",
@@ -212,20 +213,7 @@ function TriggerEditor({
           <Button
             variant="outline"
             size="sm"
-            onClick={() =>
-              onSave(trigger.id, {
-                label: draft.label.trim() || null,
-                ...(trigger.kind === "schedule"
-                  ? { cronExpression: draft.cronExpression.trim(), timezone: getLocalTimezone() }
-                  : {}),
-                ...(trigger.kind === "webhook"
-                  ? {
-                    signingMode: draft.signingMode,
-                    replayWindowSec: Number(draft.replayWindowSec || "300"),
-                  }
-                  : {}),
-              })
-            }
+            onClick={() => onSave(trigger.id, buildRoutineTriggerPatch(trigger, draft, getLocalTimezone()))}
           >
             <Save className="mr-1.5 h-3.5 w-3.5" />
             Save

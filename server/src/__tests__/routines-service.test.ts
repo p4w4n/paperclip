@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -6,9 +6,12 @@ import path from "node:path";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
+  activityLog,
   agents,
   applyPendingMigrations,
   companies,
+  companySecrets,
+  companySecretVersions,
   createDb,
   ensurePostgresDatabase,
   heartbeatRuns,
@@ -16,6 +19,7 @@ import {
   projects,
   routineRuns,
   routines,
+  routineTriggers,
 } from "@paperclipai/db";
 import { issueService } from "../services/issues.ts";
 import { routineService } from "../services/routines.ts";
@@ -99,8 +103,12 @@ describe("routine service live-execution coalescing", () => {
   }, 20_000);
 
   afterEach(async () => {
+    await db.delete(activityLog);
     await db.delete(routineRuns);
+    await db.delete(routineTriggers);
     await db.delete(routines);
+    await db.delete(companySecretVersions);
+    await db.delete(companySecrets);
     await db.delete(heartbeatRuns);
     await db.delete(issues);
     await db.delete(projects);
@@ -420,5 +428,40 @@ describe("routine service live-execution coalescing", () => {
       .where(eq(issues.originId, routine.id));
 
     expect(routineIssues).toHaveLength(1);
+  });
+
+  it("accepts standard second-precision webhook timestamps for HMAC triggers", async () => {
+    const { routine, svc } = await seedFixture();
+    const { trigger, secretMaterial } = await svc.createTrigger(
+      routine.id,
+      {
+        kind: "webhook",
+        signingMode: "hmac_sha256",
+        replayWindowSec: 300,
+      },
+      {},
+    );
+
+    expect(trigger.publicId).toBeTruthy();
+    expect(secretMaterial?.webhookSecret).toBeTruthy();
+
+    const payload = { ok: true };
+    const rawBody = Buffer.from(JSON.stringify(payload));
+    const timestampSeconds = String(Math.floor(Date.now() / 1000));
+    const signature = `sha256=${createHmac("sha256", secretMaterial!.webhookSecret)
+      .update(`${timestampSeconds}.`)
+      .update(rawBody)
+      .digest("hex")}`;
+
+    const run = await svc.firePublicTrigger(trigger.publicId!, {
+      signatureHeader: signature,
+      timestampHeader: timestampSeconds,
+      rawBody,
+      payload,
+    });
+
+    expect(run.source).toBe("webhook");
+    expect(run.status).toBe("issue_created");
+    expect(run.linkedIssueId).toBeTruthy();
   });
 });
