@@ -195,6 +195,7 @@ export function OnboardingWizard() {
     adapterType === "codex_local" ||
     adapterType === "gemini_local" ||
     adapterType === "opencode_local" ||
+    adapterType === "pi_local" ||
     adapterType === "cursor";
   const effectiveAdapterCommand =
     command.trim() ||
