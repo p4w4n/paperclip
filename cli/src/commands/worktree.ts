@@ -92,6 +92,8 @@ type WorktreeListOptions = {
 };
 
 type WorktreeMergeHistoryOptions = {
+  from?: string;
+  to?: string;
   company?: string;
   scope?: string;
   apply?: boolean;
@@ -872,6 +874,13 @@ type MergeSourceChoice = {
   isCurrent: boolean;
 };
 
+type ResolvedWorktreeEndpoint = {
+  rootPath: string;
+  configPath: string;
+  label: string;
+  isCurrent: boolean;
+};
+
 function parseGitWorktreeList(cwd: string): GitWorktreeListEntry[] {
   const raw = execFileSync("git", ["worktree", "list", "--porcelain"], {
     cwd,
@@ -1139,6 +1148,15 @@ async function closeDb(db: ClosableDb): Promise<void> {
   await db.$client?.end?.({ timeout: 5 }).catch(() => undefined);
 }
 
+function resolveCurrentEndpoint(): ResolvedWorktreeEndpoint {
+  return {
+    rootPath: path.resolve(process.cwd()),
+    configPath: resolveConfigPath(),
+    label: "current",
+    isCurrent: true,
+  };
+}
+
 async function openConfiguredDb(configPath: string): Promise<OpenDbHandle> {
   const config = readConfig(configPath);
   if (!config) {
@@ -1224,12 +1242,14 @@ async function resolveMergeCompany(input: {
 
 function renderMergePlan(plan: Awaited<ReturnType<typeof collectMergePlan>>["plan"], extras: {
   sourcePath: string;
+  targetPath: string;
   unsupportedRunCount: number;
   unsupportedDocumentCount: number;
 }): string {
   const lines = [
     `Mode: preview`,
     `Source: ${extras.sourcePath}`,
+    `Target: ${extras.targetPath}`,
     `Company: ${plan.companyName} (${plan.issuePrefix})`,
     "",
     "Issues",
@@ -1455,46 +1475,93 @@ export async function worktreeListCommand(opts: WorktreeListOptions): Promise<vo
   }
 }
 
-async function resolveMergeSourceRoot(sourceArg: string | undefined): Promise<string> {
+function resolveEndpointFromChoice(choice: MergeSourceChoice): ResolvedWorktreeEndpoint {
+  if (choice.isCurrent) {
+    return resolveCurrentEndpoint();
+  }
+  return {
+    rootPath: choice.worktree,
+    configPath: path.resolve(choice.worktree, ".paperclip", "config.json"),
+    label: choice.branchLabel,
+    isCurrent: false,
+  };
+}
+
+function resolveWorktreeEndpointFromSelector(
+  selector: string,
+  opts?: { allowCurrent?: boolean },
+): ResolvedWorktreeEndpoint {
+  const trimmed = selector.trim();
+  const allowCurrent = opts?.allowCurrent !== false;
+  if (trimmed.length === 0) {
+    throw new Error("Worktree selector cannot be empty.");
+  }
+
+  const currentEndpoint = resolveCurrentEndpoint();
+  if (allowCurrent && trimmed === "current") {
+    return currentEndpoint;
+  }
+
   const choices = toMergeSourceChoices(process.cwd());
-  const candidates = choices.filter((choice) => !choice.isCurrent && choice.hasPaperclipConfig);
-
-  if (sourceArg && sourceArg.trim().length > 0) {
-    const directPath = path.resolve(sourceArg);
-    if (existsSync(directPath)) {
-      return directPath;
+  const directPath = path.resolve(trimmed);
+  if (existsSync(directPath)) {
+    if (allowCurrent && directPath === currentEndpoint.rootPath) {
+      return currentEndpoint;
     }
-
-    const matched = candidates.find((choice) =>
-      choice.worktree === path.resolve(sourceArg)
-      || path.basename(choice.worktree) === sourceArg
-      || choice.branchLabel === sourceArg,
-    );
-    if (matched) {
-      return matched.worktree;
+    const configPath = path.resolve(directPath, ".paperclip", "config.json");
+    if (!existsSync(configPath)) {
+      throw new Error(`Resolved worktree path ${directPath} does not contain .paperclip/config.json.`);
     }
+    return {
+      rootPath: directPath,
+      configPath,
+      label: path.basename(directPath),
+      isCurrent: false,
+    };
+  }
 
+  const matched = choices.find((choice) =>
+    (allowCurrent || !choice.isCurrent)
+    && (choice.worktree === directPath
+      || path.basename(choice.worktree) === trimmed
+      || choice.branchLabel === trimmed),
+  );
+  if (!matched) {
     throw new Error(
-      `Could not resolve source worktree "${sourceArg}". Use a path, a listed worktree directory name, or a listed branch name.`,
+      `Could not resolve worktree "${selector}". Use a path, a listed worktree directory name, branch name, or "current".`,
     );
   }
-
-  if (candidates.length === 0) {
-    throw new Error("No other Paperclip worktrees were found. Run `paperclipai worktree:list` to inspect the repo worktrees.");
+  if (!matched.hasPaperclipConfig && !matched.isCurrent) {
+    throw new Error(`Resolved worktree "${selector}" does not look like a Paperclip worktree.`);
   }
+  return resolveEndpointFromChoice(matched);
+}
 
+async function promptForSourceEndpoint(excludeWorktreePath?: string): Promise<ResolvedWorktreeEndpoint> {
+  const excluded = excludeWorktreePath ? path.resolve(excludeWorktreePath) : null;
+  const currentEndpoint = resolveCurrentEndpoint();
+  const choices = toMergeSourceChoices(process.cwd())
+    .filter((choice) => choice.hasPaperclipConfig || choice.isCurrent)
+    .filter((choice) => path.resolve(choice.worktree) !== excluded)
+    .map((choice) => ({
+      value: choice.isCurrent ? "__current__" : choice.worktree,
+      label: choice.branchLabel,
+      hint: `${choice.worktree}${choice.isCurrent ? " (current)" : ""}`,
+    }));
+  if (choices.length === 0) {
+    throw new Error("No Paperclip worktrees were found. Run `paperclipai worktree:list` to inspect the repo worktrees.");
+  }
   const selection = await p.select<string>({
     message: "Choose the source worktree to import from",
-    options: candidates.map((choice) => ({
-      value: choice.worktree,
-      label: choice.branchLabel,
-      hint: choice.worktree,
-    })),
+    options: choices,
   });
   if (p.isCancel(selection)) {
     throw new Error("Source worktree selection cancelled.");
   }
-  return selection;
+  if (selection === "__current__") {
+    return currentEndpoint;
+  }
+  return resolveWorktreeEndpointFromSelector(selection, { allowCurrent: true });
 }
 
 async function applyMergePlan(input: {
@@ -1619,20 +1686,26 @@ export async function worktreeMergeHistoryCommand(sourceArg: string | undefined,
     throw new Error("Use either --apply or --dry, not both.");
   }
 
-  const sourceRoot = await resolveMergeSourceRoot(sourceArg);
-  const sourceConfigPath = path.resolve(sourceRoot, ".paperclip", "config.json");
-  if (!existsSync(sourceConfigPath)) {
-    throw new Error(`Source worktree config not found at ${sourceConfigPath}.`);
+  if (sourceArg && opts.from) {
+    throw new Error("Use either the positional source argument or --from, not both.");
   }
 
-  const targetConfigPath = resolveConfigPath();
-  if (path.resolve(sourceConfigPath) === path.resolve(targetConfigPath)) {
-    throw new Error("Source and target Paperclip configs are the same. Point --source at a different worktree.");
+  const targetEndpoint = opts.to
+    ? resolveWorktreeEndpointFromSelector(opts.to, { allowCurrent: true })
+    : resolveCurrentEndpoint();
+  const sourceEndpoint = opts.from
+    ? resolveWorktreeEndpointFromSelector(opts.from, { allowCurrent: true })
+    : sourceArg
+      ? resolveWorktreeEndpointFromSelector(sourceArg, { allowCurrent: true })
+      : await promptForSourceEndpoint(targetEndpoint.rootPath);
+
+  if (path.resolve(sourceEndpoint.configPath) === path.resolve(targetEndpoint.configPath)) {
+    throw new Error("Source and target Paperclip configs are the same. Choose different --from/--to worktrees.");
   }
 
   const scopes = parseWorktreeMergeScopes(opts.scope);
-  const sourceHandle = await openConfiguredDb(sourceConfigPath);
-  const targetHandle = await openConfiguredDb(targetConfigPath);
+  const sourceHandle = await openConfiguredDb(sourceEndpoint.configPath);
+  const targetHandle = await openConfiguredDb(targetEndpoint.configPath);
 
   try {
     const company = await resolveMergeCompany({
@@ -1664,7 +1737,8 @@ export async function worktreeMergeHistoryCommand(sourceArg: string | undefined,
     }
 
     console.log(renderMergePlan(collected.plan, {
-      sourcePath: sourceRoot,
+      sourcePath: `${sourceEndpoint.label} (${sourceEndpoint.rootPath})`,
+      targetPath: `${targetEndpoint.label} (${targetEndpoint.rootPath})`,
       unsupportedRunCount: collected.unsupportedRunCount,
       unsupportedDocumentCount: collected.unsupportedDocumentCount,
     }));
@@ -1676,7 +1750,7 @@ export async function worktreeMergeHistoryCommand(sourceArg: string | undefined,
     const confirmed = opts.yes
       ? true
       : await p.confirm({
-        message: `Import ${collected.plan.counts.issuesToInsert} issues and ${collected.plan.counts.commentsToInsert} comments from ${path.basename(sourceRoot)}?`,
+        message: `Import ${collected.plan.counts.issuesToInsert} issues and ${collected.plan.counts.commentsToInsert} comments from ${sourceEndpoint.label} into ${targetEndpoint.label}?`,
         initialValue: false,
       });
     if (p.isCancel(confirmed) || !confirmed) {
@@ -1752,8 +1826,10 @@ export function registerWorktreeCommands(program: Command): void {
   program
     .command("worktree:merge-history")
     .description("Preview or import issue/comment history from another worktree into the current instance")
-    .argument("[source]", "Optional source worktree path, directory name, or branch name")
-    .option("--company <id-or-prefix>", "Company id or issue prefix to import")
+    .argument("[source]", "Optional source worktree path, directory name, or branch name (back-compat alias for --from)")
+    .option("--from <worktree>", "Source worktree path, directory name, branch name, or current")
+    .option("--to <worktree>", "Target worktree path, directory name, branch name, or current (defaults to current)")
+    .option("--company <id-or-prefix>", "Shared company id or issue prefix inside the chosen source/target instances")
     .option("--scope <items>", "Comma-separated scopes to import (issues, comments)", "issues,comments")
     .option("--apply", "Apply the import after previewing the plan", false)
     .option("--dry", "Preview only and do not import anything", false)
