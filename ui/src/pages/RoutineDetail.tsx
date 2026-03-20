@@ -271,7 +271,6 @@ export function RoutineDetail() {
     projectId: "",
     assigneeAgentId: "",
     priority: "medium",
-    status: "active",
     concurrencyPolicy: "coalesce_if_active",
     catchUpPolicy: "skip_missed",
   });
@@ -332,7 +331,6 @@ export function RoutineDetail() {
             projectId: routine.projectId,
             assigneeAgentId: routine.assigneeAgentId,
             priority: routine.priority,
-            status: routine.status,
             concurrencyPolicy: routine.concurrencyPolicy,
             catchUpPolicy: routine.catchUpPolicy,
           }
@@ -347,7 +345,6 @@ export function RoutineDetail() {
       editDraft.projectId !== routineDefaults.projectId ||
       editDraft.assigneeAgentId !== routineDefaults.assigneeAgentId ||
       editDraft.priority !== routineDefaults.priority ||
-      editDraft.status !== routineDefaults.status ||
       editDraft.concurrencyPolicy !== routineDefaults.concurrencyPolicy ||
       editDraft.catchUpPolicy !== routineDefaults.catchUpPolicy
     );
@@ -402,10 +399,9 @@ export function RoutineDetail() {
 
   const saveRoutine = useMutation({
     mutationFn: () => {
-      const { status: _status, ...payload } = editDraft;
       return routinesApi.update(routineId!, {
-        ...payload,
-        description: payload.description.trim() || null,
+        ...editDraft,
+        description: editDraft.description.trim() || null,
       });
     },
     onSuccess: async () => {
@@ -449,7 +445,8 @@ export function RoutineDetail() {
     mutationFn: (status: string) => routinesApi.update(routineId!, { status }),
     onSuccess: async (_data, status) => {
       pushToast({
-        title: status === "paused" ? "Automation paused" : "Automation enabled",
+        title: "Routine saved",
+        body: status === "paused" ? "Automation paused." : "Automation enabled.",
         tone: "success",
       });
       await Promise.all([
