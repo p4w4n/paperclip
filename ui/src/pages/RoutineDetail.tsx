@@ -16,6 +16,7 @@ import {
   Zap,
 } from "lucide-react";
 import { routinesApi, type RoutineTriggerResponse, type RotateRoutineTriggerResponse } from "../api/routines";
+import { heartbeatsApi } from "../api/heartbeats";
 import { LiveRunWidget } from "../components/LiveRunWidget";
 import { agentsApi } from "../api/agents";
 import { projectsApi } from "../api/projects";
@@ -281,18 +282,20 @@ export function RoutineDetail() {
     queryFn: () => routinesApi.get(routineId!),
     enabled: !!routineId,
   });
+  const activeIssueId = routine?.activeIssue?.id;
+  const { data: liveRuns } = useQuery({
+    queryKey: queryKeys.issues.liveRuns(activeIssueId!),
+    queryFn: () => heartbeatsApi.liveRunsForIssue(activeIssueId!),
+    enabled: !!activeIssueId,
+    refetchInterval: 3000,
+  });
+  const hasLiveRun = (liveRuns ?? []).length > 0;
   const { data: routineRuns } = useQuery({
     queryKey: queryKeys.routines.runs(routineId!),
     queryFn: () => routinesApi.listRuns(routineId!),
     enabled: !!routineId,
-    refetchInterval: (query) => {
-      const runs = query.state.data ?? [];
-      return runs.some((r) => r.status === "received" || r.status === "issue_created") ? 3000 : false;
-    },
+    refetchInterval: hasLiveRun ? 3000 : false,
   });
-  const hasLiveRun = (routineRuns ?? []).some(
-    (run) => run.status === "received" || run.status === "issue_created",
-  );
   const relatedActivityIds = useMemo(
     () => ({
       triggerIds: routine?.triggers.map((trigger) => trigger.id) ?? [],
@@ -985,12 +988,9 @@ export function RoutineDetail() {
         </TabsContent>
 
         <TabsContent value="runs" className="space-y-4">
-          {hasLiveRun && (() => {
-            const liveRun = (routineRuns ?? []).find((r) => r.status === "received" || r.status === "issue_created");
-            const issueId = liveRun?.linkedIssue?.id ?? routine?.activeIssue?.id;
-            if (!issueId || !routine) return null;
-            return <LiveRunWidget issueId={issueId} companyId={routine.companyId} />;
-          })()}
+          {hasLiveRun && activeIssueId && routine && (
+            <LiveRunWidget issueId={activeIssueId} companyId={routine.companyId} />
+          )}
           {(routineRuns ?? []).length === 0 ? (
             <p className="text-xs text-muted-foreground">No runs yet.</p>
           ) : (
