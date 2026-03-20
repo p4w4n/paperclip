@@ -30,7 +30,7 @@ import { AgentIcon } from "../components/AgentIconPicker";
 import { InlineEntitySelector, type InlineEntityOption } from "../components/InlineEntitySelector";
 import { MarkdownEditor, type MarkdownEditorRef } from "../components/MarkdownEditor";
 import { ScheduleEditor, describeSchedule } from "../components/ScheduleEditor";
-import { RunButton, PauseResumeButton } from "../components/AgentActionButtons";
+import { RunButton } from "../components/AgentActionButtons";
 import { getRecentAssigneeIds, sortAgentsByRecency, trackRecentAssignee } from "../lib/recent-assignees";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -280,15 +280,19 @@ export function RoutineDetail() {
     queryKey: queryKeys.routines.detail(routineId!),
     queryFn: () => routinesApi.get(routineId!),
     enabled: !!routineId,
-    refetchInterval: (query) => query.state.data?.activeIssue ? 5000 : false,
   });
-  const hasLiveRun = !!routine?.activeIssue;
   const { data: routineRuns } = useQuery({
     queryKey: queryKeys.routines.runs(routineId!),
     queryFn: () => routinesApi.listRuns(routineId!),
     enabled: !!routineId,
-    refetchInterval: hasLiveRun ? 3000 : false,
+    refetchInterval: (query) => {
+      const runs = query.state.data ?? [];
+      return runs.some((r) => r.status === "received" || r.status === "issue_created") ? 3000 : false;
+    },
   });
+  const hasLiveRun = (routineRuns ?? []).some(
+    (run) => run.status === "received" || run.status === "issue_created",
+  );
   const relatedActivityIds = useMemo(
     () => ({
       triggerIds: routine?.triggers.map((trigger) => trigger.id) ?? [],
@@ -442,7 +446,7 @@ export function RoutineDetail() {
     mutationFn: (status: string) => routinesApi.update(routineId!, { status }),
     onSuccess: async (_data, status) => {
       pushToast({
-        title: status === "paused" ? "Routine paused" : "Routine resumed",
+        title: status === "paused" ? "Automation paused" : "Automation enabled",
         tone: "success",
       });
       await Promise.all([
@@ -607,29 +611,57 @@ export function RoutineDetail() {
     );
   }
 
+  const automationEnabled = routine.status === "active";
+  const automationToggleDisabled = updateRoutineStatus.isPending || routine.status === "archived";
+  const automationLabel = routine.status === "archived" ? "Archived" : automationEnabled ? "Active" : "Paused";
+  const automationLabelClassName = routine.status === "archived"
+    ? "text-muted-foreground"
+    : automationEnabled
+      ? "text-emerald-400"
+      : "text-muted-foreground";
+
   return (
     <div className="max-w-2xl space-y-6">
       {/* Header: status + actions */}
-      <div className="flex items-center gap-2">
-        <Badge variant={routine.status === "active" ? "default" : "secondary"}>
-          {routine.status.replaceAll("_", " ")}
-        </Badge>
-        {routine.activeIssue && (
-          <Link
-            to={`/issues/${routine.activeIssue.identifier ?? routine.activeIssue.id}`}
-            className="text-xs text-muted-foreground hover:underline"
-          >
-            {routine.activeIssue.identifier ?? routine.activeIssue.id.slice(0, 8)}
-          </Link>
-        )}
-        <div className="ml-auto flex items-center gap-2">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-1">
+          {routine.activeIssue && (
+            <Link
+              to={`/issues/${routine.activeIssue.identifier ?? routine.activeIssue.id}`}
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:underline"
+            >
+              <span>Current issue</span>
+              <span>{routine.activeIssue.identifier ?? routine.activeIssue.id.slice(0, 8)}</span>
+            </Link>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
           <RunButton onClick={() => runRoutine.mutate()} disabled={runRoutine.isPending} />
-          <PauseResumeButton
-            isPaused={routine.status === "paused"}
-            onPause={() => updateRoutineStatus.mutate("paused")}
-            onResume={() => updateRoutineStatus.mutate("active")}
-            disabled={updateRoutineStatus.isPending || routine.status === "archived"}
-          />
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Automation</span>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={automationEnabled}
+                aria-label={automationEnabled ? "Pause automatic triggers" : "Enable automatic triggers"}
+                disabled={automationToggleDisabled}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  automationEnabled ? "bg-emerald-500" : "bg-muted"
+                } ${automationToggleDisabled ? "cursor-not-allowed opacity-50" : ""}`}
+                onClick={() => updateRoutineStatus.mutate(automationEnabled ? "paused" : "active")}
+              >
+                <span
+                  className={`inline-block h-5 w-5 rounded-full bg-background shadow-sm transition-transform ${
+                    automationEnabled ? "translate-x-5" : "translate-x-0.5"
+                  }`}
+                />
+              </button>
+              <span className={`min-w-[3.75rem] text-sm font-medium ${automationLabelClassName}`}>
+                {automationLabel}
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -953,9 +985,12 @@ export function RoutineDetail() {
         </TabsContent>
 
         <TabsContent value="runs" className="space-y-4">
-          {routine?.activeIssue && (
-            <LiveRunWidget issueId={routine.activeIssue.id} companyId={routine.companyId} />
-          )}
+          {hasLiveRun && (() => {
+            const liveRun = (routineRuns ?? []).find((r) => r.status === "received" || r.status === "issue_created");
+            const issueId = liveRun?.linkedIssue?.id ?? routine?.activeIssue?.id;
+            if (!issueId || !routine) return null;
+            return <LiveRunWidget issueId={issueId} companyId={routine.companyId} />;
+          })()}
           {(routineRuns ?? []).length === 0 ? (
             <p className="text-xs text-muted-foreground">No runs yet.</p>
           ) : (
