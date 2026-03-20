@@ -87,6 +87,10 @@ type WorktreeEnvOptions = {
   json?: boolean;
 };
 
+type WorktreeListOptions = {
+  json?: boolean;
+};
+
 type WorktreeMergeHistoryOptions = {
   company?: string;
   scope?: string;
@@ -860,6 +864,14 @@ type GitWorktreeListEntry = {
   detached: boolean;
 };
 
+type MergeSourceChoice = {
+  worktree: string;
+  branch: string | null;
+  branchLabel: string;
+  hasPaperclipConfig: boolean;
+  isCurrent: boolean;
+};
+
 function parseGitWorktreeList(cwd: string): GitWorktreeListEntry[] {
   const raw = execFileSync("git", ["worktree", "list", "--porcelain"], {
     cwd,
@@ -896,6 +908,21 @@ function parseGitWorktreeList(cwd: string): GitWorktreeListEntry[] {
     });
   }
   return entries;
+}
+
+function toMergeSourceChoices(cwd: string): MergeSourceChoice[] {
+  const currentCwd = path.resolve(cwd);
+  return parseGitWorktreeList(cwd).map((entry) => {
+    const branchLabel = entry.branch?.replace(/^refs\/heads\//, "") ?? "(detached)";
+    const worktreePath = path.resolve(entry.worktree);
+    return {
+      worktree: worktreePath,
+      branch: entry.branch,
+      branchLabel,
+      hasPaperclipConfig: existsSync(path.resolve(worktreePath, ".paperclip", "config.json")),
+      isCurrent: worktreePath === currentCwd,
+    };
+  });
 }
 
 function branchHasUniqueCommits(cwd: string, branchName: string): boolean {
@@ -1107,14 +1134,6 @@ type ResolvedMergeCompany = {
   name: string;
   issuePrefix: string;
 };
-
-function requirePathArgument(name: string, value: string | undefined): string {
-  const trimmed = nonEmpty(value);
-  if (!trimmed) {
-    throw new Error(`${name} is required.`);
-  }
-  return path.resolve(trimmed);
-}
 
 async function closeDb(db: ClosableDb): Promise<void> {
   await db.$client?.end?.({ timeout: 5 }).catch(() => undefined);
@@ -1420,6 +1439,64 @@ async function promptForProjectMappings(input: {
   return mappings;
 }
 
+export async function worktreeListCommand(opts: WorktreeListOptions): Promise<void> {
+  const choices = toMergeSourceChoices(process.cwd());
+  if (opts.json) {
+    console.log(JSON.stringify(choices, null, 2));
+    return;
+  }
+
+  for (const choice of choices) {
+    const flags = [
+      choice.isCurrent ? "current" : null,
+      choice.hasPaperclipConfig ? "paperclip" : "no-paperclip-config",
+    ].filter((value): value is string => value !== null);
+    p.log.message(`${choice.branchLabel}  ${choice.worktree}  [${flags.join(", ")}]`);
+  }
+}
+
+async function resolveMergeSourceRoot(sourceArg: string | undefined): Promise<string> {
+  const choices = toMergeSourceChoices(process.cwd());
+  const candidates = choices.filter((choice) => !choice.isCurrent && choice.hasPaperclipConfig);
+
+  if (sourceArg && sourceArg.trim().length > 0) {
+    const directPath = path.resolve(sourceArg);
+    if (existsSync(directPath)) {
+      return directPath;
+    }
+
+    const matched = candidates.find((choice) =>
+      choice.worktree === path.resolve(sourceArg)
+      || path.basename(choice.worktree) === sourceArg
+      || choice.branchLabel === sourceArg,
+    );
+    if (matched) {
+      return matched.worktree;
+    }
+
+    throw new Error(
+      `Could not resolve source worktree "${sourceArg}". Use a path, a listed worktree directory name, or a listed branch name.`,
+    );
+  }
+
+  if (candidates.length === 0) {
+    throw new Error("No other Paperclip worktrees were found. Run `paperclipai worktree:list` to inspect the repo worktrees.");
+  }
+
+  const selection = await p.select<string>({
+    message: "Choose the source worktree to import from",
+    options: candidates.map((choice) => ({
+      value: choice.worktree,
+      label: choice.branchLabel,
+      hint: choice.worktree,
+    })),
+  });
+  if (p.isCancel(selection)) {
+    throw new Error("Source worktree selection cancelled.");
+  }
+  return selection;
+}
+
 async function applyMergePlan(input: {
   targetDb: ClosableDb;
   company: ResolvedMergeCompany;
@@ -1537,12 +1614,12 @@ async function applyMergePlan(input: {
   });
 }
 
-export async function worktreeMergeHistoryCommand(sourceArg: string, opts: WorktreeMergeHistoryOptions): Promise<void> {
+export async function worktreeMergeHistoryCommand(sourceArg: string | undefined, opts: WorktreeMergeHistoryOptions): Promise<void> {
   if (opts.apply && opts.dry) {
     throw new Error("Use either --apply or --dry, not both.");
   }
 
-  const sourceRoot = requirePathArgument("Source worktree path", sourceArg);
+  const sourceRoot = await resolveMergeSourceRoot(sourceArg);
   const sourceConfigPath = path.resolve(sourceRoot, ".paperclip", "config.json");
   if (!existsSync(sourceConfigPath)) {
     throw new Error(`Source worktree config not found at ${sourceConfigPath}.`);
@@ -1667,9 +1744,15 @@ export function registerWorktreeCommands(program: Command): void {
     .action(worktreeEnvCommand);
 
   program
+    .command("worktree:list")
+    .description("List git worktrees visible from this repo and whether they look like Paperclip worktrees")
+    .option("--json", "Print JSON instead of text output")
+    .action(worktreeListCommand);
+
+  program
     .command("worktree:merge-history")
     .description("Preview or import issue/comment history from another worktree into the current instance")
-    .argument("<source>", "Path to the source worktree root")
+    .argument("[source]", "Optional source worktree path, directory name, or branch name")
     .option("--company <id-or-prefix>", "Company id or issue prefix to import")
     .option("--scope <items>", "Comma-separated scopes to import (issues, comments)", "issues,comments")
     .option("--apply", "Apply the import after previewing the plan", false)
