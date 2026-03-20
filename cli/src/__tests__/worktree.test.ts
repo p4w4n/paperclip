@@ -196,13 +196,37 @@ describe("worktree helpers", () => {
     expect(formatShellExports(env)).toContain("export PAPERCLIP_INSTANCE_ID='feature-worktree-support'");
   });
 
-  it("treats missing source attachment objects as a non-fatal skip", async () => {
+  it("falls back across storage roots before skipping a missing attachment object", async () => {
+    const missingErr = Object.assign(new Error("missing"), { code: "ENOENT" });
+    const expected = Buffer.from("image-bytes");
+    await expect(
+      readSourceAttachmentBody(
+        [
+          {
+            getObject: vi.fn().mockRejectedValue(missingErr),
+          },
+          {
+            getObject: vi.fn().mockResolvedValue(expected),
+          },
+        ],
+        "company-1",
+        "company-1/issues/issue-1/missing.png",
+      ),
+    ).resolves.toEqual(expected);
+  });
+
+  it("returns null when an attachment object is missing from every lookup storage", async () => {
     const missingErr = Object.assign(new Error("missing"), { code: "ENOENT" });
     await expect(
       readSourceAttachmentBody(
-        {
-          getObject: vi.fn().mockRejectedValue(missingErr),
-        },
+        [
+          {
+            getObject: vi.fn().mockRejectedValue(missingErr),
+          },
+          {
+            getObject: vi.fn().mockRejectedValue(Object.assign(new Error("missing"), { status: 404 })),
+          },
+        ],
         "company-1",
         "company-1/issues/issue-1/missing.png",
       ),

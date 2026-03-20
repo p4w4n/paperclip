@@ -360,18 +360,21 @@ export function isMissingStorageObjectError(error: unknown): boolean {
 }
 
 export async function readSourceAttachmentBody(
-  sourceStorage: Pick<ConfiguredStorage, "getObject">,
+  sourceStorages: Array<Pick<ConfiguredStorage, "getObject">>,
   companyId: string,
   objectKey: string,
 ): Promise<Buffer | null> {
-  try {
-    return await sourceStorage.getObject(companyId, objectKey);
-  } catch (error) {
-    if (isMissingStorageObjectError(error)) {
-      return null;
+  for (const sourceStorage of sourceStorages) {
+    try {
+      return await sourceStorage.getObject(companyId, objectKey);
+    } catch (error) {
+      if (isMissingStorageObjectError(error)) {
+        continue;
+      }
+      throw error;
     }
-    throw error;
   }
+  return null;
 }
 
 export function resolveWorktreeMakeTargetPath(name: string): string {
@@ -1350,6 +1353,29 @@ function resolveCurrentEndpoint(): ResolvedWorktreeEndpoint {
   };
 }
 
+function resolveAttachmentLookupStorages(input: {
+  sourceEndpoint: ResolvedWorktreeEndpoint;
+  targetEndpoint: ResolvedWorktreeEndpoint;
+}): ConfiguredStorage[] {
+  const orderedConfigPaths = [
+    input.sourceEndpoint.configPath,
+    resolveCurrentEndpoint().configPath,
+    input.targetEndpoint.configPath,
+    ...toMergeSourceChoices(process.cwd())
+      .filter((choice) => choice.hasPaperclipConfig)
+      .map((choice) => path.resolve(choice.worktree, ".paperclip", "config.json")),
+  ];
+  const seen = new Set<string>();
+  const storages: ConfiguredStorage[] = [];
+  for (const configPath of orderedConfigPaths) {
+    const resolved = path.resolve(configPath);
+    if (seen.has(resolved) || !existsSync(resolved)) continue;
+    seen.add(resolved);
+    storages.push(openConfiguredStorage(resolved));
+  }
+  return storages;
+}
+
 async function openConfiguredDb(configPath: string): Promise<OpenDbHandle> {
   const config = readConfig(configPath);
   if (!config) {
@@ -1930,7 +1956,7 @@ async function promptForSourceEndpoint(excludeWorktreePath?: string): Promise<Re
 }
 
 async function applyMergePlan(input: {
-  sourceStorage: ConfiguredStorage;
+  sourceStorages: ConfiguredStorage[];
   targetStorage: ConfiguredStorage;
   targetDb: ClosableDb;
   company: ResolvedMergeCompany;
@@ -2194,7 +2220,7 @@ async function applyMergePlan(input: {
       if (!parentExists) continue;
 
       const body = await readSourceAttachmentBody(
-        input.sourceStorage,
+        input.sourceStorages,
         companyId,
         attachment.source.objectKey,
       );
@@ -2274,7 +2300,10 @@ export async function worktreeMergeHistoryCommand(sourceArg: string | undefined,
   const scopes = parseWorktreeMergeScopes(opts.scope);
   const sourceHandle = await openConfiguredDb(sourceEndpoint.configPath);
   const targetHandle = await openConfiguredDb(targetEndpoint.configPath);
-  const sourceStorage = openConfiguredStorage(sourceEndpoint.configPath);
+  const sourceStorages = resolveAttachmentLookupStorages({
+    sourceEndpoint,
+    targetEndpoint,
+  });
   const targetStorage = openConfiguredStorage(targetEndpoint.configPath);
 
   try {
@@ -2328,7 +2357,7 @@ export async function worktreeMergeHistoryCommand(sourceArg: string | undefined,
     }
 
     const applied = await applyMergePlan({
-      sourceStorage,
+      sourceStorages,
       targetStorage,
       targetDb: targetHandle.db,
       company,
