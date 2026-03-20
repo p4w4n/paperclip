@@ -1224,9 +1224,13 @@ function renderMergePlan(plan: Awaited<ReturnType<typeof collectMergePlan>>["pla
     lines.push("");
     lines.push("Planned issue imports");
     for (const issue of issueInserts) {
+      const projectNote =
+        issue.projectResolution === "mapped" && issue.mappedProjectName
+          ? ` project->${issue.mappedProjectName}`
+          : "";
       const adjustments = issue.adjustments.length > 0 ? ` [${issue.adjustments.join(", ")}]` : "";
       lines.push(
-        `- ${issue.source.identifier ?? issue.source.id} -> ${issue.previewIdentifier} (${issue.targetStatus})${adjustments}`,
+        `- ${issue.source.identifier ?? issue.source.id} -> ${issue.previewIdentifier} (${issue.targetStatus}${projectNote})${adjustments}`,
       );
     }
   }
@@ -1263,9 +1267,10 @@ async function collectMergePlan(input: {
   targetDb: ClosableDb;
   company: ResolvedMergeCompany;
   scopes: ReturnType<typeof parseWorktreeMergeScopes>;
+  projectIdOverrides?: Record<string, string | null | undefined>;
 }) {
   const companyId = input.company.id;
-  const [targetCompanyRow, sourceIssuesRows, targetIssuesRows, sourceCommentsRows, targetCommentsRows, targetAgentsRows, targetProjectsRows, targetProjectWorkspaceRows, targetGoalsRows, runCountRows, documentCountRows] = await Promise.all([
+  const [targetCompanyRow, sourceIssuesRows, targetIssuesRows, sourceCommentsRows, targetCommentsRows, sourceProjectsRows, targetProjectsRows, targetAgentsRows, targetProjectWorkspaceRows, targetGoalsRows, runCountRows, documentCountRows] = await Promise.all([
     input.targetDb
       .select({
         issueCounter: companies.issueCounter,
@@ -1293,14 +1298,18 @@ async function collectMergePlan(input: {
         .from(issueComments)
         .where(eq(issueComments.companyId, companyId))
       : Promise.resolve([]),
-    input.targetDb
+    input.sourceDb
       .select()
-      .from(agents)
-      .where(eq(agents.companyId, companyId)),
+      .from(projects)
+      .where(eq(projects.companyId, companyId)),
     input.targetDb
       .select()
       .from(projects)
       .where(eq(projects.companyId, companyId)),
+    input.targetDb
+      .select()
+      .from(agents)
+      .where(eq(agents.companyId, companyId)),
     input.targetDb
       .select()
       .from(projectWorkspaces)
@@ -1338,13 +1347,77 @@ async function collectMergePlan(input: {
     targetProjects: targetProjectsRows,
     targetProjectWorkspaces: targetProjectWorkspaceRows,
     targetGoals: targetGoalsRows,
+    projectIdOverrides: input.projectIdOverrides,
   });
 
   return {
     plan,
+    sourceProjects: sourceProjectsRows,
+    targetProjects: targetProjectsRows,
     unsupportedRunCount: runCountRows[0]?.count ?? 0,
     unsupportedDocumentCount: documentCountRows[0]?.count ?? 0,
   };
+}
+
+async function promptForProjectMappings(input: {
+  plan: Awaited<ReturnType<typeof collectMergePlan>>["plan"];
+  sourceProjects: Awaited<ReturnType<typeof collectMergePlan>>["sourceProjects"];
+  targetProjects: Awaited<ReturnType<typeof collectMergePlan>>["targetProjects"];
+}): Promise<Record<string, string | null>> {
+  const missingProjectIds = [
+    ...new Set(
+      input.plan.issuePlans
+        .filter((plan): plan is PlannedIssueInsert => plan.action === "insert")
+        .filter((plan) => !!plan.source.projectId && plan.projectResolution === "cleared")
+        .map((plan) => plan.source.projectId as string),
+    ),
+  ];
+  if (missingProjectIds.length === 0 || input.targetProjects.length === 0) {
+    return {};
+  }
+
+  const sourceProjectsById = new Map(input.sourceProjects.map((project) => [project.id, project]));
+  const targetChoices = [...input.targetProjects]
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .map((project) => ({
+      value: project.id,
+      label: project.name,
+      hint: project.status,
+    }));
+
+  const mappings: Record<string, string | null> = {};
+  for (const sourceProjectId of missingProjectIds) {
+    const sourceProject = sourceProjectsById.get(sourceProjectId);
+    if (!sourceProject) continue;
+    const nameMatch = input.targetProjects.find(
+      (project) => project.name.trim().toLowerCase() === sourceProject.name.trim().toLowerCase(),
+    );
+    const selection = await p.select<string | null>({
+      message: `Project "${sourceProject.name}" is missing in target. How should ${input.plan.issuePrefix} imports handle it?`,
+      options: [
+        ...(nameMatch
+          ? [{
+              value: nameMatch.id,
+              label: `Map to ${nameMatch.name}`,
+              hint: "Recommended: exact name match",
+            }]
+          : []),
+        {
+          value: null,
+          label: "Leave unset",
+          hint: "Keep imported issues without a project",
+        },
+        ...targetChoices.filter((choice) => choice.value !== nameMatch?.id),
+      ],
+      initialValue: nameMatch?.id ?? null,
+    });
+    if (p.isCancel(selection)) {
+      throw new Error("Project mapping cancelled.");
+    }
+    mappings[sourceProjectId] = selection;
+  }
+
+  return mappings;
 }
 
 async function applyMergePlan(input: {
@@ -1490,12 +1563,28 @@ export async function worktreeMergeHistoryCommand(sourceArg: string, opts: Workt
       targetDb: targetHandle.db,
       selector: opts.company,
     });
-    const collected = await collectMergePlan({
+    let collected = await collectMergePlan({
       sourceDb: sourceHandle.db,
       targetDb: targetHandle.db,
       company,
       scopes,
     });
+    if (!opts.yes) {
+      const projectIdOverrides = await promptForProjectMappings({
+        plan: collected.plan,
+        sourceProjects: collected.sourceProjects,
+        targetProjects: collected.targetProjects,
+      });
+      if (Object.keys(projectIdOverrides).length > 0) {
+        collected = await collectMergePlan({
+          sourceDb: sourceHandle.db,
+          targetDb: targetHandle.db,
+          company,
+          scopes,
+          projectIdOverrides,
+        });
+      }
+    }
 
     console.log(renderMergePlan(collected.plan, {
       sourcePath: sourceRoot,

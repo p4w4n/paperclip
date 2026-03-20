@@ -39,6 +39,8 @@ export type PlannedIssueInsert = {
   targetProjectId: string | null;
   targetProjectWorkspaceId: string | null;
   targetGoalId: string | null;
+  projectResolution: "preserved" | "cleared" | "mapped";
+  mappedProjectName: string | null;
   adjustments: ImportAdjustment[];
 };
 
@@ -172,11 +174,13 @@ export function buildWorktreeMergePlan(input: {
   targetProjects: ProjectRow[];
   targetProjectWorkspaces: ProjectWorkspaceRow[];
   targetGoals: GoalRow[];
+  projectIdOverrides?: Record<string, string | null | undefined>;
 }): WorktreeMergePlan {
   const targetIssuesById = new Map(input.targetIssues.map((issue) => [issue.id, issue]));
   const targetCommentIds = new Set(input.targetComments.map((comment) => comment.id));
   const targetAgentIds = new Set(input.targetAgents.map((agent) => agent.id));
   const targetProjectIds = new Set(input.targetProjects.map((project) => project.id));
+  const targetProjectsById = new Map(input.targetProjects.map((project) => [project.id, project]));
   const targetProjectWorkspaceIds = new Set(input.targetProjectWorkspaces.map((workspace) => workspace.id));
   const targetGoalIds = new Set(input.targetGoals.map((goal) => goal.id));
   const scopes = new Set(input.scopes);
@@ -215,8 +219,19 @@ export function buildWorktreeMergePlan(input: {
     const targetCreatedByAgentId =
       issue.createdByAgentId && targetAgentIds.has(issue.createdByAgentId) ? issue.createdByAgentId : null;
 
-    const targetProjectId =
+    let targetProjectId =
       issue.projectId && targetProjectIds.has(issue.projectId) ? issue.projectId : null;
+    let projectResolution: PlannedIssueInsert["projectResolution"] = targetProjectId ? "preserved" : "cleared";
+    let mappedProjectName: string | null = null;
+    const overrideProjectId =
+      issue.projectId && input.projectIdOverrides
+        ? input.projectIdOverrides[issue.projectId] ?? null
+        : null;
+    if (!targetProjectId && overrideProjectId && targetProjectIds.has(overrideProjectId)) {
+      targetProjectId = overrideProjectId;
+      projectResolution = "mapped";
+      mappedProjectName = targetProjectsById.get(overrideProjectId)?.name ?? null;
+    }
     if (issue.projectId && !targetProjectId) {
       adjustments.push("clear_project");
       incrementAdjustment(adjustmentCounts, "clear_project");
@@ -224,6 +239,7 @@ export function buildWorktreeMergePlan(input: {
 
     const targetProjectWorkspaceId =
       targetProjectId
+      && targetProjectId === issue.projectId
       && issue.projectWorkspaceId
       && targetProjectWorkspaceIds.has(issue.projectWorkspaceId)
         ? issue.projectWorkspaceId
@@ -262,6 +278,8 @@ export function buildWorktreeMergePlan(input: {
       targetProjectId,
       targetProjectWorkspaceId,
       targetGoalId,
+      projectResolution,
+      mappedProjectName,
       adjustments,
     });
   }

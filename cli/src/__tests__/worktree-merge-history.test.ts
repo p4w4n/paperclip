@@ -139,6 +139,41 @@ describe("worktree merge history planner", () => {
     ]);
   });
 
+  it("applies an explicit project mapping override instead of clearing the project", () => {
+    const plan = buildWorktreeMergePlan({
+      companyId: "company-1",
+      companyName: "Paperclip",
+      issuePrefix: "PAP",
+      previewIssueCounterStart: 10,
+      scopes: ["issues"],
+      sourceIssues: [
+        makeIssue({
+          id: "issue-project-map",
+          identifier: "PAP-77",
+          projectId: "source-project-1",
+          projectWorkspaceId: "source-workspace-1",
+        }),
+      ],
+      targetIssues: [],
+      sourceComments: [],
+      targetComments: [],
+      targetAgents: [],
+      targetProjects: [{ id: "target-project-1", name: "Mapped project", status: "in_progress" }] as any,
+      targetProjectWorkspaces: [],
+      targetGoals: [{ id: "goal-1" }] as any,
+      projectIdOverrides: {
+        "source-project-1": "target-project-1",
+      },
+    });
+
+    const insert = plan.issuePlans[0] as any;
+    expect(insert.targetProjectId).toBe("target-project-1");
+    expect(insert.projectResolution).toBe("mapped");
+    expect(insert.mappedProjectName).toBe("Mapped project");
+    expect(insert.targetProjectWorkspaceId).toBeNull();
+    expect(insert.adjustments).toEqual(["clear_project_workspace"]);
+  });
+
   it("imports comments onto shared or newly imported issues while skipping existing comments", () => {
     const sharedIssue = makeIssue({ id: "issue-a", identifier: "PAP-10" });
     const newIssue = makeIssue({
