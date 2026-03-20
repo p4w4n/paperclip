@@ -115,7 +115,20 @@ describe("routine service live-execution coalescing", () => {
     }
   });
 
-  async function seedFixture() {
+  async function seedFixture(opts?: {
+    wakeup?: (
+      agentId: string,
+      wakeupOpts: {
+        source?: string;
+        triggerDetail?: string;
+        reason?: string | null;
+        payload?: Record<string, unknown> | null;
+        requestedByActorType?: "user" | "agent" | "system";
+        requestedByActorId?: string | null;
+        contextSnapshot?: Record<string, unknown>;
+      },
+    ) => Promise<unknown>;
+  }) {
     const companyId = randomUUID();
     const agentId = randomUUID();
     const projectId = randomUUID();
@@ -161,9 +174,9 @@ describe("routine service live-execution coalescing", () => {
 
     const svc = routineService(db, {
       heartbeat: {
-        wakeup: async (agentId, opts) => {
-          wakeups.push({ agentId, opts });
-          return null;
+        wakeup: async (wakeupAgentId, wakeupOpts) => {
+          wakeups.push({ agentId: wakeupAgentId, opts: wakeupOpts });
+          return opts?.wakeup ? opts.wakeup(wakeupAgentId, wakeupOpts) : null;
         },
       },
     });
@@ -256,6 +269,22 @@ describe("routine service live-execution coalescing", () => {
         },
       },
     ]);
+  });
+
+  it("waits for the assignee wakeup to be queued before returning the routine run", async () => {
+    let wakeupResolved = false;
+    const { routine, svc } = await seedFixture({
+      wakeup: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        wakeupResolved = true;
+        return null;
+      },
+    });
+
+    const run = await svc.runRoutine(routine.id, { source: "manual" });
+
+    expect(run.status).toBe("issue_created");
+    expect(wakeupResolved).toBe(true);
   });
 
   it("coalesces only when the existing routine issue has a live execution run", async () => {

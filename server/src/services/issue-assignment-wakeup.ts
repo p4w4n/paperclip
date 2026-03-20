@@ -29,7 +29,7 @@ export function queueIssueAssignmentWakeup(input: {
 }) {
   if (!input.issue.assigneeAgentId || input.issue.status === "backlog") return;
 
-  void input.heartbeat
+  return input.heartbeat
     .wakeup(input.issue.assigneeAgentId, {
       source: "assignment",
       triggerDetail: "system",

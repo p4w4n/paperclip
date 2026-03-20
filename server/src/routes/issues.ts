@@ -782,7 +782,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
       details: { title: issue.title, identifier: issue.identifier },
     });
 
-    queueIssueAssignmentWakeup({
+    void queueIssueAssignmentWakeup({
       heartbeat,
       issue,
       reason: "issue_assigned",

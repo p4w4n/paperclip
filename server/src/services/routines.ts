@@ -619,7 +619,8 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
         status: "issue_created",
         linkedIssueId: createdIssue.id,
       });
-      queueIssueAssignmentWakeup({
+      // Ensure the wake request is durably queued before reporting the routine run as created.
+      await queueIssueAssignmentWakeup({
         heartbeat,
         issue: createdIssue,
         reason: "issue_assigned",
