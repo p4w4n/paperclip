@@ -1,9 +1,9 @@
 import type {
   Agent,
+  AgentDetail,
   AgentInstructionsBundle,
   AgentInstructionsFileDetail,
   AgentSkillSnapshot,
-  AgentDetail,
   AdapterEnvironmentTestResult,
   AgentKeyCreated,
   AgentRuntimeState,

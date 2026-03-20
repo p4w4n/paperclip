@@ -27,6 +27,7 @@ import {
   documentService,
   logActivity,
   projectService,
+  routineService,
   workProductService,
 } from "../services/index.js";
 import { logger } from "../middleware/logger.js";
@@ -34,6 +35,7 @@ import { forbidden, HttpError, unauthorized } from "../errors.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
 import { shouldWakeAssigneeOnCheckout } from "./issues-checkout-wakeup.js";
 import { isAllowedContentType, MAX_ATTACHMENT_BYTES } from "../attachment-types.js";
+import { queueIssueAssignmentWakeup } from "../services/issue-assignment-wakeup.js";
 
 const MAX_ISSUE_COMMENT_LIMIT = 500;
 
@@ -49,6 +51,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
   const executionWorkspacesSvc = executionWorkspaceService(db);
   const workProductsSvc = workProductService(db);
   const documentsSvc = documentService(db);
+  const routinesSvc = routineService(db);
   const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: MAX_ATTACHMENT_BYTES, files: 1 },
@@ -236,6 +239,10 @@ export function issueRoutes(db: Db, storage: StorageService) {
       projectId: req.query.projectId as string | undefined,
       parentId: req.query.parentId as string | undefined,
       labelId: req.query.labelId as string | undefined,
+      originKind: req.query.originKind as string | undefined,
+      originId: req.query.originId as string | undefined,
+      includeRoutineExecutions:
+        req.query.includeRoutineExecutions === "true" || req.query.includeRoutineExecutions === "1",
       q: req.query.q as string | undefined,
     });
     res.json(result);
@@ -775,19 +782,15 @@ export function issueRoutes(db: Db, storage: StorageService) {
       details: { title: issue.title, identifier: issue.identifier },
     });
 
-    if (issue.assigneeAgentId && issue.status !== "backlog") {
-      void heartbeat
-        .wakeup(issue.assigneeAgentId, {
-          source: "assignment",
-          triggerDetail: "system",
-          reason: "issue_assigned",
-          payload: { issueId: issue.id, mutation: "create" },
-          requestedByActorType: actor.actorType,
-          requestedByActorId: actor.actorId,
-          contextSnapshot: { issueId: issue.id, source: "issue.create" },
-        })
-        .catch((err) => logger.warn({ err, issueId: issue.id }, "failed to wake assignee on issue create"));
-    }
+    void queueIssueAssignmentWakeup({
+      heartbeat,
+      issue,
+      reason: "issue_assigned",
+      mutation: "create",
+      contextSource: "issue.create",
+      requestedByActorType: actor.actorType,
+      requestedByActorId: actor.actorId,
+    });
 
     res.status(201).json(issue);
   });
@@ -856,6 +859,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
       res.status(404).json({ error: "Issue not found" });
       return;
     }
+    await routinesSvc.syncRunStatusForIssue(issue.id);
 
     if (actor.runId) {
       await heartbeat.reportRunActivity(actor.runId).catch((err) =>

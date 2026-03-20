@@ -83,6 +83,10 @@ vi.mock("../services/agent-instructions.js", () => ({
   agentInstructionsService: () => agentInstructionsSvc,
 }));
 
+vi.mock("../routes/org-chart-svg.js", () => ({
+  renderOrgChartPng: vi.fn(async () => Buffer.from("png")),
+}));
+
 const { companyPortabilityService } = await import("../services/company-portability.js");
 
 function asTextFile(entry: CompanyPortabilityFileEntry | undefined) {
@@ -265,6 +269,7 @@ describe("company portability", () => {
     assetSvc.getById.mockReset();
     assetSvc.getById.mockResolvedValue(null);
     assetSvc.create.mockReset();
+    accessSvc.setPrincipalPermission.mockResolvedValue(undefined);
     assetSvc.create.mockResolvedValue({
       id: "asset-created",
     });

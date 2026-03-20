@@ -3123,15 +3123,6 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
         }
 
         let created = await agents.create(targetCompany.id, patch);
-        try {
-          const materialized = await instructions.materializeManagedBundle(created, bundleFiles, {
-            clearLegacyPromptTemplate: true,
-            replaceExisting: true,
-          });
-          created = await agents.update(created.id, { adapterConfig: materialized.adapterConfig }) ?? created;
-        } catch (err) {
-          warnings.push(`Failed to materialize instructions bundle for ${manifestAgent.slug}: ${err instanceof Error ? err.message : String(err)}`);
-        }
         await access.ensureMembership(targetCompany.id, "agent", created.id, "member", "active");
         await access.setPrincipalPermission(
           targetCompany.id,
@@ -3141,6 +3132,15 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
           true,
           actorUserId ?? null,
         );
+        try {
+          const materialized = await instructions.materializeManagedBundle(created, bundleFiles, {
+            clearLegacyPromptTemplate: true,
+            replaceExisting: true,
+          });
+          created = await agents.update(created.id, { adapterConfig: materialized.adapterConfig }) ?? created;
+        } catch (err) {
+          warnings.push(`Failed to materialize instructions bundle for ${manifestAgent.slug}: ${err instanceof Error ? err.message : String(err)}`);
+        }
         importedSlugToAgentId.set(planAgent.slug, created.id);
         existingSlugToAgentId.set(normalizeAgentUrlKey(created.name) ?? created.id, created.id);
         resultAgents.push({

@@ -151,6 +151,8 @@ describe("agent permission routes", () => {
     mockAccessService.listPrincipalGrants.mockResolvedValue([]);
     mockAccessService.ensureMembership.mockResolvedValue(undefined);
     mockAccessService.setPrincipalPermission.mockResolvedValue(undefined);
+    mockCompanySkillService.listRuntimeSkillEntries.mockResolvedValue([]);
+    mockCompanySkillService.resolveRequestedSkillKeys.mockImplementation(async (_companyId, requested) => requested);
     mockBudgetService.upsertPolicy.mockResolvedValue(undefined);
     mockAgentInstructionsService.materializeManagedBundle.mockImplementation(
       async (agent: Record<string, unknown>, files: Record<string, string>) => ({

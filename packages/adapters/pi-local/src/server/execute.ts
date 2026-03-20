@@ -339,15 +339,15 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     if (provider) args.push("--provider", provider);
     if (modelId) args.push("--model", modelId);
     if (thinking) args.push("--thinking", thinking);
-    
+
     args.push("--tools", "read,bash,edit,write,grep,find,ls");
     args.push("--session", sessionFile);
-    
+
     // Add Paperclip skills directory so Pi can load the paperclip skill
     args.push("--skill", PI_AGENT_SKILLS_DIR);
-    
+
     if (extraArgs.length > 0) args.push(...extraArgs);
-    
+
     return args;
   };
 

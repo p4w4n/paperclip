@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   agents,
@@ -68,6 +68,9 @@ export interface IssueFilters {
   projectId?: string;
   parentId?: string;
   labelId?: string;
+  originKind?: string;
+  originId?: string;
+  includeRoutineExecutions?: boolean;
   q?: string;
 }
 
@@ -516,6 +519,8 @@ export function issueService(db: Db) {
       }
       if (filters?.projectId) conditions.push(eq(issues.projectId, filters.projectId));
       if (filters?.parentId) conditions.push(eq(issues.parentId, filters.parentId));
+      if (filters?.originKind) conditions.push(eq(issues.originKind, filters.originKind));
+      if (filters?.originId) conditions.push(eq(issues.originId, filters.originId));
       if (filters?.labelId) {
         const labeledIssueIds = await db
           .select({ issueId: issueLabels.issueId })
@@ -533,6 +538,9 @@ export function issueService(db: Db) {
             commentContainsMatch,
           )!,
         );
+      }
+      if (!filters?.includeRoutineExecutions && !filters?.originKind && !filters?.originId) {
+        conditions.push(ne(issues.originKind, "routine_execution"));
       }
       conditions.push(isNull(issues.hiddenAt));
 
@@ -615,6 +623,7 @@ export function issueService(db: Db) {
         eq(issues.companyId, companyId),
         isNull(issues.hiddenAt),
         unreadForUserCondition(companyId, userId),
+        ne(issues.originKind, "routine_execution"),
       ];
       if (status) {
         const statuses = status.split(",").map((s) => s.trim()).filter(Boolean);
@@ -753,6 +762,7 @@ export function issueService(db: Db) {
 
         const values = {
           ...issueData,
+          originKind: issueData.originKind ?? "manual",
           goalId: resolveIssueGoalId({
             projectId: issueData.projectId,
             goalId: issueData.goalId,
