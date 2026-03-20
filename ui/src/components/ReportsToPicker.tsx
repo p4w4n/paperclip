@@ -48,7 +48,7 @@ export function ReportsToPicker({
           {current ? (
             <>
               <AgentIcon icon={current.icon} className="h-3 w-3 text-muted-foreground" />
-              {`Reports to ${current.name}`}
+              {`Reports to ${current.name}${current.status === "terminated" ? " (terminated)" : ""}`}
             </>
           ) : (
             <>
@@ -77,7 +77,7 @@ export function ReportsToPicker({
             type="button"
             key={a.id}
             className={cn(
-              "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 truncate",
+              "flex items-center gap-2 w-full min-w-0 px-2 py-1.5 text-xs rounded hover:bg-accent/50 overflow-hidden",
               a.id === value && "bg-accent",
             )}
             onClick={() => {
@@ -86,8 +86,8 @@ export function ReportsToPicker({
             }}
           >
             <AgentIcon icon={a.icon} className="shrink-0 h-3 w-3 text-muted-foreground" />
-            {a.name}
-            <span className="text-muted-foreground ml-auto">{roleLabels[a.role] ?? a.role}</span>
+            <span className="truncate min-w-0">{a.name}</span>
+            <span className="text-muted-foreground ml-auto shrink-0">{roleLabels[a.role] ?? a.role}</span>
           </button>
         ))}
       </PopoverContent>
