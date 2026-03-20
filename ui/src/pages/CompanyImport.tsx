@@ -177,11 +177,13 @@ function importFileRowClassName(_node: FileTreeNode, checked: boolean) {
 function ImportPreviewPane({
   selectedFile,
   content,
+  allFiles,
   action,
   renamedTo,
 }: {
   selectedFile: string | null;
   content: CompanyPortabilityFileEntry | null;
+  allFiles: Record<string, CompanyPortabilityFileEntry>;
   action: string | null;
   renamedTo: string | null;
 }) {
@@ -196,6 +198,18 @@ function ImportPreviewPane({
   const parsed = isMarkdown && textContent ? parseFrontmatter(textContent) : null;
   const imageSrc = isPortableImageFile(selectedFile, content) ? getPortableFileDataUrl(selectedFile, content) : null;
   const actionColor = action ? (ACTION_COLORS[action] ?? ACTION_COLORS.skip) : "";
+
+  // Resolve relative image paths within the import package
+  const resolveImageSrc = isMarkdown
+    ? (src: string) => {
+        if (/^(?:https?:|data:)/i.test(src)) return null;
+        const dir = selectedFile.includes("/") ? selectedFile.slice(0, selectedFile.lastIndexOf("/") + 1) : "";
+        const resolved = dir + src;
+        const entry = allFiles[resolved] ?? allFiles[src];
+        if (!entry) return null;
+        return getPortableFileDataUrl(resolved in allFiles ? resolved : src, entry);
+      }
+    : undefined;
 
   return (
     <div className="min-w-0">
@@ -223,10 +237,10 @@ function ImportPreviewPane({
         {parsed ? (
           <>
             <FrontmatterCard data={parsed.data} />
-            {parsed.body.trim() && <MarkdownBody>{parsed.body}</MarkdownBody>}
+            {parsed.body.trim() && <MarkdownBody resolveImageSrc={resolveImageSrc}>{parsed.body}</MarkdownBody>}
           </>
         ) : isMarkdown ? (
-          <MarkdownBody>{textContent ?? ""}</MarkdownBody>
+          <MarkdownBody resolveImageSrc={resolveImageSrc}>{textContent ?? ""}</MarkdownBody>
         ) : imageSrc ? (
           <div className="flex min-h-[520px] items-center justify-center rounded-lg border border-border bg-accent/10 p-6">
             <img src={imageSrc} alt={selectedFile} className="max-h-[480px] max-w-full object-contain" />
@@ -574,7 +588,7 @@ async function readLocalPackageZip(file: File): Promise<{
   if (!/\.zip$/i.test(file.name)) {
     throw new Error("Select a .zip company package.");
   }
-  const archive = readZipArchive(await file.arrayBuffer());
+  const archive = await readZipArchive(await file.arrayBuffer());
   if (Object.keys(archive.files).length === 0) {
     throw new Error("No package files were found in the selected zip archive.");
   }
@@ -640,6 +654,9 @@ export function CompanyImport() {
     const ceo = companyAgents.find((a) => a.role === "ceo");
     return ceo?.adapterType ?? "claude_local";
   }, [companyAgents]);
+
+  const localZipHelpText =
+    "Upload a .zip exported directly from Paperclip. Re-zipped archives created by Finder, Explorer, or other zip tools may not import correctly.";
 
   useEffect(() => {
     setBreadcrumbs([
@@ -1079,7 +1096,7 @@ export function CompanyImport() {
             </div>
             {!localPackage && (
               <p className="mt-2 text-xs text-muted-foreground">
-                Upload a `.zip` exported from Paperclip that contains COMPANY.md and the related package files.
+                {localZipHelpText}
               </p>
             )}
           </div>
@@ -1265,6 +1282,7 @@ export function CompanyImport() {
               <ImportPreviewPane
                 selectedFile={selectedFile}
                 content={previewContent}
+                allFiles={importPreview?.files ?? {}}
                 action={selectedAction}
                 renamedTo={selectedFile ? (renameMap.get(selectedFile) ?? null) : null}
               />

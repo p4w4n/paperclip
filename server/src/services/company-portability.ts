@@ -42,16 +42,63 @@ import { agentService } from "./agents.js";
 import { agentInstructionsService } from "./agent-instructions.js";
 import { assetService } from "./assets.js";
 import { generateReadme } from "./company-export-readme.js";
+import { renderOrgChartPng, type OrgNode } from "../routes/org-chart-svg.js";
 import { companySkillService } from "./company-skills.js";
 import { companyService } from "./companies.js";
 import { issueService } from "./issues.js";
 import { projectService } from "./projects.js";
+
+/** Build OrgNode tree from manifest agent list (slug + reportsToSlug). */
+function buildOrgTreeFromManifest(agents: CompanyPortabilityManifest["agents"]): OrgNode[] {
+  const ROLE_LABELS: Record<string, string> = {
+    ceo: "Chief Executive", cto: "Technology", cmo: "Marketing",
+    cfo: "Finance", coo: "Operations", vp: "VP", manager: "Manager",
+    engineer: "Engineer", agent: "Agent",
+  };
+  const bySlug = new Map(agents.map((a) => [a.slug, a]));
+  const childrenOf = new Map<string | null, typeof agents>();
+  for (const a of agents) {
+    const parent = a.reportsToSlug ?? null;
+    const list = childrenOf.get(parent) ?? [];
+    list.push(a);
+    childrenOf.set(parent, list);
+  }
+  const build = (parentSlug: string | null): OrgNode[] => {
+    const members = childrenOf.get(parentSlug) ?? [];
+    return members.map((m) => ({
+      id: m.slug,
+      name: m.name,
+      role: ROLE_LABELS[m.role] ?? m.role,
+      status: "active",
+      reports: build(m.slug),
+    }));
+  };
+  // Find roots: agents whose reportsToSlug is null or points to a non-existent slug
+  const roots = agents.filter((a) => !a.reportsToSlug || !bySlug.has(a.reportsToSlug));
+  const rootSlugs = new Set(roots.map((r) => r.slug));
+  // Start from null parent, but also include orphans
+  const tree = build(null);
+  for (const root of roots) {
+    if (root.reportsToSlug && !bySlug.has(root.reportsToSlug)) {
+      // Orphan root (parent slug doesn't exist)
+      tree.push({
+        id: root.slug,
+        name: root.name,
+        role: ROLE_LABELS[root.role] ?? root.role,
+        status: "active",
+        reports: build(root.slug),
+      });
+    }
+  }
+  return tree;
+}
 
 const DEFAULT_INCLUDE: CompanyPortabilityInclude = {
   company: true,
   agents: true,
   projects: false,
   issues: false,
+  skills: false,
 };
 
 const DEFAULT_COLLISION_STRATEGY: CompanyPortabilityCollisionStrategy = "rename";
@@ -119,7 +166,7 @@ function deriveManifestSkillKey(
   const sourceKind = asString(metadata?.sourceKind);
   const owner = normalizeSkillSlug(asString(metadata?.owner));
   const repo = normalizeSkillSlug(asString(metadata?.repo));
-  if ((sourceType === "github" || sourceKind === "github") && owner && repo) {
+  if ((sourceType === "github" || sourceType === "skills_sh" || sourceKind === "github" || sourceKind === "skills_sh") && owner && repo) {
     return `${owner}/${repo}/${slug}`;
   }
   if (sourceKind === "paperclip_bundled") {
@@ -246,10 +293,10 @@ function deriveSkillExportDirCandidates(
     pushSuffix("paperclip");
   }
 
-  if (skill.sourceType === "github") {
+  if (skill.sourceType === "github" || skill.sourceType === "skills_sh") {
     pushSuffix(asString(metadata?.repo));
     pushSuffix(asString(metadata?.owner));
-    pushSuffix("github");
+    pushSuffix(skill.sourceType === "skills_sh" ? "skills_sh" : "github");
   } else if (skill.sourceType === "url") {
     try {
       pushSuffix(skill.sourceLocator ? new URL(skill.sourceLocator).host : null);
@@ -304,10 +351,12 @@ function isSensitiveEnvKey(key: string) {
     normalized === "token" ||
     normalized.endsWith("_token") ||
     normalized.endsWith("-token") ||
+    normalized.includes("apikey") ||
     normalized.includes("api_key") ||
     normalized.includes("api-key") ||
     normalized.includes("access_token") ||
     normalized.includes("access-token") ||
+    normalized.includes("auth") ||
     normalized.includes("auth_token") ||
     normalized.includes("auth-token") ||
     normalized.includes("authorization") ||
@@ -317,6 +366,7 @@ function isSensitiveEnvKey(key: string) {
     normalized.includes("password") ||
     normalized.includes("credential") ||
     normalized.includes("jwt") ||
+    normalized.includes("privatekey") ||
     normalized.includes("private_key") ||
     normalized.includes("private-key") ||
     normalized.includes("cookie") ||
@@ -515,6 +565,7 @@ function normalizeInclude(input?: Partial<CompanyPortabilityInclude>): CompanyPo
     agents: input?.agents ?? DEFAULT_INCLUDE.agents,
     projects: input?.projects ?? DEFAULT_INCLUDE.projects,
     issues: input?.issues ?? DEFAULT_INCLUDE.issues,
+    skills: input?.skills ?? DEFAULT_INCLUDE.skills,
   };
 }
 
@@ -826,6 +877,7 @@ function extractPortableEnvInputs(
 
     if (isPlainRecord(binding) && binding.type === "plain") {
       const defaultValue = asString(binding.value);
+      const isSensitive = isSensitiveEnvKey(key);
       const portability = defaultValue && isAbsoluteCommand(defaultValue)
         ? "system_dependent"
         : "portable";
@@ -836,9 +888,9 @@ function extractPortableEnvInputs(
         key,
         description: `Optional default for ${key} on agent ${agentSlug}`,
         agentSlug,
-        kind: "plain",
+        kind: isSensitive ? "secret" : "plain",
         requirement: "optional",
-        defaultValue: defaultValue ?? "",
+        defaultValue: isSensitive ? "" : defaultValue ?? "",
         portability,
       });
       continue;
@@ -1147,6 +1199,7 @@ function applySelectedFilesToSource(source: ResolvedSource, selectedFiles?: stri
     agents: filtered.manifest.agents.length > 0,
     projects: filtered.manifest.projects.length > 0,
     issues: filtered.manifest.issues.length > 0,
+    skills: filtered.manifest.skills.length > 0,
   };
 
   return filtered;
@@ -1178,7 +1231,7 @@ async function buildSkillSourceEntry(skill: CompanySkill) {
     };
   }
 
-  if (skill.sourceType === "github") {
+  if (skill.sourceType === "github" || skill.sourceType === "skills_sh") {
     const owner = asString(metadata?.owner);
     const repo = asString(metadata?.repo);
     const repoSkillDir = asString(metadata?.repoSkillDir);
@@ -1207,7 +1260,7 @@ function shouldReferenceSkillOnExport(skill: CompanySkill, expandReferencedSkill
   if (expandReferencedSkills) return false;
   const metadata = isPlainRecord(skill.metadata) ? skill.metadata : null;
   if (asString(metadata?.sourceKind) === "paperclip_bundled") return true;
-  return skill.sourceType === "github" || skill.sourceType === "url";
+  return skill.sourceType === "github" || skill.sourceType === "skills_sh" || skill.sourceType === "url";
 }
 
 async function buildReferencedSkillMarkdown(skill: CompanySkill) {
@@ -1254,17 +1307,6 @@ async function withSkillSourceMetadata(skill: CompanySkill, markdown: string) {
   return buildMarkdown(frontmatter, parsed.body);
 }
 
-function renderCompanyAgentsSection(agentSummaries: Array<{ slug: string; name: string }>) {
-  const lines = ["# Agents", ""];
-  if (agentSummaries.length === 0) {
-    lines.push("- _none_");
-    return lines.join("\n");
-  }
-  for (const agent of agentSummaries) {
-    lines.push(`- ${agent.slug} - ${agent.name}`);
-  }
-  return lines.join("\n");
-}
 
 function parseYamlScalar(rawValue: string): unknown {
   const trimmed = rawValue.trim();
@@ -1610,6 +1652,7 @@ function buildManifestFromPackageFiles(
       agents: true,
       projects: projectPaths.length > 0,
       issues: taskPaths.length > 0,
+      skills: skillPaths.length > 0,
     },
     company: {
       path: resolvedCompanyPath,
@@ -2005,6 +2048,7 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
         (input.issues && input.issues.length > 0) || (input.projectIssues && input.projectIssues.length > 0)
           ? true
           : input.include?.issues,
+      skills: input.skills && input.skills.length > 0 ? true : input.include?.skills,
     });
     const company = await companies.getById(companyId);
     if (!company) throw notFound("Company not found");
@@ -2017,7 +2061,7 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
 
     const allAgentRows = include.agents ? await agents.list(companyId, { includeTerminated: true }) : [];
     const liveAgentRows = allAgentRows.filter((agent) => agent.status !== "terminated");
-    const companySkillRows = await companySkills.listFull(companyId);
+    const companySkillRows = include.skills || include.agents ? await companySkills.listFull(companyId) : [];
     if (include.agents) {
       const skipped = allAgentRows.length - liveAgentRows.length;
       if (skipped > 0) {
@@ -2159,19 +2203,6 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
     }
 
     const companyPath = "COMPANY.md";
-    const companyBodySections: string[] = [];
-    if (include.agents) {
-      const companyAgentSummaries = agentRows.map((agent) => ({
-        slug: idToSlug.get(agent.id) ?? "agent",
-        name: agent.name,
-      }));
-      companyBodySections.push(renderCompanyAgentsSection(companyAgentSummaries));
-    }
-    if (selectedProjectRows.length > 0) {
-      companyBodySections.push(
-        ["# Projects", "", ...selectedProjectRows.map((project) => `- ${projectSlugById.get(project.id) ?? project.id} - ${project.name}`)].join("\n"),
-      );
-    }
     files[companyPath] = buildMarkdown(
       {
         name: company.name,
@@ -2179,7 +2210,7 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
         schema: "agentcompanies/v1",
         slug: rootPath,
       },
-      companyBodySections.join("\n\n").trim(),
+      "",
     );
 
     if (include.company && company.logoAssetId) {
@@ -2418,9 +2449,21 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
       agents: resolved.manifest.agents.length > 0,
       projects: resolved.manifest.projects.length > 0,
       issues: resolved.manifest.issues.length > 0,
+      skills: resolved.manifest.skills.length > 0,
     };
     resolved.manifest.envInputs = dedupeEnvInputs(envInputs);
     resolved.warnings.unshift(...warnings);
+
+    // Generate org chart PNG from manifest agents
+    if (resolved.manifest.agents.length > 0) {
+      try {
+        const orgNodes = buildOrgTreeFromManifest(resolved.manifest.agents);
+        const pngBuffer = await renderOrgChartPng(orgNodes);
+        finalFiles["images/org-chart.png"] = bufferToPortableBinaryFile(pngBuffer, "image/png");
+      } catch {
+        // Non-fatal: export still works without the org chart image
+      }
+    }
 
     if (!input.selectedFiles || input.selectedFiles.some((entry) => normalizePortablePath(entry) === "README.md")) {
       finalFiles["README.md"] = generateReadme(resolved.manifest, {
@@ -2440,6 +2483,7 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
       agents: resolved.manifest.agents.length > 0,
       projects: resolved.manifest.projects.length > 0,
       issues: resolved.manifest.issues.length > 0,
+      skills: resolved.manifest.skills.length > 0,
     };
     resolved.manifest.envInputs = dedupeEnvInputs(envInputs);
     resolved.warnings.unshift(...warnings);
@@ -2502,6 +2546,7 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
       agents: requestedInclude.agents && manifest.agents.length > 0,
       projects: requestedInclude.projects && manifest.projects.length > 0,
       issues: requestedInclude.issues && manifest.issues.length > 0,
+      skills: requestedInclude.skills && manifest.skills.length > 0,
     };
     const collisionStrategy = input.collisionStrategy ?? DEFAULT_COLLISION_STRATEGY;
     if (mode === "agent_safe" && collisionStrategy === "replace") {
@@ -2962,9 +3007,11 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
       existingProjectSlugToId.set(existing.urlKey, existing.id);
     }
 
-    const importedSkills = await companySkills.importPackageFiles(targetCompany.id, pickTextFiles(plan.source.files), {
-      onConflict: resolveSkillConflictStrategy(mode, plan.collisionStrategy),
-    });
+    const importedSkills = include.skills || include.agents
+      ? await companySkills.importPackageFiles(targetCompany.id, pickTextFiles(plan.source.files), {
+          onConflict: resolveSkillConflictStrategy(mode, plan.collisionStrategy),
+        })
+      : [];
     const desiredSkillRefMap = new Map<string, string>();
     for (const importedSkill of importedSkills) {
       desiredSkillRefMap.set(importedSkill.originalKey, importedSkill.skill.key);

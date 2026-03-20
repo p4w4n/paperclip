@@ -162,6 +162,7 @@ export type {
   AgentSkillSnapshot,
   AgentSkillSyncRequest,
   InstanceExperimentalSettings,
+  InstanceGeneralSettings,
   InstanceSettings,
   Agent,
   AgentAccessState,
@@ -310,6 +311,9 @@ export type {
 } from "./types/index.js";
 
 export {
+  instanceGeneralSettingsSchema,
+  patchInstanceGeneralSettingsSchema,
+  type PatchInstanceGeneralSettings,
   instanceExperimentalSettingsSchema,
   patchInstanceExperimentalSettingsSchema,
   type PatchInstanceExperimentalSettings,

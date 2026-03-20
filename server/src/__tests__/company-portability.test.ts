@@ -1,5 +1,6 @@
 import { Readable } from "node:stream";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { CompanyPortabilityFileEntry } from "@paperclipai/shared";
 
 const companySvc = {
   getById: vi.fn(),
@@ -82,7 +83,16 @@ vi.mock("../services/agent-instructions.js", () => ({
   agentInstructionsService: () => agentInstructionsSvc,
 }));
 
+vi.mock("../routes/org-chart-svg.js", () => ({
+  renderOrgChartPng: vi.fn(async () => Buffer.from("png")),
+}));
+
 const { companyPortabilityService } = await import("../services/company-portability.js");
+
+function asTextFile(entry: CompanyPortabilityFileEntry | undefined) {
+  expect(typeof entry).toBe("string");
+  return typeof entry === "string" ? entry : "";
+}
 
 describe("company portability", () => {
   const paperclipKey = "paperclipai/paperclip/paperclip";
@@ -303,19 +313,19 @@ describe("company portability", () => {
       },
     });
 
-    expect(exported.files["COMPANY.md"]).toContain('name: "Paperclip"');
-    expect(exported.files["COMPANY.md"]).toContain('schema: "agentcompanies/v1"');
-    expect(exported.files["agents/claudecoder/AGENTS.md"]).toContain("You are ClaudeCoder.");
-    expect(exported.files["agents/claudecoder/AGENTS.md"]).toContain("skills:");
-    expect(exported.files["agents/claudecoder/AGENTS.md"]).toContain(`- "${paperclipKey}"`);
-    expect(exported.files["agents/cmo/AGENTS.md"]).not.toContain("skills:");
-    expect(exported.files["skills/paperclipai/paperclip/paperclip/SKILL.md"]).toContain("metadata:");
-    expect(exported.files["skills/paperclipai/paperclip/paperclip/SKILL.md"]).toContain('kind: "github-dir"');
+    expect(asTextFile(exported.files["COMPANY.md"])).toContain('name: "Paperclip"');
+    expect(asTextFile(exported.files["COMPANY.md"])).toContain('schema: "agentcompanies/v1"');
+    expect(asTextFile(exported.files["agents/claudecoder/AGENTS.md"])).toContain("You are ClaudeCoder.");
+    expect(asTextFile(exported.files["agents/claudecoder/AGENTS.md"])).toContain("skills:");
+    expect(asTextFile(exported.files["agents/claudecoder/AGENTS.md"])).toContain(`- "${paperclipKey}"`);
+    expect(asTextFile(exported.files["agents/cmo/AGENTS.md"])).not.toContain("skills:");
+    expect(asTextFile(exported.files["skills/paperclipai/paperclip/paperclip/SKILL.md"])).toContain("metadata:");
+    expect(asTextFile(exported.files["skills/paperclipai/paperclip/paperclip/SKILL.md"])).toContain('kind: "github-dir"');
     expect(exported.files["skills/paperclipai/paperclip/paperclip/references/api.md"]).toBeUndefined();
-    expect(exported.files["skills/company/PAP/company-playbook/SKILL.md"]).toContain("# Company Playbook");
-    expect(exported.files["skills/company/PAP/company-playbook/references/checklist.md"]).toContain("# Checklist");
+    expect(asTextFile(exported.files["skills/company/PAP/company-playbook/SKILL.md"])).toContain("# Company Playbook");
+    expect(asTextFile(exported.files["skills/company/PAP/company-playbook/references/checklist.md"])).toContain("# Checklist");
 
-    const extension = exported.files[".paperclip.yaml"];
+    const extension = asTextFile(exported.files[".paperclip.yaml"]);
     expect(extension).toContain('schema: "paperclip/v1"');
     expect(extension).not.toContain("promptTemplate");
     expect(extension).not.toContain("instructionsFilePath");
@@ -347,9 +357,45 @@ describe("company portability", () => {
       expandReferencedSkills: true,
     });
 
-    expect(exported.files["skills/paperclipai/paperclip/paperclip/SKILL.md"]).toContain("# Paperclip");
-    expect(exported.files["skills/paperclipai/paperclip/paperclip/SKILL.md"]).toContain("metadata:");
-    expect(exported.files["skills/paperclipai/paperclip/paperclip/references/api.md"]).toContain("# API");
+    expect(asTextFile(exported.files["skills/paperclipai/paperclip/paperclip/SKILL.md"])).toContain("# Paperclip");
+    expect(asTextFile(exported.files["skills/paperclipai/paperclip/paperclip/SKILL.md"])).toContain("metadata:");
+    expect(asTextFile(exported.files["skills/paperclipai/paperclip/paperclip/references/api.md"])).toContain("# API");
+  });
+
+  it("exports only selected skills when skills filter is provided", async () => {
+    const portability = companyPortabilityService({} as any);
+
+    const exported = await portability.exportBundle("company-1", {
+      include: {
+        company: true,
+        agents: true,
+        projects: false,
+        issues: false,
+      },
+      skills: ["company-playbook"],
+    });
+
+    expect(exported.files["skills/company/PAP/company-playbook/SKILL.md"]).toBeDefined();
+    expect(asTextFile(exported.files["skills/company/PAP/company-playbook/SKILL.md"])).toContain("# Company Playbook");
+    expect(exported.files["skills/paperclipai/paperclip/paperclip/SKILL.md"]).toBeUndefined();
+  });
+
+  it("warns and exports all skills when skills filter matches nothing", async () => {
+    const portability = companyPortabilityService({} as any);
+
+    const exported = await portability.exportBundle("company-1", {
+      include: {
+        company: true,
+        agents: true,
+        projects: false,
+        issues: false,
+      },
+      skills: ["nonexistent-skill"],
+    });
+
+    expect(exported.warnings).toContainEqual(expect.stringContaining("nonexistent-skill"));
+    expect(exported.files["skills/company/PAP/company-playbook/SKILL.md"]).toBeDefined();
+    expect(exported.files["skills/paperclipai/paperclip/paperclip/SKILL.md"]).toBeDefined();
   });
 
   it("exports the company logo into images/ and references it from .paperclip.yaml", async () => {
@@ -476,9 +522,9 @@ describe("company portability", () => {
       },
     });
 
-    expect(exported.files["skills/local/release-changelog/SKILL.md"]).toContain("# Local Release Changelog");
-    expect(exported.files["skills/paperclipai/paperclip/release-changelog/SKILL.md"]).toContain("metadata:");
-    expect(exported.files["skills/paperclipai/paperclip/release-changelog/SKILL.md"]).toContain("paperclipai/paperclip/release-changelog");
+    expect(asTextFile(exported.files["skills/local/release-changelog/SKILL.md"])).toContain("# Local Release Changelog");
+    expect(asTextFile(exported.files["skills/paperclipai/paperclip/release-changelog/SKILL.md"])).toContain("metadata:");
+    expect(asTextFile(exported.files["skills/paperclipai/paperclip/release-changelog/SKILL.md"])).toContain("paperclipai/paperclip/release-changelog");
   });
 
   it("builds export previews without tasks by default", async () => {
@@ -582,6 +628,181 @@ describe("company portability", () => {
     ]);
   });
 
+  it("imports a vendor-neutral package without .paperclip.yaml", async () => {
+    const portability = companyPortabilityService({} as any);
+
+    companySvc.create.mockResolvedValue({
+      id: "company-imported",
+      name: "Imported Paperclip",
+    });
+    accessSvc.ensureMembership.mockResolvedValue(undefined);
+    agentSvc.create.mockResolvedValue({
+      id: "agent-created",
+      name: "ClaudeCoder",
+    });
+
+    const preview = await portability.previewImport({
+      source: {
+        type: "inline",
+        rootPath: "paperclip-demo",
+        files: {
+          "COMPANY.md": [
+            "---",
+            'schema: "agentcompanies/v1"',
+            'name: "Imported Paperclip"',
+            'description: "Portable company package"',
+            "---",
+            "",
+            "# Imported Paperclip",
+            "",
+          ].join("\n"),
+          "agents/claudecoder/AGENTS.md": [
+            "---",
+            'name: "ClaudeCoder"',
+            'title: "Software Engineer"',
+            "---",
+            "",
+            "# ClaudeCoder",
+            "",
+            "You write code.",
+            "",
+          ].join("\n"),
+        },
+      },
+      include: {
+        company: true,
+        agents: true,
+        projects: false,
+        issues: false,
+      },
+      target: {
+        mode: "new_company",
+        newCompanyName: "Imported Paperclip",
+      },
+      agents: "all",
+      collisionStrategy: "rename",
+    });
+
+    expect(preview.errors).toEqual([]);
+    expect(preview.manifest.company?.name).toBe("Imported Paperclip");
+    expect(preview.manifest.agents).toEqual([
+      expect.objectContaining({
+        slug: "claudecoder",
+        name: "ClaudeCoder",
+        adapterType: "process",
+      }),
+    ]);
+    expect(preview.envInputs).toEqual([]);
+
+    await portability.importBundle({
+      source: {
+        type: "inline",
+        rootPath: "paperclip-demo",
+        files: {
+          "COMPANY.md": [
+            "---",
+            'schema: "agentcompanies/v1"',
+            'name: "Imported Paperclip"',
+            'description: "Portable company package"',
+            "---",
+            "",
+            "# Imported Paperclip",
+            "",
+          ].join("\n"),
+          "agents/claudecoder/AGENTS.md": [
+            "---",
+            'name: "ClaudeCoder"',
+            'title: "Software Engineer"',
+            "---",
+            "",
+            "# ClaudeCoder",
+            "",
+            "You write code.",
+            "",
+          ].join("\n"),
+        },
+      },
+      include: {
+        company: true,
+        agents: true,
+        projects: false,
+        issues: false,
+      },
+      target: {
+        mode: "new_company",
+        newCompanyName: "Imported Paperclip",
+      },
+      agents: "all",
+      collisionStrategy: "rename",
+    }, "user-1");
+
+    expect(companySvc.create).toHaveBeenCalledWith(expect.objectContaining({
+      name: "Imported Paperclip",
+      description: "Portable company package",
+    }));
+    expect(agentSvc.create).toHaveBeenCalledWith("company-imported", expect.objectContaining({
+      name: "ClaudeCoder",
+      adapterType: "process",
+    }));
+  });
+
+  it("treats no-separator auth and api key env names as secrets during export", async () => {
+    const portability = companyPortabilityService({} as any);
+
+    agentSvc.list.mockResolvedValue([
+      {
+        id: "agent-1",
+        name: "ClaudeCoder",
+        status: "idle",
+        role: "engineer",
+        title: "Software Engineer",
+        icon: "code",
+        reportsTo: null,
+        capabilities: "Writes code",
+        adapterType: "claude_local",
+        adapterConfig: {
+          promptTemplate: "You are ClaudeCoder.",
+          env: {
+            APIKEY: {
+              type: "plain",
+              value: "sk-plain-api",
+            },
+            GITHUBAUTH: {
+              type: "plain",
+              value: "gh-auth-token",
+            },
+            PRIVATEKEY: {
+              type: "plain",
+              value: "private-key-value",
+            },
+          },
+        },
+        runtimeConfig: {},
+        budgetMonthlyCents: 0,
+        permissions: {},
+        metadata: null,
+      },
+    ]);
+
+    const exported = await portability.exportBundle("company-1", {
+      include: {
+        company: true,
+        agents: true,
+        projects: false,
+        issues: false,
+      },
+    });
+
+    const extension = asTextFile(exported.files[".paperclip.yaml"]);
+    expect(extension).toContain("APIKEY:");
+    expect(extension).toContain("GITHUBAUTH:");
+    expect(extension).toContain("PRIVATEKEY:");
+    expect(extension).not.toContain("sk-plain-api");
+    expect(extension).not.toContain("gh-auth-token");
+    expect(extension).not.toContain("private-key-value");
+    expect(extension).toContain('kind: "secret"');
+  });
+
   it("imports packaged skills and restores desired skill refs on agents", async () => {
     const portability = companyPortabilityService({} as any);
 
@@ -626,7 +847,8 @@ describe("company portability", () => {
       collisionStrategy: "rename",
     }, "user-1");
 
-    expect(companySkillSvc.importPackageFiles).toHaveBeenCalledWith("company-imported", exported.files, {
+    const textOnlyFiles = Object.fromEntries(Object.entries(exported.files).filter(([, v]) => typeof v === "string"));
+    expect(companySkillSvc.importPackageFiles).toHaveBeenCalledWith("company-imported", textOnlyFiles, {
       onConflict: "replace",
     });
     expect(agentSvc.create).toHaveBeenCalledWith("company-imported", expect.objectContaining({
@@ -772,7 +994,8 @@ describe("company portability", () => {
     expect(accessSvc.listActiveUserMemberships).toHaveBeenCalledWith("company-1");
     expect(accessSvc.copyActiveUserMemberships).toHaveBeenCalledWith("company-1", "company-imported");
     expect(accessSvc.ensureMembership).not.toHaveBeenCalledWith("company-imported", "user", expect.anything(), "owner", "active");
-    expect(companySkillSvc.importPackageFiles).toHaveBeenCalledWith("company-imported", exported.files, {
+    const textOnlyFiles = Object.fromEntries(Object.entries(exported.files).filter(([, v]) => typeof v === "string"));
+    expect(companySkillSvc.importPackageFiles).toHaveBeenCalledWith("company-imported", textOnlyFiles, {
       onConflict: "rename",
     });
   });

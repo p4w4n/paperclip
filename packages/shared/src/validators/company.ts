@@ -33,7 +33,11 @@ export const updateCompanyBrandingSchema = z
   })
   .strict()
   .refine(
-    (value) => value.brandColor !== undefined || value.logoAssetId !== undefined,
+    (value) =>
+      value.name !== undefined
+      || value.description !== undefined
+      || value.brandColor !== undefined
+      || value.logoAssetId !== undefined,
     "At least one branding field must be provided",
   );
 

@@ -343,36 +343,6 @@ const ROLE_LABELS: Record<string, string> = {
   vp: "VP", manager: "Manager", engineer: "Engineer", agent: "Agent",
 };
 
-/** Sanitize slug for use as a Mermaid node ID. */
-function mermaidId(slug: string): string {
-  return slug.replace(/[^a-zA-Z0-9_]/g, "_");
-}
-
-/** Escape text for Mermaid node labels. */
-function mermaidEscape(s: string): string {
-  return s.replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-/** Generate a Mermaid org chart from the selected agents. */
-function generateOrgChartMermaid(agents: CompanyPortabilityManifest["agents"]): string | null {
-  if (agents.length === 0) return null;
-  const lines: string[] = [];
-  lines.push("```mermaid");
-  lines.push("graph TD");
-  for (const agent of agents) {
-    const roleLabel = ROLE_LABELS[agent.role] ?? agent.role;
-    lines.push(`    ${mermaidId(agent.slug)}["${mermaidEscape(agent.name)}<br/><small>${mermaidEscape(roleLabel)}</small>"]`);
-  }
-  const slugSet = new Set(agents.map((a) => a.slug));
-  for (const agent of agents) {
-    if (agent.reportsToSlug && slugSet.has(agent.reportsToSlug)) {
-      lines.push(`    ${mermaidId(agent.reportsToSlug)} --> ${mermaidId(agent.slug)}`);
-    }
-  }
-  lines.push("```");
-  return lines.join("\n");
-}
-
 /**
  * Regenerate README.md content based on the currently checked files.
  * Only counts/lists entities whose files are in the checked set.
@@ -400,10 +370,9 @@ function generateReadmeFromSelection(
     lines.push(`> ${companyDescription}`);
     lines.push("");
   }
-  // Org chart as Mermaid diagram
-  const mermaid = generateOrgChartMermaid(agents);
-  if (mermaid) {
-    lines.push(mermaid);
+  // Org chart image (generated during export as images/org-chart.png)
+  if (agents.length > 0) {
+    lines.push("![Org Chart](images/org-chart.png)");
     lines.push("");
   }
 
@@ -470,10 +439,12 @@ function generateReadmeFromSelection(
 function ExportPreviewPane({
   selectedFile,
   content,
+  allFiles,
   onSkillClick,
 }: {
   selectedFile: string | null;
   content: CompanyPortabilityFileEntry | null;
+  allFiles: Record<string, CompanyPortabilityFileEntry>;
   onSkillClick?: (skill: string) => void;
 }) {
   if (!selectedFile || content === null) {
@@ -487,6 +458,20 @@ function ExportPreviewPane({
   const parsed = isMarkdown && textContent ? parseFrontmatter(textContent) : null;
   const imageSrc = isPortableImageFile(selectedFile, content) ? getPortableFileDataUrl(selectedFile, content) : null;
 
+  // Resolve relative image paths within the export package (e.g. images/org-chart.png)
+  const resolveImageSrc = isMarkdown
+    ? (src: string) => {
+        // Skip absolute URLs and data URIs
+        if (/^(?:https?:|data:)/i.test(src)) return null;
+        // Resolve relative to the directory of the current markdown file
+        const dir = selectedFile.includes("/") ? selectedFile.slice(0, selectedFile.lastIndexOf("/") + 1) : "";
+        const resolved = dir + src;
+        const entry = allFiles[resolved] ?? allFiles[src];
+        if (!entry) return null;
+        return getPortableFileDataUrl(resolved in allFiles ? resolved : src, entry);
+      }
+    : undefined;
+
   return (
     <div className="min-w-0">
       <div className="border-b border-border px-5 py-3">
@@ -496,10 +481,10 @@ function ExportPreviewPane({
         {parsed ? (
           <>
             <FrontmatterCard data={parsed.data} onSkillClick={onSkillClick} />
-            {parsed.body.trim() && <MarkdownBody>{parsed.body}</MarkdownBody>}
+            {parsed.body.trim() && <MarkdownBody resolveImageSrc={resolveImageSrc}>{parsed.body}</MarkdownBody>}
           </>
         ) : isMarkdown ? (
-          <MarkdownBody>{textContent ?? ""}</MarkdownBody>
+          <MarkdownBody resolveImageSrc={resolveImageSrc}>{textContent ?? ""}</MarkdownBody>
         ) : imageSrc ? (
           <div className="flex min-h-[520px] items-center justify-center rounded-lg border border-border bg-accent/10 p-6">
             <img src={imageSrc} alt={selectedFile} className="max-h-[480px] max-w-full object-contain" />
@@ -624,10 +609,12 @@ export function CompanyExport() {
         const ancestors = expandAncestors(urlFile);
         setExpandedDirs(new Set([...topDirs, ...ancestors]));
       } else {
-        // Select first file and update URL
-        const firstFile = Object.keys(result.files)[0];
-        if (firstFile) {
-          selectFile(firstFile, true);
+        // Default to README.md if present, otherwise fall back to first file
+        const defaultFile = "README.md" in result.files
+          ? "README.md"
+          : Object.keys(result.files)[0];
+        if (defaultFile) {
+          selectFile(defaultFile, true);
         }
         setExpandedDirs(topDirs);
       }
@@ -924,7 +911,7 @@ export function CompanyExport() {
           </div>
         </aside>
         <div className="min-w-0 overflow-y-auto pl-6">
-          <ExportPreviewPane selectedFile={selectedFile} content={previewContent} onSkillClick={handleSkillClick} />
+          <ExportPreviewPane selectedFile={selectedFile} content={previewContent} allFiles={effectiveFiles} onSkillClick={handleSkillClick} />
         </div>
       </div>
     </div>

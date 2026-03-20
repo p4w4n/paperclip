@@ -34,6 +34,7 @@ interface CompanyDeleteOptions extends BaseClientOptions {
 interface CompanyExportOptions extends BaseClientOptions {
   out?: string;
   include?: string;
+  skills?: string;
   projects?: string;
   issues?: string;
   projectIssues?: string;
@@ -84,16 +85,17 @@ function normalizeSelector(input: string): string {
 }
 
 function parseInclude(input: string | undefined): CompanyPortabilityInclude {
-  if (!input || !input.trim()) return { company: true, agents: true, projects: false, issues: false };
+  if (!input || !input.trim()) return { company: true, agents: true, projects: false, issues: false, skills: false };
   const values = input.split(",").map((part) => part.trim().toLowerCase()).filter(Boolean);
   const include = {
     company: values.includes("company"),
     agents: values.includes("agents"),
     projects: values.includes("projects"),
-    issues: values.includes("issues"),
+    issues: values.includes("issues") || values.includes("tasks"),
+    skills: values.includes("skills"),
   };
-  if (!include.company && !include.agents && !include.projects && !include.issues) {
-    throw new Error("Invalid --include value. Use one or more of: company,agents,projects,issues");
+  if (!include.company && !include.agents && !include.projects && !include.issues && !include.skills) {
+    throw new Error("Invalid --include value. Use one or more of: company,agents,projects,issues,tasks,skills");
   }
   return include;
 }
@@ -112,11 +114,11 @@ function parseCsvValues(input: string | undefined): string[] {
   return Array.from(new Set(input.split(",").map((part) => part.trim()).filter(Boolean)));
 }
 
-function isHttpUrl(input: string): boolean {
+export function isHttpUrl(input: string): boolean {
   return /^https?:\/\//i.test(input.trim());
 }
 
-function isGithubUrl(input: string): boolean {
+export function isGithubUrl(input: string): boolean {
   return /^https?:\/\/github\.com\//i.test(input.trim());
 }
 
@@ -336,7 +338,8 @@ export function registerCompanyCommands(program: Command): void {
       .description("Export a company into a portable markdown package")
       .argument("<companyId>", "Company ID")
       .requiredOption("--out <path>", "Output directory")
-      .option("--include <values>", "Comma-separated include set: company,agents,projects,issues", "company,agents")
+      .option("--include <values>", "Comma-separated include set: company,agents,projects,issues,tasks,skills", "company,agents")
+      .option("--skills <values>", "Comma-separated skill slugs/keys to export")
       .option("--projects <values>", "Comma-separated project shortnames/ids to export")
       .option("--issues <values>", "Comma-separated issue identifiers/ids to export")
       .option("--project-issues <values>", "Comma-separated project shortnames/ids whose issues should be exported")
@@ -349,6 +352,7 @@ export function registerCompanyCommands(program: Command): void {
             `/api/companies/${companyId}/export`,
             {
               include,
+              skills: parseCsvValues(opts.skills),
               projects: parseCsvValues(opts.projects),
               issues: parseCsvValues(opts.issues),
               projectIssues: parseCsvValues(opts.projectIssues),
@@ -387,7 +391,7 @@ export function registerCompanyCommands(program: Command): void {
       .command("import")
       .description("Import a portable markdown company package from local path, URL, or GitHub")
       .requiredOption("--from <pathOrUrl>", "Source path or URL")
-      .option("--include <values>", "Comma-separated include set: company,agents,projects,issues", "company,agents")
+      .option("--include <values>", "Comma-separated include set: company,agents,projects,issues,tasks,skills", "company,agents")
       .option("--target <mode>", "Target mode: new | existing")
       .option("-C, --company-id <id>", "Existing target company ID")
       .option("--new-company-name <name>", "Name override for --target new")
@@ -433,13 +437,16 @@ export function registerCompanyCommands(program: Command): void {
 
           let sourcePayload:
             | { type: "inline"; rootPath?: string | null; files: Record<string, CompanyPortabilityFileEntry> }
-            | { type: "url"; url: string }
             | { type: "github"; url: string };
 
           if (isHttpUrl(from)) {
-            sourcePayload = isGithubUrl(from)
-              ? { type: "github", url: from }
-              : { type: "url", url: from };
+            if (!isGithubUrl(from)) {
+              throw new Error(
+                "Only GitHub URLs and local paths are supported for import. " +
+                "Generic HTTP URLs are not supported. Use a GitHub URL (https://github.com/...) or a local directory path.",
+              );
+            }
+            sourcePayload = { type: "github", url: from };
           } else {
             const inline = await resolveInlineSourceFromPath(from);
             sourcePayload = {

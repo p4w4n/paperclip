@@ -76,7 +76,9 @@ const mockSecretService = vi.hoisted(() => ({
   resolveAdapterConfigForRuntime: vi.fn(),
 }));
 
-const mockAgentInstructionsService = vi.hoisted(() => ({}));
+const mockAgentInstructionsService = vi.hoisted(() => ({
+  materializeManagedBundle: vi.fn(),
+}));
 const mockCompanySkillService = vi.hoisted(() => ({
   listRuntimeSkillEntries: vi.fn(),
   resolveRequestedSkillKeys: vi.fn(),
@@ -152,6 +154,23 @@ describe("agent permission routes", () => {
     mockCompanySkillService.listRuntimeSkillEntries.mockResolvedValue([]);
     mockCompanySkillService.resolveRequestedSkillKeys.mockImplementation(async (_companyId, requested) => requested);
     mockBudgetService.upsertPolicy.mockResolvedValue(undefined);
+    mockAgentInstructionsService.materializeManagedBundle.mockImplementation(
+      async (agent: Record<string, unknown>, files: Record<string, string>) => ({
+        bundle: null,
+        adapterConfig: {
+          ...((agent.adapterConfig as Record<string, unknown> | undefined) ?? {}),
+          instructionsBundleMode: "managed",
+          instructionsRootPath: `/tmp/${String(agent.id)}/instructions`,
+          instructionsEntryFile: "AGENTS.md",
+          instructionsFilePath: `/tmp/${String(agent.id)}/instructions/AGENTS.md`,
+          promptTemplate: files["AGENTS.md"] ?? "",
+        },
+      }),
+    );
+    mockCompanySkillService.listRuntimeSkillEntries.mockResolvedValue([]);
+    mockCompanySkillService.resolveRequestedSkillKeys.mockImplementation(
+      async (_companyId: string, requested: string[]) => requested,
+    );
     mockSecretService.normalizeAdapterConfigForPersistence.mockImplementation(async (_companyId, config) => config);
     mockSecretService.resolveAdapterConfigForRuntime.mockImplementation(async (_companyId, config) => ({ config }));
     mockLogActivity.mockResolvedValue(undefined);
