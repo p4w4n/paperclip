@@ -42,7 +42,7 @@ export function ReportsToPicker({
         <button
           type="button"
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent/50 transition-colors",
+            "inline-flex max-w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-md border border-border px-2 py-1 text-xs hover:bg-accent/50 transition-colors",
             terminatedManager && "border-amber-600/45 bg-amber-500/5",
             disabled && "opacity-60 cursor-not-allowed",
           )}
@@ -50,20 +50,27 @@ export function ReportsToPicker({
         >
           {unknownManager ? (
             <>
-              <User className="h-3 w-3 text-muted-foreground" />
-              <span className="text-muted-foreground">Unknown manager (stale ID)</span>
+              <User className="h-3 w-3 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 truncate text-muted-foreground">Unknown manager (stale ID)</span>
             </>
           ) : current ? (
             <>
-              <AgentIcon icon={current.icon} className="h-3 w-3 text-muted-foreground" />
-              <span className={cn(terminatedManager && "text-amber-900 dark:text-amber-200")}>
+              <AgentIcon icon={current.icon} className="h-3 w-3 shrink-0 text-muted-foreground" />
+              <span
+                className={cn(
+                  "min-w-0 truncate",
+                  terminatedManager && "text-amber-900 dark:text-amber-200",
+                )}
+              >
                 {`Reports to ${current.name}${terminatedManager ? " (terminated)" : ""}`}
               </span>
             </>
           ) : (
             <>
-              <User className="h-3 w-3 text-muted-foreground" />
-              {disabled ? disabledEmptyLabel : chooseLabel}
+              <User className="h-3 w-3 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 truncate">
+                {disabled ? disabledEmptyLabel : chooseLabel}
+              </span>
             </>
           )}
         </button>
@@ -83,9 +90,9 @@ export function ReportsToPicker({
           No manager
         </button>
         {terminatedManager && (
-          <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground border-b border-border mb-0.5">
+          <div className="flex min-w-0 items-center gap-2 overflow-hidden px-2 py-1.5 text-xs text-muted-foreground border-b border-border mb-0.5">
             <AgentIcon icon={current.icon} className="shrink-0 h-3 w-3" />
-            <span className="truncate min-w-0">
+            <span className="min-w-0 truncate">
               Current: {current.name} (terminated)
             </span>
           </div>
@@ -109,7 +116,7 @@ export function ReportsToPicker({
             }}
           >
             <AgentIcon icon={a.icon} className="shrink-0 h-3 w-3 text-muted-foreground" />
-            <span className="truncate min-w-0">{a.name}</span>
+            <span className="min-w-0 truncate">{a.name}</span>
             <span className="text-muted-foreground ml-auto shrink-0">{roleLabels[a.role] ?? a.role}</span>
           </button>
         ))}
