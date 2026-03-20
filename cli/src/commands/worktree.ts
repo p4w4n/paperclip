@@ -1246,6 +1246,13 @@ function renderMergePlan(plan: Awaited<ReturnType<typeof collectMergePlan>>["pla
   unsupportedRunCount: number;
   unsupportedDocumentCount: number;
 }): string {
+  const terminalWidth = Math.max(60, process.stdout.columns ?? 100);
+  const oneLine = (value: string) => value.replace(/\s+/g, " ").trim();
+  const truncateToWidth = (value: string, maxWidth: number) => {
+    if (maxWidth <= 1) return "";
+    if (value.length <= maxWidth) return value;
+    return `${value.slice(0, Math.max(0, maxWidth - 1)).trimEnd()}…`;
+  };
   const lines = [
     `Mode: preview`,
     `Source: ${extras.sourcePath}`,
@@ -1268,8 +1275,11 @@ function renderMergePlan(plan: Awaited<ReturnType<typeof collectMergePlan>>["pla
           ? ` project->${issue.mappedProjectName}`
           : "";
       const adjustments = issue.adjustments.length > 0 ? ` [${issue.adjustments.join(", ")}]` : "";
+      const prefix = `- ${issue.source.identifier ?? issue.source.id} -> ${issue.previewIdentifier} (${issue.targetStatus}${projectNote})`;
+      const title = oneLine(issue.source.title);
+      const suffix = `${adjustments}${title ? ` ${title}` : ""}`;
       lines.push(
-        `- ${issue.source.identifier ?? issue.source.id} -> ${issue.previewIdentifier} (${issue.targetStatus}${projectNote})${adjustments}`,
+        `${prefix}${truncateToWidth(suffix, Math.max(8, terminalWidth - prefix.length))}`,
       );
     }
   }
