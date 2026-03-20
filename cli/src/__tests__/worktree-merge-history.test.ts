@@ -53,6 +53,68 @@ function makeComment(overrides: Record<string, unknown> = {}) {
   } as any;
 }
 
+function makeIssueDocument(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "issue-document-1",
+    companyId: "company-1",
+    issueId: "issue-1",
+    documentId: "document-1",
+    key: "plan",
+    linkCreatedAt: new Date("2026-03-20T00:00:00.000Z"),
+    linkUpdatedAt: new Date("2026-03-20T00:00:00.000Z"),
+    title: "Plan",
+    format: "markdown",
+    latestBody: "# Plan",
+    latestRevisionId: "revision-1",
+    latestRevisionNumber: 1,
+    createdByAgentId: null,
+    createdByUserId: "local-board",
+    updatedByAgentId: null,
+    updatedByUserId: "local-board",
+    documentCreatedAt: new Date("2026-03-20T00:00:00.000Z"),
+    documentUpdatedAt: new Date("2026-03-20T00:00:00.000Z"),
+    ...overrides,
+  } as any;
+}
+
+function makeDocumentRevision(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "revision-1",
+    companyId: "company-1",
+    documentId: "document-1",
+    revisionNumber: 1,
+    body: "# Plan",
+    changeSummary: null,
+    createdByAgentId: null,
+    createdByUserId: "local-board",
+    createdAt: new Date("2026-03-20T00:00:00.000Z"),
+    ...overrides,
+  } as any;
+}
+
+function makeAttachment(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "attachment-1",
+    companyId: "company-1",
+    issueId: "issue-1",
+    issueCommentId: null,
+    assetId: "asset-1",
+    provider: "local_disk",
+    objectKey: "company-1/issues/issue-1/2026/03/20/asset.png",
+    contentType: "image/png",
+    byteSize: 12,
+    sha256: "deadbeef",
+    originalFilename: "asset.png",
+    createdByAgentId: null,
+    createdByUserId: "local-board",
+    assetCreatedAt: new Date("2026-03-20T00:00:00.000Z"),
+    assetUpdatedAt: new Date("2026-03-20T00:00:00.000Z"),
+    attachmentCreatedAt: new Date("2026-03-20T00:00:00.000Z"),
+    attachmentUpdatedAt: new Date("2026-03-20T00:00:00.000Z"),
+    ...overrides,
+  } as any;
+}
+
 describe("worktree merge history planner", () => {
   it("parses default scopes", () => {
     expect(parseWorktreeMergeScopes(undefined)).toEqual(["issues", "comments"]);
@@ -213,5 +275,118 @@ describe("worktree merge history planner", () => {
       "comment-new-issue",
     ]);
     expect(plan.adjustments.clear_author_agent).toBe(1);
+  });
+
+  it("merges document revisions onto an existing shared document and renumbers conflicts", () => {
+    const sharedIssue = makeIssue({ id: "issue-a", identifier: "PAP-10" });
+    const sourceDocument = makeIssueDocument({
+      issueId: "issue-a",
+      documentId: "document-a",
+      latestBody: "# Branch plan",
+      latestRevisionId: "revision-branch-2",
+      latestRevisionNumber: 2,
+      documentUpdatedAt: new Date("2026-03-20T02:00:00.000Z"),
+      linkUpdatedAt: new Date("2026-03-20T02:00:00.000Z"),
+    });
+    const targetDocument = makeIssueDocument({
+      issueId: "issue-a",
+      documentId: "document-a",
+      latestBody: "# Main plan",
+      latestRevisionId: "revision-main-2",
+      latestRevisionNumber: 2,
+      documentUpdatedAt: new Date("2026-03-20T01:00:00.000Z"),
+      linkUpdatedAt: new Date("2026-03-20T01:00:00.000Z"),
+    });
+    const sourceRevisionOne = makeDocumentRevision({ documentId: "document-a", id: "revision-1" });
+    const sourceRevisionTwo = makeDocumentRevision({
+      documentId: "document-a",
+      id: "revision-branch-2",
+      revisionNumber: 2,
+      body: "# Branch plan",
+      createdAt: new Date("2026-03-20T02:00:00.000Z"),
+    });
+    const targetRevisionOne = makeDocumentRevision({ documentId: "document-a", id: "revision-1" });
+    const targetRevisionTwo = makeDocumentRevision({
+      documentId: "document-a",
+      id: "revision-main-2",
+      revisionNumber: 2,
+      body: "# Main plan",
+      createdAt: new Date("2026-03-20T01:00:00.000Z"),
+    });
+
+    const plan = buildWorktreeMergePlan({
+      companyId: "company-1",
+      companyName: "Paperclip",
+      issuePrefix: "PAP",
+      previewIssueCounterStart: 10,
+      scopes: ["issues", "comments"],
+      sourceIssues: [sharedIssue],
+      targetIssues: [sharedIssue],
+      sourceComments: [],
+      targetComments: [],
+      sourceDocuments: [sourceDocument],
+      targetDocuments: [targetDocument],
+      sourceDocumentRevisions: [sourceRevisionOne, sourceRevisionTwo],
+      targetDocumentRevisions: [targetRevisionOne, targetRevisionTwo],
+      sourceAttachments: [],
+      targetAttachments: [],
+      targetAgents: [],
+      targetProjects: [],
+      targetProjectWorkspaces: [],
+      targetGoals: [{ id: "goal-1" }] as any,
+    });
+
+    expect(plan.counts.documentsToMerge).toBe(1);
+    expect(plan.counts.documentRevisionsToInsert).toBe(1);
+    expect(plan.documentPlans[0]).toMatchObject({
+      action: "merge_existing",
+      latestRevisionId: "revision-branch-2",
+      latestRevisionNumber: 3,
+    });
+    const mergePlan = plan.documentPlans[0] as any;
+    expect(mergePlan.revisionsToInsert).toHaveLength(1);
+    expect(mergePlan.revisionsToInsert[0]).toMatchObject({
+      source: { id: "revision-branch-2" },
+      targetRevisionNumber: 3,
+    });
+  });
+
+  it("imports attachments while clearing missing comment and author references", () => {
+    const sharedIssue = makeIssue({ id: "issue-a", identifier: "PAP-10" });
+    const attachment = makeAttachment({
+      issueId: "issue-a",
+      issueCommentId: "comment-missing",
+      createdByAgentId: "agent-missing",
+    });
+
+    const plan = buildWorktreeMergePlan({
+      companyId: "company-1",
+      companyName: "Paperclip",
+      issuePrefix: "PAP",
+      previewIssueCounterStart: 10,
+      scopes: ["issues"],
+      sourceIssues: [sharedIssue],
+      targetIssues: [sharedIssue],
+      sourceComments: [],
+      targetComments: [],
+      sourceDocuments: [],
+      targetDocuments: [],
+      sourceDocumentRevisions: [],
+      targetDocumentRevisions: [],
+      sourceAttachments: [attachment],
+      targetAttachments: [],
+      targetAgents: [],
+      targetProjects: [],
+      targetProjectWorkspaces: [],
+      targetGoals: [{ id: "goal-1" }] as any,
+    });
+
+    expect(plan.counts.attachmentsToInsert).toBe(1);
+    expect(plan.adjustments.clear_attachment_agent).toBe(1);
+    expect(plan.attachmentPlans[0]).toMatchObject({
+      action: "insert",
+      targetIssueCommentId: null,
+      targetCreatedByAgentId: null,
+    });
   });
 });

@@ -1,7 +1,11 @@
 import {
   agents,
+  assets,
+  documentRevisions,
   goals,
+  issueAttachments,
   issueComments,
+  issueDocuments,
   issues,
   projects,
   projectWorkspaces,
@@ -13,6 +17,10 @@ type AgentRow = typeof agents.$inferSelect;
 type ProjectRow = typeof projects.$inferSelect;
 type ProjectWorkspaceRow = typeof projectWorkspaces.$inferSelect;
 type GoalRow = typeof goals.$inferSelect;
+type IssueDocumentLinkRow = typeof issueDocuments.$inferSelect;
+type DocumentRevisionTableRow = typeof documentRevisions.$inferSelect;
+type IssueAttachmentTableRow = typeof issueAttachments.$inferSelect;
+type AssetRow = typeof assets.$inferSelect;
 
 export const WORKTREE_MERGE_SCOPES = ["issues", "comments"] as const;
 export type WorktreeMergeScope = (typeof WORKTREE_MERGE_SCOPES)[number];
@@ -23,7 +31,10 @@ export type ImportAdjustment =
   | "clear_project_workspace"
   | "clear_goal"
   | "clear_author_agent"
-  | "coerce_in_progress_to_todo";
+  | "coerce_in_progress_to_todo"
+  | "clear_document_agent"
+  | "clear_document_revision_agent"
+  | "clear_attachment_agent";
 
 export type IssueMergeAction = "skip_existing" | "insert";
 export type CommentMergeAction = "skip_existing" | "skip_missing_parent" | "insert";
@@ -62,6 +73,106 @@ export type PlannedCommentSkip = {
   action: "skip_existing" | "skip_missing_parent";
 };
 
+export type IssueDocumentRow = {
+  id: IssueDocumentLinkRow["id"];
+  companyId: IssueDocumentLinkRow["companyId"];
+  issueId: IssueDocumentLinkRow["issueId"];
+  documentId: IssueDocumentLinkRow["documentId"];
+  key: IssueDocumentLinkRow["key"];
+  linkCreatedAt: IssueDocumentLinkRow["createdAt"];
+  linkUpdatedAt: IssueDocumentLinkRow["updatedAt"];
+  title: string | null;
+  format: string;
+  latestBody: string;
+  latestRevisionId: string | null;
+  latestRevisionNumber: number;
+  createdByAgentId: string | null;
+  createdByUserId: string | null;
+  updatedByAgentId: string | null;
+  updatedByUserId: string | null;
+  documentCreatedAt: Date;
+  documentUpdatedAt: Date;
+};
+
+export type DocumentRevisionRow = {
+  id: DocumentRevisionTableRow["id"];
+  companyId: DocumentRevisionTableRow["companyId"];
+  documentId: DocumentRevisionTableRow["documentId"];
+  revisionNumber: DocumentRevisionTableRow["revisionNumber"];
+  body: DocumentRevisionTableRow["body"];
+  changeSummary: DocumentRevisionTableRow["changeSummary"];
+  createdByAgentId: string | null;
+  createdByUserId: string | null;
+  createdAt: Date;
+};
+
+export type IssueAttachmentRow = {
+  id: IssueAttachmentTableRow["id"];
+  companyId: IssueAttachmentTableRow["companyId"];
+  issueId: IssueAttachmentTableRow["issueId"];
+  issueCommentId: IssueAttachmentTableRow["issueCommentId"];
+  assetId: IssueAttachmentTableRow["assetId"];
+  provider: AssetRow["provider"];
+  objectKey: AssetRow["objectKey"];
+  contentType: AssetRow["contentType"];
+  byteSize: AssetRow["byteSize"];
+  sha256: AssetRow["sha256"];
+  originalFilename: AssetRow["originalFilename"];
+  createdByAgentId: string | null;
+  createdByUserId: string | null;
+  assetCreatedAt: Date;
+  assetUpdatedAt: Date;
+  attachmentCreatedAt: Date;
+  attachmentUpdatedAt: Date;
+};
+
+export type PlannedDocumentRevisionInsert = {
+  source: DocumentRevisionRow;
+  targetRevisionNumber: number;
+  targetCreatedByAgentId: string | null;
+  adjustments: ImportAdjustment[];
+};
+
+export type PlannedIssueDocumentInsert = {
+  source: IssueDocumentRow;
+  action: "insert";
+  targetCreatedByAgentId: string | null;
+  targetUpdatedByAgentId: string | null;
+  latestRevisionId: string | null;
+  latestRevisionNumber: number;
+  revisionsToInsert: PlannedDocumentRevisionInsert[];
+  adjustments: ImportAdjustment[];
+};
+
+export type PlannedIssueDocumentMerge = {
+  source: IssueDocumentRow;
+  action: "merge_existing";
+  targetCreatedByAgentId: string | null;
+  targetUpdatedByAgentId: string | null;
+  latestRevisionId: string | null;
+  latestRevisionNumber: number;
+  revisionsToInsert: PlannedDocumentRevisionInsert[];
+  adjustments: ImportAdjustment[];
+};
+
+export type PlannedIssueDocumentSkip = {
+  source: IssueDocumentRow;
+  action: "skip_existing" | "skip_missing_parent" | "skip_conflicting_key";
+};
+
+export type PlannedAttachmentInsert = {
+  source: IssueAttachmentRow;
+  action: "insert";
+  targetIssueCommentId: string | null;
+  targetCreatedByAgentId: string | null;
+  adjustments: ImportAdjustment[];
+};
+
+export type PlannedAttachmentSkip = {
+  source: IssueAttachmentRow;
+  action: "skip_existing" | "skip_missing_parent";
+};
+
 export type WorktreeMergePlan = {
   companyId: string;
   companyName: string;
@@ -70,6 +181,8 @@ export type WorktreeMergePlan = {
   scopes: WorktreeMergeScope[];
   issuePlans: Array<PlannedIssueInsert | PlannedIssueSkip>;
   commentPlans: Array<PlannedCommentInsert | PlannedCommentSkip>;
+  documentPlans: Array<PlannedIssueDocumentInsert | PlannedIssueDocumentMerge | PlannedIssueDocumentSkip>;
+  attachmentPlans: Array<PlannedAttachmentInsert | PlannedAttachmentSkip>;
   counts: {
     issuesToInsert: number;
     issuesExisting: number;
@@ -77,6 +190,15 @@ export type WorktreeMergePlan = {
     commentsToInsert: number;
     commentsExisting: number;
     commentsMissingParent: number;
+    documentsToInsert: number;
+    documentsToMerge: number;
+    documentsExisting: number;
+    documentsConflictingKey: number;
+    documentsMissingParent: number;
+    documentRevisionsToInsert: number;
+    attachmentsToInsert: number;
+    attachmentsExisting: number;
+    attachmentsMissingParent: number;
   };
   adjustments: Record<ImportAdjustment, number>;
 };
@@ -101,6 +223,52 @@ function incrementAdjustment(
   adjustment: ImportAdjustment,
 ): void {
   counts[adjustment] += 1;
+}
+
+function groupBy<T>(rows: T[], keyFor: (row: T) => string): Map<string, T[]> {
+  const out = new Map<string, T[]>();
+  for (const row of rows) {
+    const key = keyFor(row);
+    const existing = out.get(key);
+    if (existing) {
+      existing.push(row);
+    } else {
+      out.set(key, [row]);
+    }
+  }
+  return out;
+}
+
+function sameDate(left: Date, right: Date): boolean {
+  return left.getTime() === right.getTime();
+}
+
+function sortDocumentRows(rows: IssueDocumentRow[]): IssueDocumentRow[] {
+  return [...rows].sort((left, right) => {
+    const createdDelta = left.documentCreatedAt.getTime() - right.documentCreatedAt.getTime();
+    if (createdDelta !== 0) return createdDelta;
+    const linkDelta = left.linkCreatedAt.getTime() - right.linkCreatedAt.getTime();
+    if (linkDelta !== 0) return linkDelta;
+    return left.documentId.localeCompare(right.documentId);
+  });
+}
+
+function sortDocumentRevisions(rows: DocumentRevisionRow[]): DocumentRevisionRow[] {
+  return [...rows].sort((left, right) => {
+    const revisionDelta = left.revisionNumber - right.revisionNumber;
+    if (revisionDelta !== 0) return revisionDelta;
+    const createdDelta = left.createdAt.getTime() - right.createdAt.getTime();
+    if (createdDelta !== 0) return createdDelta;
+    return left.id.localeCompare(right.id);
+  });
+}
+
+function sortAttachments(rows: IssueAttachmentRow[]): IssueAttachmentRow[] {
+  return [...rows].sort((left, right) => {
+    const createdDelta = left.attachmentCreatedAt.getTime() - right.attachmentCreatedAt.getTime();
+    if (createdDelta !== 0) return createdDelta;
+    return left.id.localeCompare(right.id);
+  });
 }
 
 function sortIssuesForImport(sourceIssues: IssueRow[]): IssueRow[] {
@@ -170,6 +338,12 @@ export function buildWorktreeMergePlan(input: {
   targetIssues: IssueRow[];
   sourceComments: CommentRow[];
   targetComments: CommentRow[];
+  sourceDocuments?: IssueDocumentRow[];
+  targetDocuments?: IssueDocumentRow[];
+  sourceDocumentRevisions?: DocumentRevisionRow[];
+  targetDocumentRevisions?: DocumentRevisionRow[];
+  sourceAttachments?: IssueAttachmentRow[];
+  targetAttachments?: IssueAttachmentRow[];
   targetAgents: AgentRow[];
   targetProjects: ProjectRow[];
   targetProjectWorkspaces: ProjectWorkspaceRow[];
@@ -192,6 +366,9 @@ export function buildWorktreeMergePlan(input: {
     clear_goal: 0,
     clear_author_agent: 0,
     coerce_in_progress_to_todo: 0,
+    clear_document_agent: 0,
+    clear_document_revision_agent: 0,
+    clear_attachment_agent: 0,
   };
 
   const issuePlans: Array<PlannedIssueInsert | PlannedIssueSkip> = [];
@@ -324,6 +501,176 @@ export function buildWorktreeMergePlan(input: {
     }
   }
 
+  const sourceDocuments = input.sourceDocuments ?? [];
+  const targetDocuments = input.targetDocuments ?? [];
+  const sourceDocumentRevisions = input.sourceDocumentRevisions ?? [];
+  const targetDocumentRevisions = input.targetDocumentRevisions ?? [];
+
+  const targetDocumentsById = new Map(targetDocuments.map((document) => [document.documentId, document]));
+  const targetDocumentsByIssueKey = new Map(targetDocuments.map((document) => [`${document.issueId}:${document.key}`, document]));
+  const sourceRevisionsByDocumentId = groupBy(sourceDocumentRevisions, (revision) => revision.documentId);
+  const targetRevisionsByDocumentId = groupBy(targetDocumentRevisions, (revision) => revision.documentId);
+  const commentIdsAvailableAfterImport = new Set<string>([
+    ...input.targetComments.map((comment) => comment.id),
+    ...commentPlans.filter((plan): plan is PlannedCommentInsert => plan.action === "insert").map((plan) => plan.source.id),
+  ]);
+
+  const documentPlans: Array<PlannedIssueDocumentInsert | PlannedIssueDocumentMerge | PlannedIssueDocumentSkip> = [];
+  for (const document of sortDocumentRows(sourceDocuments)) {
+    if (!issueIdsAvailableAfterImport.has(document.issueId)) {
+      documentPlans.push({ source: document, action: "skip_missing_parent" });
+      continue;
+    }
+
+    const existingDocument = targetDocumentsById.get(document.documentId);
+    const conflictingIssueKeyDocument = targetDocumentsByIssueKey.get(`${document.issueId}:${document.key}`);
+    if (!existingDocument && conflictingIssueKeyDocument && conflictingIssueKeyDocument.documentId !== document.documentId) {
+      documentPlans.push({ source: document, action: "skip_conflicting_key" });
+      continue;
+    }
+
+    const adjustments: ImportAdjustment[] = [];
+    const targetCreatedByAgentId =
+      document.createdByAgentId && targetAgentIds.has(document.createdByAgentId) ? document.createdByAgentId : null;
+    const targetUpdatedByAgentId =
+      document.updatedByAgentId && targetAgentIds.has(document.updatedByAgentId) ? document.updatedByAgentId : null;
+    if (
+      (document.createdByAgentId && !targetCreatedByAgentId)
+      || (document.updatedByAgentId && !targetUpdatedByAgentId)
+    ) {
+      adjustments.push("clear_document_agent");
+      incrementAdjustment(adjustmentCounts, "clear_document_agent");
+    }
+
+    const sourceRevisions = sortDocumentRevisions(sourceRevisionsByDocumentId.get(document.documentId) ?? []);
+    const targetRevisions = sortDocumentRevisions(targetRevisionsByDocumentId.get(document.documentId) ?? []);
+    const existingRevisionIds = new Set(targetRevisions.map((revision) => revision.id));
+    const usedRevisionNumbers = new Set(targetRevisions.map((revision) => revision.revisionNumber));
+    let nextRevisionNumber = targetRevisions.reduce(
+      (maxValue, revision) => Math.max(maxValue, revision.revisionNumber),
+      0,
+    ) + 1;
+
+    const targetRevisionNumberById = new Map<string, number>(
+      targetRevisions.map((revision) => [revision.id, revision.revisionNumber]),
+    );
+    const revisionsToInsert: PlannedDocumentRevisionInsert[] = [];
+
+    for (const revision of sourceRevisions) {
+      if (existingRevisionIds.has(revision.id)) continue;
+      let targetRevisionNumber = revision.revisionNumber;
+      if (usedRevisionNumbers.has(targetRevisionNumber)) {
+        while (usedRevisionNumbers.has(nextRevisionNumber)) {
+          nextRevisionNumber += 1;
+        }
+        targetRevisionNumber = nextRevisionNumber;
+        nextRevisionNumber += 1;
+      }
+      usedRevisionNumbers.add(targetRevisionNumber);
+      targetRevisionNumberById.set(revision.id, targetRevisionNumber);
+
+      const revisionAdjustments: ImportAdjustment[] = [];
+      const targetCreatedByAgentId =
+        revision.createdByAgentId && targetAgentIds.has(revision.createdByAgentId) ? revision.createdByAgentId : null;
+      if (revision.createdByAgentId && !targetCreatedByAgentId) {
+        revisionAdjustments.push("clear_document_revision_agent");
+        incrementAdjustment(adjustmentCounts, "clear_document_revision_agent");
+      }
+
+      revisionsToInsert.push({
+        source: revision,
+        targetRevisionNumber,
+        targetCreatedByAgentId,
+        adjustments: revisionAdjustments,
+      });
+    }
+
+    const latestRevisionId = document.latestRevisionId ?? existingDocument?.latestRevisionId ?? null;
+    const latestRevisionNumber =
+      (latestRevisionId ? targetRevisionNumberById.get(latestRevisionId) : undefined)
+      ?? document.latestRevisionNumber
+      ?? existingDocument?.latestRevisionNumber
+      ?? 0;
+
+    if (!existingDocument) {
+      documentPlans.push({
+        source: document,
+        action: "insert",
+        targetCreatedByAgentId,
+        targetUpdatedByAgentId,
+        latestRevisionId,
+        latestRevisionNumber,
+        revisionsToInsert,
+        adjustments,
+      });
+      continue;
+    }
+
+    const documentAlreadyMatches =
+      existingDocument.key === document.key
+      && existingDocument.title === document.title
+      && existingDocument.format === document.format
+      && existingDocument.latestBody === document.latestBody
+      && (existingDocument.latestRevisionId ?? null) === latestRevisionId
+      && existingDocument.latestRevisionNumber === latestRevisionNumber
+      && (existingDocument.updatedByAgentId ?? null) === targetUpdatedByAgentId
+      && (existingDocument.updatedByUserId ?? null) === (document.updatedByUserId ?? null)
+      && sameDate(existingDocument.documentUpdatedAt, document.documentUpdatedAt)
+      && sameDate(existingDocument.linkUpdatedAt, document.linkUpdatedAt)
+      && revisionsToInsert.length === 0;
+
+    if (documentAlreadyMatches) {
+      documentPlans.push({ source: document, action: "skip_existing" });
+      continue;
+    }
+
+    documentPlans.push({
+      source: document,
+      action: "merge_existing",
+      targetCreatedByAgentId,
+      targetUpdatedByAgentId,
+      latestRevisionId,
+      latestRevisionNumber,
+      revisionsToInsert,
+      adjustments,
+    });
+  }
+
+  const sourceAttachments = input.sourceAttachments ?? [];
+  const targetAttachmentIds = new Set((input.targetAttachments ?? []).map((attachment) => attachment.id));
+  const attachmentPlans: Array<PlannedAttachmentInsert | PlannedAttachmentSkip> = [];
+  for (const attachment of sortAttachments(sourceAttachments)) {
+    if (targetAttachmentIds.has(attachment.id)) {
+      attachmentPlans.push({ source: attachment, action: "skip_existing" });
+      continue;
+    }
+    if (!issueIdsAvailableAfterImport.has(attachment.issueId)) {
+      attachmentPlans.push({ source: attachment, action: "skip_missing_parent" });
+      continue;
+    }
+
+    const adjustments: ImportAdjustment[] = [];
+    const targetCreatedByAgentId =
+      attachment.createdByAgentId && targetAgentIds.has(attachment.createdByAgentId)
+        ? attachment.createdByAgentId
+        : null;
+    if (attachment.createdByAgentId && !targetCreatedByAgentId) {
+      adjustments.push("clear_attachment_agent");
+      incrementAdjustment(adjustmentCounts, "clear_attachment_agent");
+    }
+
+    attachmentPlans.push({
+      source: attachment,
+      action: "insert",
+      targetIssueCommentId:
+        attachment.issueCommentId && commentIdsAvailableAfterImport.has(attachment.issueCommentId)
+          ? attachment.issueCommentId
+          : null,
+      targetCreatedByAgentId,
+      adjustments,
+    });
+  }
+
   const counts = {
     issuesToInsert: issuePlans.filter((plan) => plan.action === "insert").length,
     issuesExisting: issuePlans.filter((plan) => plan.action === "skip_existing").length,
@@ -331,6 +678,19 @@ export function buildWorktreeMergePlan(input: {
     commentsToInsert: commentPlans.filter((plan) => plan.action === "insert").length,
     commentsExisting: commentPlans.filter((plan) => plan.action === "skip_existing").length,
     commentsMissingParent: commentPlans.filter((plan) => plan.action === "skip_missing_parent").length,
+    documentsToInsert: documentPlans.filter((plan) => plan.action === "insert").length,
+    documentsToMerge: documentPlans.filter((plan) => plan.action === "merge_existing").length,
+    documentsExisting: documentPlans.filter((plan) => plan.action === "skip_existing").length,
+    documentsConflictingKey: documentPlans.filter((plan) => plan.action === "skip_conflicting_key").length,
+    documentsMissingParent: documentPlans.filter((plan) => plan.action === "skip_missing_parent").length,
+    documentRevisionsToInsert: documentPlans.reduce(
+      (sum, plan) =>
+        sum + (plan.action === "insert" || plan.action === "merge_existing" ? plan.revisionsToInsert.length : 0),
+      0,
+    ),
+    attachmentsToInsert: attachmentPlans.filter((plan) => plan.action === "insert").length,
+    attachmentsExisting: attachmentPlans.filter((plan) => plan.action === "skip_existing").length,
+    attachmentsMissingParent: attachmentPlans.filter((plan) => plan.action === "skip_missing_parent").length,
   };
 
   return {
@@ -341,6 +701,8 @@ export function buildWorktreeMergePlan(input: {
     scopes: input.scopes,
     issuePlans,
     commentPlans,
+    documentPlans,
+    attachmentPlans,
     counts,
     adjustments: adjustmentCounts,
   };
