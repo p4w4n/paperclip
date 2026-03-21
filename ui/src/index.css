@@ -415,7 +415,7 @@
 
 .paperclip-mdxeditor-content code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  font-size: 1.1em;
+  font-size: 1em;
 }
 
 .paperclip-mdxeditor-content pre {
@@ -433,7 +433,7 @@
 .paperclip-mdxeditor .cm-editor {
   background-color: #1e1e2e !important;
   color: #cdd6f4 !important;
-  font-size: 1.1em;
+  font-size: 1em;
 }
 
 .paperclip-mdxeditor .cm-gutters {
@@ -513,14 +513,14 @@
   color: #cdd6f4 !important;
   padding: 0.5rem 0.65rem !important;
   margin: 0.4rem 0 !important;
-  font-size: 1.1em !important;
+  font-size: 1em !important;
   overflow-x: auto;
   white-space: pre;
 }
 
 .paperclip-markdown code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  font-size: 1.1em;
+  font-size: 1em;
 }
 
 .paperclip-markdown pre code {
