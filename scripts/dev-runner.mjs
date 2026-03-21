@@ -16,7 +16,6 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const devServerStatusFilePath = path.join(repoRoot, ".paperclip", "dev-server-status.json");
 
 const watchedDirectories = [
-  ".paperclip",
   "cli",
   "scripts",
   "server",
