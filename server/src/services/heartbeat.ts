@@ -45,6 +45,7 @@ import { workspaceOperationService } from "./workspace-operations.js";
 import {
   buildExecutionWorkspaceAdapterConfig,
   gateProjectExecutionWorkspacePolicy,
+  issueExecutionWorkspaceModeForPersistedWorkspace,
   parseIssueExecutionWorkspaceSettings,
   parseProjectExecutionWorkspacePolicy,
   resolveExecutionWorkspaceMode,
@@ -2098,11 +2099,29 @@ export function heartbeatService(db: Db) {
         cleanupReason: null,
       });
     }
-    if (issueId && persistedExecutionWorkspace && issueRef?.executionWorkspaceId !== persistedExecutionWorkspace.id) {
-      await issuesSvc.update(issueId, {
-        executionWorkspaceId: persistedExecutionWorkspace.id,
-        ...(resolvedProjectWorkspaceId ? { projectWorkspaceId: resolvedProjectWorkspaceId } : {}),
-      });
+    if (issueId && persistedExecutionWorkspace) {
+      const nextIssueWorkspaceMode = issueExecutionWorkspaceModeForPersistedWorkspace(persistedExecutionWorkspace.mode);
+      const shouldSwitchIssueToExistingWorkspace =
+        issueRef?.executionWorkspacePreference === "reuse_existing" ||
+        executionWorkspaceMode === "isolated_workspace" ||
+        executionWorkspaceMode === "operator_branch";
+      const nextIssuePatch: Record<string, unknown> = {};
+      if (issueRef?.executionWorkspaceId !== persistedExecutionWorkspace.id) {
+        nextIssuePatch.executionWorkspaceId = persistedExecutionWorkspace.id;
+      }
+      if (resolvedProjectWorkspaceId && issueRef?.projectWorkspaceId !== resolvedProjectWorkspaceId) {
+        nextIssuePatch.projectWorkspaceId = resolvedProjectWorkspaceId;
+      }
+      if (shouldSwitchIssueToExistingWorkspace) {
+        nextIssuePatch.executionWorkspacePreference = "reuse_existing";
+        nextIssuePatch.executionWorkspaceSettings = {
+          ...(issueExecutionWorkspaceSettings ?? {}),
+          mode: nextIssueWorkspaceMode,
+        };
+      }
+      if (Object.keys(nextIssuePatch).length > 0) {
+        await issuesSvc.update(issueId, nextIssuePatch);
+      }
     }
     if (persistedExecutionWorkspace) {
       context.executionWorkspaceId = persistedExecutionWorkspace.id;
