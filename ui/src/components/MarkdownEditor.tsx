@@ -68,6 +68,12 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function isSafeMarkdownLinkUrl(url: string): boolean {
+  const trimmed = url.trim();
+  if (!trimmed) return true;
+  return !/^(javascript|data|vbscript):/i.test(trimmed);
+}
+
 /* ---- Mention detection helpers ---- */
 
 interface MentionState {
@@ -269,7 +275,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
       listsPlugin(),
       quotePlugin(),
       tablePlugin(),
-      linkPlugin(),
+      linkPlugin({ validateUrl: isSafeMarkdownLinkUrl }),
       linkDialogPlugin(),
       thematicBreakPlugin(),
       codeBlockPlugin({
