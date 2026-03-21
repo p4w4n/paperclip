@@ -339,6 +339,7 @@
   margin-top: 1.1em;
 }
 
+.paperclip-mdxeditor-content a.paperclip-mention-chip,
 .paperclip-mdxeditor-content a.paperclip-project-mention-chip {
   display: inline-flex;
   align-items: center;
@@ -353,6 +354,35 @@
   vertical-align: baseline;
   white-space: nowrap;
   user-select: none;
+}
+
+.paperclip-mdxeditor-content a.paperclip-mention-chip::before,
+a.paperclip-mention-chip::before {
+  content: "";
+  flex: none;
+}
+
+.paperclip-mdxeditor-content a.paperclip-mention-chip[data-mention-kind="project"]::before,
+a.paperclip-mention-chip[data-mention-kind="project"]::before {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background-color: var(--paperclip-mention-project-color, currentColor);
+}
+
+.paperclip-mdxeditor-content a.paperclip-mention-chip[data-mention-kind="agent"]::before,
+a.paperclip-mention-chip[data-mention-kind="agent"]::before {
+  width: 0.75rem;
+  height: 0.75rem;
+  background-color: currentColor;
+  -webkit-mask-image: var(--paperclip-mention-icon-mask);
+  mask-image: var(--paperclip-mention-icon-mask);
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-size: contain;
 }
 
 .paperclip-mdxeditor-content ul,
@@ -700,6 +730,7 @@
 }
 
 /* Project mention chips rendered inside MarkdownBody */
+a.paperclip-mention-chip,
 a.paperclip-project-mention-chip {
   display: inline-flex;
   align-items: center;
