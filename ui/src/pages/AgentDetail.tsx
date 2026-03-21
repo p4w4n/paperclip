@@ -572,9 +572,9 @@ export function AgentDetail() {
   });
 
   const { data: allIssues } = useQuery({
-    queryKey: queryKeys.issues.list(resolvedCompanyId!),
-    queryFn: () => issuesApi.list(resolvedCompanyId!),
-    enabled: !!resolvedCompanyId && needsDashboardData,
+    queryKey: [...queryKeys.issues.list(resolvedCompanyId!), "participant-agent", resolvedAgentId ?? "__none__"],
+    queryFn: () => issuesApi.list(resolvedCompanyId!, { participantAgentId: resolvedAgentId! }),
+    enabled: !!resolvedCompanyId && !!resolvedAgentId && needsDashboardData,
   });
 
   const { data: allAgents } = useQuery({
@@ -592,7 +592,6 @@ export function AgentDetail() {
   });
 
   const assignedIssues = (allIssues ?? [])
-    .filter((i) => i.assigneeAgentId === agent?.id)
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   const reportsToAgent = (allAgents ?? []).find((a) => a.id === agent?.reportsTo);
   const directReports = (allAgents ?? []).filter((a) => a.reportsTo === agent?.id && a.status !== "terminated");
@@ -1174,12 +1173,15 @@ function AgentOverview({
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-medium">Recent Issues</h3>
-          <Link to={`/issues?assignee=${agentId}`} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+          <Link
+            to={`/issues?participantAgentId=${agentId}`}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
             See All &rarr;
           </Link>
         </div>
         {assignedIssues.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No assigned issues.</p>
+          <p className="text-sm text-muted-foreground">No recent issues.</p>
         ) : (
           <div className="border border-border rounded-lg">
             {assignedIssues.slice(0, 10).map((issue) => (
