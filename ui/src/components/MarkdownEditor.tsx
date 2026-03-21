@@ -26,10 +26,21 @@ import {
   thematicBreakPlugin,
   type RealmPlugin,
 } from "@mdxeditor/editor";
+import { LinkNode } from "@lexical/link";
 import { buildAgentMentionHref, buildProjectMentionHref } from "@paperclipai/shared";
 import { AgentIcon } from "./AgentIconPicker";
 import { applyMentionChipDecoration, clearMentionChipDecoration, parseMentionChipHref } from "../lib/mention-chips";
 import { cn } from "../lib/utils";
+
+/* ---- Allow custom mention URL schemes in Lexical's LinkNode ---- */
+// Lexical only allows http(s)/mailto/sms/tel by default, converting
+// everything else to about:blank.  We need agent:// and project://
+// to survive the markdown→Lexical import so mention chips render.
+const _origSanitizeUrl = LinkNode.prototype.sanitizeUrl;
+LinkNode.prototype.sanitizeUrl = function sanitizeUrl(url: string): string {
+  if (/^(agent|project):\/\//.test(url)) return url;
+  return _origSanitizeUrl.call(this, url);
+};
 
 /* ---- Mention types ---- */
 
