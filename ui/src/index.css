@@ -153,6 +153,10 @@
   [data-slot="select-trigger"] {
     min-height: 44px;
   }
+
+  [data-slot="toggle"] {
+    min-height: 0;
+  }
 }
 
 /* Dark mode scrollbars */

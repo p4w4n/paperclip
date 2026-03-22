@@ -1213,6 +1213,7 @@ export function NewIssueDialog() {
                   <div className="flex items-center justify-between rounded-md border border-border px-2 py-1.5">
                     <div className="text-xs text-muted-foreground">Enable Chrome (--chrome)</div>
                     <button
+                      data-slot="toggle"
                       className={cn(
                         "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
                         assigneeChrome ? "bg-green-600" : "bg-muted"
