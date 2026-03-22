@@ -30,6 +30,7 @@ import { LinkNode } from "@lexical/link";
 import { buildAgentMentionHref, buildProjectMentionHref } from "@paperclipai/shared";
 import { AgentIcon } from "./AgentIconPicker";
 import { applyMentionChipDecoration, clearMentionChipDecoration, parseMentionChipHref } from "../lib/mention-chips";
+import { mentionDeletionPlugin } from "../lib/mention-deletion";
 import { cn } from "../lib/utils";
 
 /* ---- Allow custom mention URL schemes in Lexical's LinkNode ---- */
@@ -288,6 +289,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
       tablePlugin(),
       linkPlugin({ validateUrl: isSafeMarkdownLinkUrl }),
       linkDialogPlugin(),
+      mentionDeletionPlugin(),
       thematicBreakPlugin(),
       codeBlockPlugin({
         defaultCodeBlockLanguage: "txt",
