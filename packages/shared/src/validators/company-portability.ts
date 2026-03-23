@@ -85,7 +85,36 @@ export const portabilityProjectManifestEntrySchema = z.object({
   color: z.string().nullable(),
   status: z.string().nullable(),
   executionWorkspacePolicy: z.record(z.unknown()).nullable(),
+  workspaces: z.array(z.object({
+    key: z.string().min(1),
+    name: z.string().min(1),
+    sourceType: z.string().nullable(),
+    repoUrl: z.string().nullable(),
+    repoRef: z.string().nullable(),
+    defaultRef: z.string().nullable(),
+    visibility: z.string().nullable(),
+    setupCommand: z.string().nullable(),
+    cleanupCommand: z.string().nullable(),
+    metadata: z.record(z.unknown()).nullable(),
+    isPrimary: z.boolean(),
+  })).default([]),
   metadata: z.record(z.unknown()).nullable(),
+});
+
+export const portabilityIssueRoutineTriggerManifestEntrySchema = z.object({
+  kind: z.string().min(1),
+  label: z.string().nullable(),
+  enabled: z.boolean(),
+  cronExpression: z.string().nullable(),
+  timezone: z.string().nullable(),
+  signingMode: z.string().nullable(),
+  replayWindowSec: z.number().int().nullable(),
+});
+
+export const portabilityIssueRoutineManifestEntrySchema = z.object({
+  concurrencyPolicy: z.string().nullable(),
+  catchUpPolicy: z.string().nullable(),
+  triggers: z.array(portabilityIssueRoutineTriggerManifestEntrySchema).default([]),
 });
 
 export const portabilityIssueManifestEntrySchema = z.object({
@@ -94,9 +123,12 @@ export const portabilityIssueManifestEntrySchema = z.object({
   title: z.string().min(1),
   path: z.string().min(1),
   projectSlug: z.string().min(1).nullable(),
+  projectWorkspaceKey: z.string().min(1).nullable(),
   assigneeAgentSlug: z.string().min(1).nullable(),
   description: z.string().nullable(),
-  recurrence: z.record(z.unknown()).nullable(),
+  recurring: z.boolean().default(false),
+  routine: portabilityIssueRoutineManifestEntrySchema.nullable(),
+  legacyRecurrence: z.record(z.unknown()).nullable(),
   status: z.string().nullable(),
   priority: z.string().nullable(),
   labelIds: z.array(z.string().min(1)).default([]),
