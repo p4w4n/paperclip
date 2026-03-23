@@ -13,7 +13,7 @@
  */
 import * as fs from "fs";
 import * as path from "path";
-import { renderOrgChartPng, type OrgNode } from "../server/src/routes/org-chart-svg.js";
+import { renderOrgChartPng, type OrgNode, type OrgChartOverlay } from "../server/src/routes/org-chart-svg.js";
 import { generateReadme } from "../server/src/services/company-export-readme.js";
 import type { CompanyPortabilityManifest } from "@paperclipai/shared";
 
@@ -313,7 +313,11 @@ async function main() {
       const orgTree = buildOrgTree(pkg.agents);
       console.log(`   Org tree roots: ${orgTree.map((n) => n.name).join(", ")}`);
 
-      const pngBuffer = await renderOrgChartPng(orgTree, "warmth");
+      const overlay: OrgChartOverlay = {
+        companyName: pkg.name,
+        stats: `Agents: ${pkg.agents.length}, Skills: ${pkg.skills.length}`,
+      };
+      const pngBuffer = await renderOrgChartPng(orgTree, "warmth", overlay);
       const imagesDir = path.join(companyDir, "images");
       fs.mkdirSync(imagesDir, { recursive: true });
       const pngPath = path.join(imagesDir, "org-chart.png");
