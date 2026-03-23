@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { resolveCompanyImportApiPath } from "../commands/client/company.js";
+import type { CompanyPortabilityPreviewResult } from "@paperclipai/shared";
+import {
+  renderCompanyImportPreview,
+  renderCompanyImportResult,
+  resolveCompanyImportApiPath,
+} from "../commands/client/company.js";
 
 describe("resolveCompanyImportApiPath", () => {
   it("uses company-scoped preview route for existing-company dry runs", () => {
@@ -46,5 +51,206 @@ describe("resolveCompanyImportApiPath", () => {
         companyId: " ",
       })
     ).toThrow(/require a companyId/i);
+  });
+});
+
+describe("renderCompanyImportPreview", () => {
+  it("summarizes the preview with counts, selection info, and truncated examples", () => {
+    const preview: CompanyPortabilityPreviewResult = {
+      include: {
+        company: true,
+        agents: true,
+        projects: true,
+        issues: true,
+        skills: true,
+      },
+      targetCompanyId: "company-123",
+      targetCompanyName: "Imported Co",
+      collisionStrategy: "rename",
+      selectedAgentSlugs: ["ceo", "cto", "eng-1", "eng-2", "eng-3", "eng-4", "eng-5"],
+      plan: {
+        companyAction: "update",
+        agentPlans: [
+          { slug: "ceo", action: "create", plannedName: "CEO", existingAgentId: null, reason: null },
+          { slug: "cto", action: "update", plannedName: "CTO", existingAgentId: "agent-2", reason: "replace strategy" },
+          { slug: "eng-1", action: "skip", plannedName: "Engineer 1", existingAgentId: "agent-3", reason: "skip strategy" },
+          { slug: "eng-2", action: "create", plannedName: "Engineer 2", existingAgentId: null, reason: null },
+          { slug: "eng-3", action: "create", plannedName: "Engineer 3", existingAgentId: null, reason: null },
+          { slug: "eng-4", action: "create", plannedName: "Engineer 4", existingAgentId: null, reason: null },
+          { slug: "eng-5", action: "create", plannedName: "Engineer 5", existingAgentId: null, reason: null },
+        ],
+        projectPlans: [
+          { slug: "alpha", action: "create", plannedName: "Alpha", existingProjectId: null, reason: null },
+        ],
+        issuePlans: [
+          { slug: "kickoff", action: "create", plannedTitle: "Kickoff", reason: null },
+        ],
+      },
+      manifest: {
+        schemaVersion: 1,
+        generatedAt: "2026-03-23T17:00:00.000Z",
+        source: {
+          companyId: "company-src",
+          companyName: "Source Co",
+        },
+        includes: {
+          company: true,
+          agents: true,
+          projects: true,
+          issues: true,
+          skills: true,
+        },
+        company: {
+          path: "COMPANY.md",
+          name: "Source Co",
+          description: null,
+          brandColor: null,
+          logoPath: null,
+          requireBoardApprovalForNewAgents: false,
+        },
+        agents: [
+          {
+            slug: "ceo",
+            name: "CEO",
+            path: "agents/ceo/AGENT.md",
+            skills: [],
+            role: "ceo",
+            title: null,
+            icon: null,
+            capabilities: null,
+            reportsToSlug: null,
+            adapterType: "codex_local",
+            adapterConfig: {},
+            runtimeConfig: {},
+            permissions: {},
+            budgetMonthlyCents: 0,
+            metadata: null,
+          },
+        ],
+        skills: [
+          {
+            key: "skill-a",
+            slug: "skill-a",
+            name: "Skill A",
+            path: "skills/skill-a/SKILL.md",
+            description: null,
+            sourceType: "inline",
+            sourceLocator: null,
+            sourceRef: null,
+            trustLevel: null,
+            compatibility: null,
+            metadata: null,
+            fileInventory: [],
+          },
+        ],
+        projects: [
+          {
+            slug: "alpha",
+            name: "Alpha",
+            path: "projects/alpha/PROJECT.md",
+            description: null,
+            ownerAgentSlug: null,
+            leadAgentSlug: null,
+            targetDate: null,
+            color: null,
+            status: null,
+            executionWorkspacePolicy: null,
+            workspaces: [],
+            metadata: null,
+          },
+        ],
+        issues: [
+          {
+            slug: "kickoff",
+            identifier: null,
+            title: "Kickoff",
+            path: "projects/alpha/issues/kickoff/TASK.md",
+            projectSlug: "alpha",
+            projectWorkspaceKey: null,
+            assigneeAgentSlug: "ceo",
+            description: null,
+            recurring: false,
+            routine: null,
+            legacyRecurrence: null,
+            status: null,
+            priority: null,
+            labelIds: [],
+            billingCode: null,
+            executionWorkspaceSettings: null,
+            assigneeAdapterOverrides: null,
+            metadata: null,
+          },
+        ],
+        envInputs: [
+          {
+            key: "OPENAI_API_KEY",
+            description: null,
+            agentSlug: "ceo",
+            kind: "secret",
+            requirement: "required",
+            defaultValue: null,
+            portability: "portable",
+          },
+        ],
+      },
+      files: {
+        "COMPANY.md": "# Source Co",
+      },
+      envInputs: [
+        {
+          key: "OPENAI_API_KEY",
+          description: null,
+          agentSlug: "ceo",
+          kind: "secret",
+          requirement: "required",
+          defaultValue: null,
+          portability: "portable",
+        },
+      ],
+      warnings: ["One warning"],
+      errors: ["One error"],
+    };
+
+    const rendered = renderCompanyImportPreview(preview, {
+      sourceLabel: "GitHub: https://github.com/paperclipai/companies/demo",
+      targetLabel: "Imported Co (company-123)",
+    });
+
+    expect(rendered).toContain("Include");
+    expect(rendered).toContain("company, projects, tasks, agents, skills");
+    expect(rendered).toContain("7 agents total");
+    expect(rendered).toContain("1 project total");
+    expect(rendered).toContain("1 task total");
+    expect(rendered).toContain("skills: 1 skill packaged");
+    expect(rendered).toContain("+1 more");
+    expect(rendered).toContain("Warnings");
+    expect(rendered).toContain("Errors");
+  });
+});
+
+describe("renderCompanyImportResult", () => {
+  it("summarizes import results with created, updated, and skipped counts", () => {
+    const rendered = renderCompanyImportResult(
+      {
+        company: {
+          id: "company-123",
+          name: "Imported Co",
+          action: "updated",
+        },
+        agents: [
+          { slug: "ceo", id: "agent-1", action: "created", name: "CEO", reason: null },
+          { slug: "cto", id: "agent-2", action: "updated", name: "CTO", reason: "replace strategy" },
+          { slug: "ops", id: null, action: "skipped", name: "Ops", reason: "skip strategy" },
+        ],
+        envInputs: [],
+        warnings: ["Review API keys"],
+      },
+      { targetLabel: "Imported Co (company-123)" },
+    );
+
+    expect(rendered).toContain("Company");
+    expect(rendered).toContain("3 agents total (1 created, 1 updated, 1 skipped)");
+    expect(rendered).toContain("Agent results");
+    expect(rendered).toContain("Review API keys");
   });
 });

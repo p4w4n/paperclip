@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import * as p from "@clack/prompts";
+import pc from "picocolors";
 import type {
   Company,
   CompanyPortabilityFileEntry,
@@ -52,6 +53,36 @@ interface CompanyImportOptions extends BaseClientOptions {
   dryRun?: boolean;
 }
 
+const DEFAULT_EXPORT_INCLUDE: CompanyPortabilityInclude = {
+  company: true,
+  agents: true,
+  projects: false,
+  issues: false,
+  skills: false,
+};
+
+const DEFAULT_IMPORT_INCLUDE: CompanyPortabilityInclude = {
+  company: true,
+  agents: true,
+  projects: true,
+  issues: true,
+  skills: true,
+};
+
+const IMPORT_INCLUDE_OPTIONS: Array<{
+  value: keyof CompanyPortabilityInclude;
+  label: string;
+  hint: string;
+}> = [
+  { value: "company", label: "Company", hint: "name, branding, and company settings" },
+  { value: "projects", label: "Projects", hint: "projects and workspace metadata" },
+  { value: "issues", label: "Tasks", hint: "tasks and recurring routines" },
+  { value: "agents", label: "Agents", hint: "agent records and org structure" },
+  { value: "skills", label: "Skills", hint: "company skill packages and references" },
+];
+
+const IMPORT_PREVIEW_SAMPLE_LIMIT = 6;
+
 const binaryContentTypeByExtension: Record<string, string> = {
   ".gif": "image/gif",
   ".jpeg": "image/jpeg",
@@ -84,8 +115,11 @@ function normalizeSelector(input: string): string {
   return input.trim();
 }
 
-function parseInclude(input: string | undefined): CompanyPortabilityInclude {
-  if (!input || !input.trim()) return { company: true, agents: true, projects: false, issues: false, skills: false };
+function parseInclude(
+  input: string | undefined,
+  fallback: CompanyPortabilityInclude = DEFAULT_EXPORT_INCLUDE,
+): CompanyPortabilityInclude {
+  if (!input || !input.trim()) return { ...fallback };
   const values = input.split(",").map((part) => part.trim().toLowerCase()).filter(Boolean);
   const include = {
     company: values.includes("company"),
@@ -112,6 +146,264 @@ function parseAgents(input: string | undefined): "all" | string[] {
 function parseCsvValues(input: string | undefined): string[] {
   if (!input || !input.trim()) return [];
   return Array.from(new Set(input.split(",").map((part) => part.trim()).filter(Boolean)));
+}
+
+function isInteractiveTerminal(): boolean {
+  return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+}
+
+function includeToValues(include: CompanyPortabilityInclude): Array<keyof CompanyPortabilityInclude> {
+  return IMPORT_INCLUDE_OPTIONS
+    .map((option) => option.value)
+    .filter((value) => include[value]);
+}
+
+async function resolveImportIncludeSelection(
+  input: string | undefined,
+  opts?: { prompt?: boolean },
+): Promise<CompanyPortabilityInclude> {
+  if (input?.trim()) {
+    return parseInclude(input, DEFAULT_IMPORT_INCLUDE);
+  }
+
+  if (!opts?.prompt || !isInteractiveTerminal()) {
+    return { ...DEFAULT_IMPORT_INCLUDE };
+  }
+
+  const selection = await p.multiselect<keyof CompanyPortabilityInclude>({
+    message: "What should Paperclip import?",
+    options: IMPORT_INCLUDE_OPTIONS,
+    initialValues: includeToValues(DEFAULT_IMPORT_INCLUDE),
+    required: true,
+  });
+
+  if (p.isCancel(selection)) {
+    p.cancel("Import cancelled.");
+    process.exit(0);
+  }
+
+  const values = new Set(selection);
+  return {
+    company: values.has("company"),
+    agents: values.has("agents"),
+    projects: values.has("projects"),
+    issues: values.has("issues"),
+    skills: values.has("skills"),
+  };
+}
+
+function summarizeInclude(include: CompanyPortabilityInclude): string {
+  const labels = IMPORT_INCLUDE_OPTIONS
+    .filter((option) => include[option.value])
+    .map((option) => option.label.toLowerCase());
+  return labels.length > 0 ? labels.join(", ") : "nothing selected";
+}
+
+function formatSourceLabel(source: { type: "inline"; rootPath?: string | null } | { type: "github"; url: string }): string {
+  if (source.type === "github") {
+    return `GitHub: ${source.url}`;
+  }
+  return `Local package: ${source.rootPath?.trim() || "(current folder)"}`;
+}
+
+function formatTargetLabel(
+  target: { mode: "existing_company"; companyId?: string | null } | { mode: "new_company"; newCompanyName?: string | null },
+  preview?: CompanyPortabilityPreviewResult,
+): string {
+  if (target.mode === "existing_company") {
+    const targetName = preview?.targetCompanyName?.trim();
+    const targetId = preview?.targetCompanyId?.trim() || target.companyId?.trim() || "unknown-company";
+    return targetName ? `${targetName} (${targetId})` : targetId;
+  }
+  return target.newCompanyName?.trim() || preview?.manifest.company?.name || "new company";
+}
+
+function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return count === 1 ? singular : plural;
+}
+
+function summarizePlanCounts(
+  plans: Array<{ action: "create" | "update" | "skip" }>,
+  noun: string,
+): string {
+  if (plans.length === 0) return `0 ${pluralize(0, noun)} selected`;
+  const createCount = plans.filter((plan) => plan.action === "create").length;
+  const updateCount = plans.filter((plan) => plan.action === "update").length;
+  const skipCount = plans.filter((plan) => plan.action === "skip").length;
+  const parts: string[] = [];
+  if (createCount > 0) parts.push(`${createCount} create`);
+  if (updateCount > 0) parts.push(`${updateCount} update`);
+  if (skipCount > 0) parts.push(`${skipCount} skip`);
+  return `${plans.length} ${pluralize(plans.length, noun)} total (${parts.join(", ")})`;
+}
+
+function summarizeImportAgentResults(agents: CompanyPortabilityImportResult["agents"]): string {
+  if (agents.length === 0) return "0 agents changed";
+  const created = agents.filter((agent) => agent.action === "created").length;
+  const updated = agents.filter((agent) => agent.action === "updated").length;
+  const skipped = agents.filter((agent) => agent.action === "skipped").length;
+  const parts: string[] = [];
+  if (created > 0) parts.push(`${created} created`);
+  if (updated > 0) parts.push(`${updated} updated`);
+  if (skipped > 0) parts.push(`${skipped} skipped`);
+  return `${agents.length} ${pluralize(agents.length, "agent")} total (${parts.join(", ")})`;
+}
+
+function actionChip(action: string): string {
+  switch (action) {
+    case "create":
+    case "created":
+      return pc.green(action);
+    case "update":
+    case "updated":
+      return pc.yellow(action);
+    case "skip":
+    case "skipped":
+    case "none":
+    case "unchanged":
+      return pc.dim(action);
+    default:
+      return action;
+  }
+}
+
+function appendPreviewExamples(
+  lines: string[],
+  title: string,
+  entries: Array<{ action: string; label: string; reason?: string | null }>,
+): void {
+  if (entries.length === 0) return;
+  lines.push("");
+  lines.push(pc.bold(title));
+  const shown = entries.slice(0, IMPORT_PREVIEW_SAMPLE_LIMIT);
+  for (const entry of shown) {
+    const reason = entry.reason?.trim() ? pc.dim(` (${entry.reason.trim()})`) : "";
+    lines.push(`- ${actionChip(entry.action)} ${entry.label}${reason}`);
+  }
+  if (entries.length > shown.length) {
+    lines.push(pc.dim(`- +${entries.length - shown.length} more`));
+  }
+}
+
+function appendMessageBlock(lines: string[], title: string, messages: string[]): void {
+  if (messages.length === 0) return;
+  lines.push("");
+  lines.push(pc.bold(title));
+  for (const message of messages) {
+    lines.push(`- ${message}`);
+  }
+}
+
+export function renderCompanyImportPreview(
+  preview: CompanyPortabilityPreviewResult,
+  meta: {
+    sourceLabel: string;
+    targetLabel: string;
+  },
+): string {
+  const lines: string[] = [
+    `${pc.bold("Source")}  ${meta.sourceLabel}`,
+    `${pc.bold("Target")}  ${meta.targetLabel}`,
+    `${pc.bold("Include")} ${summarizeInclude(preview.include)}`,
+    `${pc.bold("Mode")}    ${preview.collisionStrategy} collisions`,
+    "",
+    pc.bold("Package"),
+    `- company: ${preview.manifest.company?.name ?? preview.manifest.source?.companyName ?? "not included"}`,
+    `- agents: ${preview.manifest.agents.length}`,
+    `- projects: ${preview.manifest.projects.length}`,
+    `- tasks: ${preview.manifest.issues.length}`,
+    `- skills: ${preview.manifest.skills.length}`,
+  ];
+
+  if (preview.envInputs.length > 0) {
+    const requiredCount = preview.envInputs.filter((item) => item.requirement === "required").length;
+    lines.push(`- env inputs: ${preview.envInputs.length} (${requiredCount} required)`);
+  }
+
+  lines.push("");
+  lines.push(pc.bold("Plan"));
+  lines.push(`- company: ${actionChip(preview.plan.companyAction === "none" ? "unchanged" : preview.plan.companyAction)}`);
+  lines.push(`- agents: ${summarizePlanCounts(preview.plan.agentPlans, "agent")}`);
+  lines.push(`- projects: ${summarizePlanCounts(preview.plan.projectPlans, "project")}`);
+  lines.push(`- tasks: ${summarizePlanCounts(preview.plan.issuePlans, "task")}`);
+  if (preview.include.skills) {
+    lines.push(`- skills: ${preview.manifest.skills.length} ${pluralize(preview.manifest.skills.length, "skill")} packaged`);
+  }
+
+  appendPreviewExamples(
+    lines,
+    "Agent examples",
+    preview.plan.agentPlans.map((plan) => ({
+      action: plan.action,
+      label: `${plan.slug} -> ${plan.plannedName}`,
+      reason: plan.reason,
+    })),
+  );
+  appendPreviewExamples(
+    lines,
+    "Project examples",
+    preview.plan.projectPlans.map((plan) => ({
+      action: plan.action,
+      label: `${plan.slug} -> ${plan.plannedName}`,
+      reason: plan.reason,
+    })),
+  );
+  appendPreviewExamples(
+    lines,
+    "Task examples",
+    preview.plan.issuePlans.map((plan) => ({
+      action: plan.action,
+      label: `${plan.slug} -> ${plan.plannedTitle}`,
+      reason: plan.reason,
+    })),
+  );
+
+  appendMessageBlock(lines, pc.yellow("Warnings"), preview.warnings);
+  appendMessageBlock(lines, pc.red("Errors"), preview.errors);
+
+  return lines.join("\n");
+}
+
+export function renderCompanyImportResult(
+  result: CompanyPortabilityImportResult,
+  meta: { targetLabel: string },
+): string {
+  const lines: string[] = [
+    `${pc.bold("Target")}  ${meta.targetLabel}`,
+    `${pc.bold("Company")} ${result.company.name} (${actionChip(result.company.action)})`,
+    `${pc.bold("Agents")}  ${summarizeImportAgentResults(result.agents)}`,
+  ];
+
+  appendPreviewExamples(
+    lines,
+    "Agent results",
+    result.agents.map((agent) => ({
+      action: agent.action,
+      label: `${agent.slug} -> ${agent.name}`,
+      reason: agent.reason,
+    })),
+  );
+
+  if (result.envInputs.length > 0) {
+    lines.push("");
+    lines.push(pc.bold("Env inputs"));
+    lines.push(
+      `- ${result.envInputs.length} ${pluralize(result.envInputs.length, "input")} may need values after import`,
+    );
+  }
+
+  appendMessageBlock(lines, pc.yellow("Warnings"), result.warnings);
+
+  return lines.join("\n");
+}
+
+function printCompanyImportView(title: string, body: string, opts?: { interactive?: boolean }): void {
+  if (opts?.interactive) {
+    p.note(body, title);
+    return;
+  }
+  console.log(pc.bold(title));
+  console.log(body);
 }
 
 export function resolveCompanyImportApiPath(input: {
@@ -515,7 +807,7 @@ export function registerCompanyCommands(program: Command): void {
       .command("import")
       .description("Import a portable markdown company package from local path, URL, or GitHub")
       .argument("<fromPathOrUrl>", "Source path or URL")
-      .option("--include <values>", "Comma-separated include set: company,agents,projects,issues,tasks,skills", "company,agents")
+      .option("--include <values>", "Comma-separated include set: company,agents,projects,issues,tasks,skills")
       .option("--target <mode>", "Target mode: new | existing")
       .option("-C, --company-id <id>", "Existing target company ID")
       .option("--new-company-name <name>", "Name override for --target new")
@@ -526,12 +818,13 @@ export function registerCompanyCommands(program: Command): void {
       .action(async (fromPathOrUrl: string, opts: CompanyImportOptions) => {
         try {
           const ctx = resolveCommandContext(opts);
+          const interactiveView = isInteractiveTerminal() && !ctx.json;
           const from = fromPathOrUrl.trim();
           if (!from) {
             throw new Error("Source path or URL is required.");
           }
 
-          const include = parseInclude(opts.include);
+          const include = await resolveImportIncludeSelection(opts.include, { prompt: interactiveView });
           const agents = parseAgents(opts.agents);
           const collision = (opts.collision ?? "rename").toLowerCase() as CompanyCollisionMode;
           if (!["rename", "skip", "replace"].includes(collision)) {
@@ -587,6 +880,9 @@ export function registerCompanyCommands(program: Command): void {
             };
           }
 
+          const sourceLabel = formatSourceLabel(sourcePayload);
+          const targetLabel = formatTargetLabel(targetPayload);
+
           const payload = {
             source: sourcePayload,
             include,
@@ -602,12 +898,39 @@ export function registerCompanyCommands(program: Command): void {
 
           if (opts.dryRun) {
             const preview = await ctx.api.post<CompanyPortabilityPreviewResult>(importApiPath, payload);
-            printOutput(preview, { json: ctx.json });
+            if (!preview) {
+              throw new Error("Import preview returned no data.");
+            }
+            if (ctx.json) {
+              printOutput(preview, { json: true });
+            } else {
+              printCompanyImportView(
+                "Import Preview",
+                renderCompanyImportPreview(preview, {
+                  sourceLabel,
+                  targetLabel: formatTargetLabel(targetPayload, preview),
+                }),
+                { interactive: interactiveView },
+              );
+            }
             return;
           }
 
           const imported = await ctx.api.post<CompanyPortabilityImportResult>(importApiPath, payload);
-          printOutput(imported, { json: ctx.json });
+          if (!imported) {
+            throw new Error("Import request returned no data.");
+          }
+          if (ctx.json) {
+            printOutput(imported, { json: true });
+          } else {
+            printCompanyImportView(
+              "Import Result",
+              renderCompanyImportResult(imported, {
+                targetLabel,
+              }),
+              { interactive: interactiveView },
+            );
+          }
         } catch (err) {
           handleCommandError(err);
         }
