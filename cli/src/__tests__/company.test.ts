@@ -304,7 +304,11 @@ describe("renderCompanyImportResult", () => {
           { slug: "cto", id: "agent-2", action: "updated", name: "CTO", reason: "replace strategy" },
           { slug: "ops", id: null, action: "skipped", name: "Ops", reason: "skip strategy" },
         ],
-        projects: [],
+        projects: [
+          { slug: "app", id: "project-1", action: "created", name: "App", reason: null },
+          { slug: "ops", id: "project-2", action: "updated", name: "Operations", reason: "replace strategy" },
+          { slug: "archive", id: null, action: "skipped", name: "Archive", reason: "skip strategy" },
+        ],
         envInputs: [],
         warnings: ["Review API keys"],
       },
@@ -318,7 +322,9 @@ describe("renderCompanyImportResult", () => {
     expect(rendered).toContain("Company");
     expect(rendered).toContain("https://paperclip.example/PAP/dashboard");
     expect(rendered).toContain("3 agents total (1 created, 1 updated, 1 skipped)");
+    expect(rendered).toContain("3 projects total (1 created, 1 updated, 1 skipped)");
     expect(rendered).toContain("Agent results");
+    expect(rendered).toContain("Project results");
     expect(rendered).toContain("Using claude-local adapter");
     expect(rendered).toContain("Review API keys");
   });

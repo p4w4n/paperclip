@@ -149,8 +149,13 @@ function parseCompanyPackage(companyDir: string): CompanyPackage | null {
   const agents: CompanyPortabilityManifest["agents"] = [];
   if (fs.existsSync(agentsDir)) {
     for (const agentSlug of fs.readdirSync(agentsDir)) {
-      const agentMdPath = path.join(agentsDir, agentSlug, "AGENTS.md");
-      if (!fs.existsSync(agentMdPath)) continue;
+      const agentMdName = fs.existsSync(path.join(agentsDir, agentSlug, "AGENT.md"))
+        ? "AGENT.md"
+        : fs.existsSync(path.join(agentsDir, agentSlug, "AGENTS.md"))
+          ? "AGENTS.md"
+          : null;
+      if (!agentMdName) continue;
+      const agentMdPath = path.join(agentsDir, agentSlug, agentMdName);
 
       const agentMd = fs.readFileSync(agentMdPath, "utf-8");
       const { data: agentData } = parseFrontmatter(agentMd);
@@ -164,7 +169,7 @@ function parseCompanyPackage(companyDir: string): CompanyPackage | null {
       agents.push({
         slug: agentSlug,
         name: agentName,
-        path: `agents/${agentSlug}/AGENTS.md`,
+        path: `agents/${agentSlug}/${agentMdName}`,
         skills,
         role,
         title,

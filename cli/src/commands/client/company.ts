@@ -536,6 +536,18 @@ function summarizeImportAgentResults(agents: CompanyPortabilityImportResult["age
   return `${agents.length} ${pluralize(agents.length, "agent")} total (${parts.join(", ")})`;
 }
 
+function summarizeImportProjectResults(projects: CompanyPortabilityImportResult["projects"]): string {
+  if (projects.length === 0) return "0 projects changed";
+  const created = projects.filter((project) => project.action === "created").length;
+  const updated = projects.filter((project) => project.action === "updated").length;
+  const skipped = projects.filter((project) => project.action === "skipped").length;
+  const parts: string[] = [];
+  if (created > 0) parts.push(`${created} created`);
+  if (updated > 0) parts.push(`${updated} updated`);
+  if (skipped > 0) parts.push(`${skipped} skipped`);
+  return `${projects.length} ${pluralize(projects.length, "project")} total (${parts.join(", ")})`;
+}
+
 function actionChip(action: string): string {
   switch (action) {
     case "create":
@@ -661,6 +673,7 @@ export function renderCompanyImportResult(
     `${pc.bold("Target")}  ${meta.targetLabel}`,
     `${pc.bold("Company")} ${result.company.name} (${actionChip(result.company.action)})`,
     `${pc.bold("Agents")}  ${summarizeImportAgentResults(result.agents)}`,
+    `${pc.bold("Projects")} ${summarizeImportProjectResults(result.projects)}`,
   ];
 
   if (meta.companyUrl) {
@@ -674,6 +687,15 @@ export function renderCompanyImportResult(
       action: agent.action,
       label: `${agent.slug} -> ${agent.name}`,
       reason: agent.reason,
+    })),
+  );
+  appendPreviewExamples(
+    lines,
+    "Project results",
+    result.projects.map((project) => ({
+      action: project.action,
+      label: `${project.slug} -> ${project.name}`,
+      reason: project.reason,
     })),
   );
 

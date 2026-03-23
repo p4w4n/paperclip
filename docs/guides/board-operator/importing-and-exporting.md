@@ -13,8 +13,8 @@ Exported packages follow the [Agent Companies specification](/companies/companie
 my-company/
 ├── COMPANY.md          # Company metadata
 ├── agents/
-│   ├── ceo/AGENTS.md   # Agent instructions + frontmatter
-│   └── cto/AGENTS.md
+│   ├── ceo/AGENT.md    # Agent instructions + frontmatter
+│   └── cto/AGENT.md
 ├── projects/
 │   └── main/PROJECT.md
 ├── skills/
@@ -25,7 +25,7 @@ my-company/
 ```
 
 - **COMPANY.md** defines company name, description, and metadata.
-- **AGENTS.md** files contain agent identity, role, and instructions.
+- **AGENT.md** files contain agent identity, role, and instructions.
 - **SKILL.md** files are compatible with the Agent Skills ecosystem.
 - **.paperclip.yaml** holds Paperclip-specific config (adapter types, env inputs, budgets) as an optional sidecar.
 
