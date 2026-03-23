@@ -705,7 +705,60 @@ function stripPortableProjectExecutionWorkspaceRefs(policy: Record<string, unkno
   return isPlainRecord(cleaned) ? cleaned : null;
 }
 
-function buildPortableProjectWorkspaces(
+async function readGitOutput(cwd: string, args: string[]) {
+  const { stdout } = await execFileAsync("git", ["-C", cwd, ...args], { cwd });
+  const trimmed = stdout.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+async function inferPortableWorkspaceGitMetadata(workspace: NonNullable<ProjectLike["workspaces"]>[number]) {
+  const cwd = asString(workspace.cwd);
+  if (!cwd) {
+    return {
+      repoUrl: null,
+      repoRef: null,
+      defaultRef: null,
+    };
+  }
+
+  let repoUrl: string | null = null;
+  try {
+    repoUrl = await readGitOutput(cwd, ["remote", "get-url", "origin"]);
+  } catch {
+    try {
+      const firstRemote = await readGitOutput(cwd, ["remote"]);
+      const remoteName = firstRemote?.split("\n").map((entry) => entry.trim()).find(Boolean) ?? null;
+      if (remoteName) {
+        repoUrl = await readGitOutput(cwd, ["remote", "get-url", remoteName]);
+      }
+    } catch {
+      repoUrl = null;
+    }
+  }
+
+  let repoRef: string | null = null;
+  try {
+    repoRef = await readGitOutput(cwd, ["branch", "--show-current"]);
+  } catch {
+    repoRef = null;
+  }
+
+  let defaultRef: string | null = null;
+  try {
+    const remoteHead = await readGitOutput(cwd, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]);
+    defaultRef = remoteHead?.startsWith("origin/") ? remoteHead.slice("origin/".length) : remoteHead;
+  } catch {
+    defaultRef = null;
+  }
+
+  return {
+    repoUrl,
+    repoRef,
+    defaultRef,
+  };
+}
+
+async function buildPortableProjectWorkspaces(
   projectSlug: string,
   workspaces: ProjectLike["workspaces"] | undefined,
   warnings: string[],
@@ -713,17 +766,43 @@ function buildPortableProjectWorkspaces(
   const exportedWorkspaces: Record<string, Record<string, unknown>> = {};
   const manifestWorkspaces: CompanyPortabilityProjectWorkspaceManifestEntry[] = [];
   const workspaceKeyById = new Map<string, string>();
+  const workspaceKeyBySignature = new Map<string, string>();
+  const manifestWorkspaceByKey = new Map<string, CompanyPortabilityProjectWorkspaceManifestEntry>();
   const usedKeys = new Set<string>();
 
   for (const workspace of workspaces ?? []) {
-    const repoUrl = asString(workspace.repoUrl);
+    const inferredGitMetadata =
+      !asString(workspace.repoUrl) || !asString(workspace.repoRef) || !asString(workspace.defaultRef)
+        ? await inferPortableWorkspaceGitMetadata(workspace)
+        : { repoUrl: null, repoRef: null, defaultRef: null };
+    const repoUrl = asString(workspace.repoUrl) ?? inferredGitMetadata.repoUrl;
     if (!repoUrl) {
       warnings.push(`Project ${projectSlug} workspace ${workspace.name} was omitted from export because it does not have a portable repoUrl.`);
+      continue;
+    }
+    const repoRef = asString(workspace.repoRef) ?? inferredGitMetadata.repoRef;
+    const defaultRef = asString(workspace.defaultRef) ?? inferredGitMetadata.defaultRef ?? repoRef;
+    const workspaceSignature = JSON.stringify({
+      name: workspace.name,
+      repoUrl,
+      repoRef,
+      defaultRef,
+    });
+    const existingWorkspaceKey = workspaceKeyBySignature.get(workspaceSignature);
+    if (existingWorkspaceKey) {
+      workspaceKeyById.set(workspace.id, existingWorkspaceKey);
+      const existingManifestWorkspace = manifestWorkspaceByKey.get(existingWorkspaceKey);
+      if (existingManifestWorkspace && workspace.isPrimary) {
+        existingManifestWorkspace.isPrimary = true;
+        const existingExtensionWorkspace = exportedWorkspaces[existingWorkspaceKey];
+        if (isPlainRecord(existingExtensionWorkspace)) existingExtensionWorkspace.isPrimary = true;
+      }
       continue;
     }
 
     const workspaceKey = derivePortableProjectWorkspaceKey(workspace, usedKeys);
     workspaceKeyById.set(workspace.id, workspaceKey);
+    workspaceKeyBySignature.set(workspaceSignature, workspaceKey);
 
     let setupCommand = asString(workspace.setupCommand);
     if (setupCommand && containsAbsolutePathFragment(setupCommand)) {
@@ -748,8 +827,8 @@ function buildPortableProjectWorkspaces(
       name: workspace.name,
       sourceType: workspace.sourceType,
       repoUrl,
-      repoRef: asString(workspace.repoRef),
-      defaultRef: asString(workspace.defaultRef),
+      repoRef,
+      defaultRef,
       visibility: asString(workspace.visibility),
       setupCommand,
       cleanupCommand,
@@ -759,19 +838,21 @@ function buildPortableProjectWorkspaces(
     if (!isPlainRecord(portableWorkspace)) continue;
 
     exportedWorkspaces[workspaceKey] = portableWorkspace;
-    manifestWorkspaces.push({
+    const manifestWorkspace = {
       key: workspaceKey,
       name: workspace.name,
       sourceType: asString(workspace.sourceType),
       repoUrl,
-      repoRef: asString(workspace.repoRef),
-      defaultRef: asString(workspace.defaultRef),
+      repoRef,
+      defaultRef,
       visibility: asString(workspace.visibility),
       setupCommand,
       cleanupCommand,
       metadata,
       isPrimary: workspace.isPrimary,
-    });
+    };
+    manifestWorkspaces.push(manifestWorkspace);
+    manifestWorkspaceByKey.set(workspaceKey, manifestWorkspace);
   }
 
   return {
@@ -2838,6 +2919,7 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
     const paperclipAgentsOut: Record<string, Record<string, unknown>> = {};
     const paperclipProjectsOut: Record<string, Record<string, unknown>> = {};
     const paperclipTasksOut: Record<string, Record<string, unknown>> = {};
+    const unportableTaskWorkspaceRefs = new Map<string, { workspaceId: string; taskSlugs: string[] }>();
     const paperclipRoutinesOut: Record<string, Record<string, unknown>> = {};
 
     const skillByReference = new Map<string, typeof companySkillRows[number]>();
@@ -2971,7 +3053,7 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
     for (const project of selectedProjectRows) {
       const slug = projectSlugById.get(project.id)!;
       const projectPath = `projects/${slug}/PROJECT.md`;
-      const portableWorkspaces = buildPortableProjectWorkspaces(slug, project.workspaces, warnings);
+      const portableWorkspaces = await buildPortableProjectWorkspaces(slug, project.workspaces, warnings);
       projectWorkspaceKeyByProjectId.set(project.id, portableWorkspaces.workspaceKeyById);
       files[projectPath] = buildMarkdown(
         {
@@ -3007,7 +3089,16 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
         ? projectWorkspaceKeyByProjectId.get(issue.projectId)?.get(issue.projectWorkspaceId) ?? null
         : null;
       if (issue.projectWorkspaceId && !projectWorkspaceKey) {
-        warnings.push(`Task ${taskSlug} workspace reference ${issue.projectWorkspaceId} was omitted from export because that workspace is not portable.`);
+        const aggregateKey = `${issue.projectId ?? "no-project"}:${issue.projectWorkspaceId}`;
+        const existing = unportableTaskWorkspaceRefs.get(aggregateKey);
+        if (existing) {
+          existing.taskSlugs.push(taskSlug);
+        } else {
+          unportableTaskWorkspaceRefs.set(aggregateKey, {
+            workspaceId: issue.projectWorkspaceId,
+            taskSlugs: [taskSlug],
+          });
+        }
       }
       files[taskPath] = buildMarkdown(
         {
@@ -3028,6 +3119,12 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
         assigneeAdapterOverrides: issue.assigneeAdapterOverrides ?? undefined,
       });
       paperclipTasksOut[taskSlug] = isPlainRecord(extension) ? extension : {};
+    }
+
+    for (const { workspaceId, taskSlugs } of unportableTaskWorkspaceRefs.values()) {
+      const preview = taskSlugs.slice(0, 4).join(", ");
+      const remainder = taskSlugs.length > 4 ? ` and ${taskSlugs.length - 4} more` : "";
+      warnings.push(`Tasks ${preview}${remainder} reference workspace ${workspaceId}, but that workspace could not be exported portably.`);
     }
 
     for (const routine of selectedRoutineRows) {

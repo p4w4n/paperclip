@@ -1,3 +1,7 @@
+import { execFileSync } from "node:child_process";
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { Readable } from "node:stream";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CompanyPortabilityFileEntry } from "@paperclipai/shared";
@@ -857,6 +861,194 @@ describe("company portability", () => {
       projectWorkspaceId: "workspace-imported",
       title: "Write launch task",
     }));
+  });
+
+  it("infers portable git metadata from a local checkout without task warning fan-out", async () => {
+    const portability = companyPortabilityService({} as any);
+    const repoDir = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-portability-git-"));
+    execFileSync("git", ["init"], { cwd: repoDir, stdio: "ignore" });
+    execFileSync("git", ["checkout", "-b", "main"], { cwd: repoDir, stdio: "ignore" });
+    execFileSync("git", ["remote", "add", "origin", "https://github.com/paperclipai/paperclip.git"], {
+      cwd: repoDir,
+      stdio: "ignore",
+    });
+
+    projectSvc.list.mockResolvedValue([
+      {
+        id: "project-1",
+        name: "Paperclip App",
+        urlKey: "paperclip-app",
+        description: "Ship it",
+        leadAgentId: null,
+        targetDate: null,
+        color: null,
+        status: "planned",
+        executionWorkspacePolicy: {
+          enabled: true,
+          defaultMode: "shared_workspace",
+          defaultProjectWorkspaceId: "workspace-1",
+        },
+        workspaces: [
+          {
+            id: "workspace-1",
+            companyId: "company-1",
+            projectId: "project-1",
+            name: "paperclip",
+            sourceType: "local_path",
+            cwd: repoDir,
+            repoUrl: null,
+            repoRef: null,
+            defaultRef: null,
+            visibility: "default",
+            setupCommand: null,
+            cleanupCommand: null,
+            remoteProvider: null,
+            remoteWorkspaceRef: null,
+            sharedWorkspaceKey: null,
+            metadata: null,
+            isPrimary: true,
+            createdAt: new Date("2026-03-01T00:00:00Z"),
+            updatedAt: new Date("2026-03-01T00:00:00Z"),
+          },
+        ],
+        archivedAt: null,
+      },
+    ]);
+    issueSvc.list.mockResolvedValue([
+      {
+        id: "issue-1",
+        identifier: "PAP-1",
+        title: "Task one",
+        description: "Task body",
+        projectId: "project-1",
+        projectWorkspaceId: "workspace-1",
+        assigneeAgentId: null,
+        status: "todo",
+        priority: "medium",
+        labelIds: [],
+        billingCode: null,
+        executionWorkspaceSettings: null,
+        assigneeAdapterOverrides: null,
+      },
+    ]);
+
+    const exported = await portability.exportBundle("company-1", {
+      include: {
+        company: false,
+        agents: false,
+        projects: true,
+        issues: true,
+      },
+    });
+
+    const extension = asTextFile(exported.files[".paperclip.yaml"]);
+    expect(extension).toContain('repoUrl: "https://github.com/paperclipai/paperclip.git"');
+    expect(extension).toContain('projectWorkspaceKey: "paperclip"');
+    expect(exported.warnings).not.toContainEqual(expect.stringContaining("does not have a portable repoUrl"));
+    expect(exported.warnings).not.toContainEqual(expect.stringContaining("reference workspace workspace-1"));
+  });
+
+  it("collapses repeated task workspace warnings into one summary per missing workspace", async () => {
+    const portability = companyPortabilityService({} as any);
+
+    projectSvc.list.mockResolvedValue([
+      {
+        id: "project-1",
+        name: "Launch",
+        urlKey: "launch",
+        description: "Ship it",
+        leadAgentId: null,
+        targetDate: null,
+        color: null,
+        status: "planned",
+        executionWorkspacePolicy: null,
+        workspaces: [
+          {
+            id: "workspace-1",
+            companyId: "company-1",
+            projectId: "project-1",
+            name: "Local Scratch",
+            sourceType: "local_path",
+            cwd: "/tmp/local-only",
+            repoUrl: null,
+            repoRef: null,
+            defaultRef: null,
+            visibility: "default",
+            setupCommand: null,
+            cleanupCommand: null,
+            remoteProvider: null,
+            remoteWorkspaceRef: null,
+            sharedWorkspaceKey: null,
+            metadata: null,
+            isPrimary: true,
+            createdAt: new Date("2026-03-01T00:00:00Z"),
+            updatedAt: new Date("2026-03-01T00:00:00Z"),
+          },
+        ],
+        archivedAt: null,
+      },
+    ]);
+    issueSvc.list.mockResolvedValue([
+      {
+        id: "issue-1",
+        identifier: "PAP-1",
+        title: "Task one",
+        description: null,
+        projectId: "project-1",
+        projectWorkspaceId: "workspace-1",
+        assigneeAgentId: null,
+        status: "todo",
+        priority: "medium",
+        labelIds: [],
+        billingCode: null,
+        executionWorkspaceSettings: null,
+        assigneeAdapterOverrides: null,
+      },
+      {
+        id: "issue-2",
+        identifier: "PAP-2",
+        title: "Task two",
+        description: null,
+        projectId: "project-1",
+        projectWorkspaceId: "workspace-1",
+        assigneeAgentId: null,
+        status: "todo",
+        priority: "medium",
+        labelIds: [],
+        billingCode: null,
+        executionWorkspaceSettings: null,
+        assigneeAdapterOverrides: null,
+      },
+      {
+        id: "issue-3",
+        identifier: "PAP-3",
+        title: "Task three",
+        description: null,
+        projectId: "project-1",
+        projectWorkspaceId: "workspace-1",
+        assigneeAgentId: null,
+        status: "todo",
+        priority: "medium",
+        labelIds: [],
+        billingCode: null,
+        executionWorkspaceSettings: null,
+        assigneeAdapterOverrides: null,
+      },
+    ]);
+
+    const exported = await portability.exportBundle("company-1", {
+      include: {
+        company: false,
+        agents: false,
+        projects: true,
+        issues: true,
+      },
+    });
+
+    expect(exported.warnings).toContain("Project launch workspace Local Scratch was omitted from export because it does not have a portable repoUrl.");
+    expect(exported.warnings).toContain("Tasks pap-1, pap-2, pap-3 reference workspace workspace-1, but that workspace could not be exported portably.");
+    expect(exported.warnings.filter((warning) => warning.includes("workspace reference workspace-1 was omitted from export"))).toHaveLength(0);
+    expect(exported.warnings.filter((warning) => warning.includes("could not be exported portably"))).toHaveLength(1);
   });
 
   it("reads env inputs back from .paperclip.yaml during preview import", async () => {
