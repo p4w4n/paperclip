@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
+import { pickTextColorForPillBg } from "@/lib/color-contrast";
 import { Link } from "@/lib/router";
 import type { Issue } from "@paperclipai/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -329,7 +330,7 @@ export function IssueProperties({ issue, onUpdate, inline }: IssuePropertiesProp
           style={{
             borderColor: label.color,
             backgroundColor: `${label.color}22`,
-            color: label.color,
+            color: pickTextColorForPillBg(label.color, 0.13),
           }}
         >
           {label.name}
