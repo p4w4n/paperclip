@@ -868,6 +868,7 @@ Export/import behavior in V1:
   - create a new company
   - import into an existing company
 - import recreates exported project workspaces and remaps portable workspace keys back to target-local workspace ids
+- import forces imported agent timer heartbeats off so packages never start scheduled runs implicitly
 - import supports collision strategies: `rename`, `skip`, `replace`
 - import supports preview (dry-run) before apply
 - GitHub imports warn on unpinned refs instead of blocking
