@@ -99,6 +99,8 @@ type RuntimeSkillEntryOptions = {
   materializeMissing?: boolean;
 };
 
+const skillInventoryRefreshPromises = new Map<string, Promise<void>>();
+
 const PROJECT_SCAN_DIRECTORY_ROOTS = [
   "skills",
   "skills/.curated",
@@ -1474,8 +1476,25 @@ export function companySkillService(db: Db) {
   }
 
   async function ensureSkillInventoryCurrent(companyId: string) {
-    await ensureBundledSkills(companyId);
-    await pruneMissingLocalPathSkills(companyId);
+    const existingRefresh = skillInventoryRefreshPromises.get(companyId);
+    if (existingRefresh) {
+      await existingRefresh;
+      return;
+    }
+
+    const refreshPromise = (async () => {
+      await ensureBundledSkills(companyId);
+      await pruneMissingLocalPathSkills(companyId);
+    })();
+
+    skillInventoryRefreshPromises.set(companyId, refreshPromise);
+    try {
+      await refreshPromise;
+    } finally {
+      if (skillInventoryRefreshPromises.get(companyId) === refreshPromise) {
+        skillInventoryRefreshPromises.delete(companyId);
+      }
+    }
   }
 
   async function list(companyId: string): Promise<CompanySkillListItem[]> {
