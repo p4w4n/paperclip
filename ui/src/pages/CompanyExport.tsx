@@ -17,6 +17,7 @@ import { PageSkeleton } from "../components/PageSkeleton";
 import { MarkdownBody } from "../components/MarkdownBody";
 import { cn } from "../lib/utils";
 import { createZipArchive } from "../lib/zip";
+import { buildInitialExportCheckedFiles } from "../lib/company-export-selection";
 import { getPortableFileDataUrl, getPortableFileText, isPortableImageFile } from "../lib/portable-files";
 import {
   Download,
@@ -33,11 +34,6 @@ import {
   FRONTMATTER_FIELD_LABELS,
   PackageFileTree,
 } from "../components/PackageFileTree";
-
-/** Returns true if the path looks like a task file (e.g. tasks/slug/TASK.md or projects/x/tasks/slug/TASK.md) */
-function isTaskPath(filePath: string): boolean {
-  return /(?:^|\/)tasks\//.test(filePath);
-}
 
 /**
  * Extract the set of agent/project/task slugs that are "checked" based on
@@ -588,14 +584,13 @@ export function CompanyExport() {
       }),
     onSuccess: (result) => {
       setExportData(result);
-      setCheckedFiles((prev) => {
-        const next = new Set<string>();
-        for (const filePath of Object.keys(result.files)) {
-          if (prev.has(filePath)) next.add(filePath);
-          else if (!isTaskPath(filePath)) next.add(filePath);
-        }
-        return next;
-      });
+      setCheckedFiles((prev) =>
+        buildInitialExportCheckedFiles(
+          Object.keys(result.files),
+          result.manifest.issues,
+          prev,
+        ),
+      );
       // Expand top-level dirs (except tasks — collapsed by default)
       const tree = buildFileTree(result.files);
       const topDirs = new Set<string>();
