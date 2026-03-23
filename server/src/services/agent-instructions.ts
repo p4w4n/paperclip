@@ -272,6 +272,24 @@ function deriveBundleState(agent: AgentLike): BundleState {
   };
 }
 
+async function recoverManagedBundleState(agent: AgentLike, state: BundleState): Promise<BundleState> {
+  if (state.rootPath) return state;
+
+  const managedRootPath = resolveManagedInstructionsRoot(agent);
+  const stat = await statIfExists(managedRootPath);
+  if (!stat?.isDirectory()) return state;
+
+  const files = await listFilesRecursive(managedRootPath);
+  if (files.length === 0) return state;
+
+  return {
+    ...state,
+    mode: "managed",
+    rootPath: managedRootPath,
+    resolvedEntryPath: path.resolve(managedRootPath, state.entryFile),
+  };
+}
+
 function toBundle(agent: AgentLike, state: BundleState, files: AgentInstructionsFileSummary[]): AgentInstructionsBundle {
   const nextFiles = [...files];
   if (state.legacyPromptTemplateActive && !nextFiles.some((file) => file.path === LEGACY_PROMPT_TEMPLATE_PATH)) {
@@ -366,7 +384,7 @@ export function syncInstructionsBundleConfigFromFilePath(
 
 export function agentInstructionsService() {
   async function getBundle(agent: AgentLike): Promise<AgentInstructionsBundle> {
-    const state = deriveBundleState(agent);
+    const state = await recoverManagedBundleState(agent, deriveBundleState(agent));
     if (!state.rootPath) return toBundle(agent, state, []);
     const stat = await statIfExists(state.rootPath);
     if (!stat?.isDirectory()) {
@@ -381,7 +399,7 @@ export function agentInstructionsService() {
   }
 
   async function readFile(agent: AgentLike, relativePath: string): Promise<AgentInstructionsFileDetail> {
-    const state = deriveBundleState(agent);
+    const state = await recoverManagedBundleState(agent, deriveBundleState(agent));
     if (relativePath === LEGACY_PROMPT_TEMPLATE_PATH) {
       const content = asString(state.config[PROMPT_KEY]);
       if (content === null) throw notFound("Instructions file not found");
@@ -422,9 +440,21 @@ export function agentInstructionsService() {
     agent: AgentLike,
     options?: { clearLegacyPromptTemplate?: boolean },
   ): Promise<{ adapterConfig: Record<string, unknown>; state: BundleState }> {
-    const current = deriveBundleState(agent);
+    const derived = deriveBundleState(agent);
+    const current = await recoverManagedBundleState(agent, derived);
     if (current.rootPath && current.mode) {
-      return { adapterConfig: current.config, state: current };
+      const adapterConfig = derived.rootPath
+        ? current.config
+        : applyBundleConfig(current.config, {
+          mode: current.mode,
+          rootPath: current.rootPath,
+          entryFile: current.entryFile,
+          clearLegacyPromptTemplate: options?.clearLegacyPromptTemplate,
+        });
+      return {
+        adapterConfig,
+        state: deriveBundleState({ ...agent, adapterConfig }),
+      };
     }
 
     const managedRoot = resolveManagedInstructionsRoot(agent);
@@ -462,7 +492,7 @@ export function agentInstructionsService() {
       clearLegacyPromptTemplate?: boolean;
     },
   ): Promise<{ bundle: AgentInstructionsBundle; adapterConfig: Record<string, unknown> }> {
-    const state = deriveBundleState(agent);
+    const state = await recoverManagedBundleState(agent, deriveBundleState(agent));
     const nextMode = input.mode ?? state.mode ?? "managed";
     const nextEntryFile = input.entryFile ? normalizeRelativeFilePath(input.entryFile) : state.entryFile;
     let nextRootPath: string;
@@ -544,7 +574,7 @@ export function agentInstructionsService() {
     bundle: AgentInstructionsBundle;
     adapterConfig: Record<string, unknown>;
   }> {
-    const state = deriveBundleState(agent);
+    const state = await recoverManagedBundleState(agent, deriveBundleState(agent));
     if (relativePath === LEGACY_PROMPT_TEMPLATE_PATH) {
       throw unprocessable("Cannot delete the legacy promptTemplate pseudo-file");
     }
@@ -564,7 +594,7 @@ export function agentInstructionsService() {
     entryFile: string;
     warnings: string[];
   }> {
-    const state = deriveBundleState(agent);
+    const state = await recoverManagedBundleState(agent, deriveBundleState(agent));
     if (state.rootPath) {
       const stat = await statIfExists(state.rootPath);
       if (stat?.isDirectory()) {

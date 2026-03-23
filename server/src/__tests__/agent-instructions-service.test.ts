@@ -161,4 +161,35 @@ describe("agent instructions service", () => {
       "docs/TOOLS.md",
     ]);
   });
+
+  it("recovers a managed bundle from disk when bundle config metadata is missing", async () => {
+    const paperclipHome = await makeTempDir("paperclip-agent-instructions-recover-");
+    cleanupDirs.add(paperclipHome);
+    process.env.PAPERCLIP_HOME = paperclipHome;
+    process.env.PAPERCLIP_INSTANCE_ID = "test-instance";
+
+    const managedRoot = path.join(
+      paperclipHome,
+      "instances",
+      "test-instance",
+      "companies",
+      "company-1",
+      "agents",
+      "agent-1",
+      "instructions",
+    );
+    await fs.mkdir(managedRoot, { recursive: true });
+    await fs.writeFile(path.join(managedRoot, "AGENTS.md"), "# Recovered Agent\n", "utf8");
+
+    const svc = agentInstructionsService();
+    const agent = makeAgent({});
+
+    const bundle = await svc.getBundle(agent);
+    const exported = await svc.exportFiles(agent);
+
+    expect(bundle.mode).toBe("managed");
+    expect(bundle.rootPath).toBe(managedRoot);
+    expect(bundle.files.map((file) => file.path)).toEqual(["AGENTS.md"]);
+    expect(exported.files).toEqual({ "AGENTS.md": "# Recovered Agent\n" });
+  });
 });
