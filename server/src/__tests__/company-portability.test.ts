@@ -1832,6 +1832,61 @@ describe("company portability", () => {
     });
   });
 
+  it("disables timer heartbeats on imported agents", async () => {
+    const portability = companyPortabilityService({} as any);
+
+    companySvc.create.mockResolvedValue({
+      id: "company-imported",
+      name: "Imported Paperclip",
+    });
+    agentSvc.create.mockImplementation(async (_companyId: string, input: Record<string, unknown>) => ({
+      id: `agent-${String(input.name).toLowerCase()}`,
+      name: input.name,
+      adapterConfig: input.adapterConfig,
+      runtimeConfig: input.runtimeConfig,
+    }));
+
+    const exported = await portability.exportBundle("company-1", {
+      include: {
+        company: true,
+        agents: true,
+        projects: false,
+        issues: false,
+      },
+    });
+
+    agentSvc.list.mockResolvedValue([]);
+
+    await portability.importBundle({
+      source: {
+        type: "inline",
+        rootPath: exported.rootPath,
+        files: exported.files,
+      },
+      include: {
+        company: true,
+        agents: true,
+        projects: false,
+        issues: false,
+      },
+      target: {
+        mode: "new_company",
+        newCompanyName: "Imported Paperclip",
+      },
+      agents: "all",
+      collisionStrategy: "rename",
+    }, "user-1");
+
+    const createdClaude = agentSvc.create.mock.calls.find(([, input]) => input.name === "ClaudeCoder");
+    expect(createdClaude?.[1]).toMatchObject({
+      runtimeConfig: {
+        heartbeat: {
+          enabled: false,
+        },
+      },
+    });
+  });
+
   it("imports only selected files and leaves unchecked company metadata alone", async () => {
     const portability = companyPortabilityService({} as any);
 
@@ -1902,6 +1957,11 @@ describe("company portability", () => {
     expect(agentSvc.create).toHaveBeenCalledTimes(1);
     expect(agentSvc.create).toHaveBeenCalledWith("company-1", expect.objectContaining({
       name: "CMO",
+      runtimeConfig: {
+        heartbeat: {
+          enabled: false,
+        },
+      },
     }));
     expect(result.company.action).toBe("unchanged");
     expect(result.agents).toEqual([

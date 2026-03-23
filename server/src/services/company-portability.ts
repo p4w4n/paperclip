@@ -619,6 +619,14 @@ function clonePortableRecord(value: unknown) {
   return structuredClone(value) as Record<string, unknown>;
 }
 
+function disableImportedTimerHeartbeat(runtimeConfig: unknown) {
+  const next = clonePortableRecord(runtimeConfig) ?? {};
+  const heartbeat = isPlainRecord(next.heartbeat) ? { ...next.heartbeat } : {};
+  heartbeat.enabled = false;
+  next.heartbeat = heartbeat;
+  return next;
+}
+
 function normalizePortableProjectWorkspaceExtension(
   workspaceKey: string,
   value: unknown,
@@ -3853,7 +3861,7 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
           reportsTo: null,
           adapterType: effectiveAdapterType,
           adapterConfig: adapterConfigWithSkills,
-          runtimeConfig: manifestAgent.runtimeConfig,
+          runtimeConfig: disableImportedTimerHeartbeat(manifestAgent.runtimeConfig),
           budgetMonthlyCents: manifestAgent.budgetMonthlyCents,
           permissions: manifestAgent.permissions,
           metadata: manifestAgent.metadata,
