@@ -45,6 +45,7 @@ Fields:
 | Field | Required | Description |
 |-------|----------|-------------|
 | `title` | yes | Routine name |
+| `description` | no | Human-readable description of the routine |
 | `assigneeAgentId` | yes | Agent who receives each run |
 | `projectId` | yes | Project this routine belongs to |
 | `goalId` | no | Goal to link runs to |
@@ -58,9 +59,9 @@ Fields:
 
 | Value | Behaviour |
 |-------|-----------|
-| `coalesce_if_active` (default) | Skip the new run if one is already in progress |
-| `skip_if_active` | Same as coalesce but without queuing |
-| `always_enqueue` | Always enqueue, regardless of active runs |
+| `coalesce_if_active` (default) | Incoming run is immediately finalised as `coalesced` and linked to the active run — no new issue is created |
+| `skip_if_active` | Incoming run is immediately finalised as `skipped` and linked to the active run — no new issue is created |
+| `always_enqueue` | Always create a new run regardless of active runs |
 
 **Catch-up policies:**
 
@@ -150,12 +151,15 @@ Generates a new signing secret for webhook triggers. The previous secret is imme
 POST /api/routines/{routineId}/run
 {
   "source": "manual",
+  "triggerId": "{triggerId}",
   "payload": { "context": "..." },
   "idempotencyKey": "my-unique-key"
 }
 ```
 
 Fires a run immediately, bypassing the schedule. Concurrency policy still applies.
+
+`triggerId` is optional. When supplied, the server validates the trigger belongs to this routine (`403`) and is enabled (`409`), then records the run against that trigger and updates its `lastFiredAt`. Omit it for a generic manual run with no trigger attribution.
 
 ## Fire Public Trigger
 
