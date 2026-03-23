@@ -41,9 +41,10 @@ pnpm paperclipai company export <company-id> --out ./exports/acme --include comp
 
 # Preview import (no writes)
 pnpm paperclipai company import \
-  https://github.com/<owner>/<repo>/tree/main/<path> \
+  <owner>/<repo>/<path> \
   --target existing \
   --company-id <company-id> \
+  --ref main \
   --collision rename \
   --dry-run
 
