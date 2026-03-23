@@ -192,4 +192,88 @@ describe("agent instructions service", () => {
     expect(bundle.files.map((file) => file.path)).toEqual(["AGENTS.md"]);
     expect(exported.files).toEqual({ "AGENTS.md": "# Recovered Agent\n" });
   });
+
+  it("prefers the managed bundle on disk when managed metadata points at a stale root", async () => {
+    const paperclipHome = await makeTempDir("paperclip-agent-instructions-stale-managed-");
+    const staleRoot = await makeTempDir("paperclip-agent-instructions-stale-root-");
+    cleanupDirs.add(paperclipHome);
+    cleanupDirs.add(staleRoot);
+    process.env.PAPERCLIP_HOME = paperclipHome;
+    process.env.PAPERCLIP_INSTANCE_ID = "test-instance";
+
+    const managedRoot = path.join(
+      paperclipHome,
+      "instances",
+      "test-instance",
+      "companies",
+      "company-1",
+      "agents",
+      "agent-1",
+      "instructions",
+    );
+    await fs.mkdir(managedRoot, { recursive: true });
+    await fs.writeFile(path.join(managedRoot, "AGENTS.md"), "# Managed Agent\n", "utf8");
+
+    const svc = agentInstructionsService();
+    const agent = makeAgent({
+      instructionsBundleMode: "managed",
+      instructionsRootPath: staleRoot,
+      instructionsEntryFile: "docs/MISSING.md",
+      instructionsFilePath: path.join(staleRoot, "docs", "MISSING.md"),
+    });
+
+    const bundle = await svc.getBundle(agent);
+    const exported = await svc.exportFiles(agent);
+
+    expect(bundle.mode).toBe("managed");
+    expect(bundle.rootPath).toBe(managedRoot);
+    expect(bundle.entryFile).toBe("AGENTS.md");
+    expect(bundle.files.map((file) => file.path)).toEqual(["AGENTS.md"]);
+    expect(bundle.warnings).toEqual([
+      `Recovered managed instructions from disk at ${managedRoot}; ignoring stale configured root ${staleRoot}.`,
+      "Recovered managed instructions entry file from disk as AGENTS.md; previous entry docs/MISSING.md was missing.",
+    ]);
+    expect(exported.files).toEqual({ "AGENTS.md": "# Managed Agent\n" });
+  });
+
+  it("recovers the managed bundle when stale root metadata is present but mode is missing", async () => {
+    const paperclipHome = await makeTempDir("paperclip-agent-instructions-partial-managed-");
+    const staleRoot = await makeTempDir("paperclip-agent-instructions-partial-root-");
+    cleanupDirs.add(paperclipHome);
+    cleanupDirs.add(staleRoot);
+    process.env.PAPERCLIP_HOME = paperclipHome;
+    process.env.PAPERCLIP_INSTANCE_ID = "test-instance";
+
+    const managedRoot = path.join(
+      paperclipHome,
+      "instances",
+      "test-instance",
+      "companies",
+      "company-1",
+      "agents",
+      "agent-1",
+      "instructions",
+    );
+    await fs.mkdir(managedRoot, { recursive: true });
+    await fs.writeFile(path.join(managedRoot, "AGENTS.md"), "# Managed Agent\n", "utf8");
+
+    const svc = agentInstructionsService();
+    const agent = makeAgent({
+      instructionsRootPath: staleRoot,
+      instructionsEntryFile: "docs/MISSING.md",
+    });
+
+    const bundle = await svc.getBundle(agent);
+    const exported = await svc.exportFiles(agent);
+
+    expect(bundle.mode).toBe("managed");
+    expect(bundle.rootPath).toBe(managedRoot);
+    expect(bundle.entryFile).toBe("AGENTS.md");
+    expect(bundle.files.map((file) => file.path)).toEqual(["AGENTS.md"]);
+    expect(bundle.warnings).toEqual([
+      `Recovered managed instructions from disk at ${managedRoot}; ignoring stale configured root ${staleRoot}.`,
+      "Recovered managed instructions entry file from disk as AGENTS.md; previous entry docs/MISSING.md was missing.",
+    ]);
+    expect(exported.files).toEqual({ "AGENTS.md": "# Managed Agent\n" });
+  });
 });

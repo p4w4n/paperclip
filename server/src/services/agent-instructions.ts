@@ -273,8 +273,6 @@ function deriveBundleState(agent: AgentLike): BundleState {
 }
 
 async function recoverManagedBundleState(agent: AgentLike, state: BundleState): Promise<BundleState> {
-  if (state.rootPath) return state;
-
   const managedRootPath = resolveManagedInstructionsRoot(agent);
   const stat = await statIfExists(managedRootPath);
   if (!stat?.isDirectory()) return state;
@@ -282,11 +280,51 @@ async function recoverManagedBundleState(agent: AgentLike, state: BundleState): 
   const files = await listFilesRecursive(managedRootPath);
   if (files.length === 0) return state;
 
+  const recoveredEntryFile = files.includes(state.entryFile)
+    ? state.entryFile
+    : files.includes(ENTRY_FILE_DEFAULT)
+      ? ENTRY_FILE_DEFAULT
+      : files[0]!;
+
+  if (!state.rootPath) {
+    return {
+      ...state,
+      mode: "managed",
+      rootPath: managedRootPath,
+      entryFile: recoveredEntryFile,
+      resolvedEntryPath: path.resolve(managedRootPath, recoveredEntryFile),
+    };
+  }
+
+  if (state.mode === "external") return state;
+
+  const resolvedConfiguredRoot = path.resolve(state.rootPath);
+  const configuredRootMatchesManaged = resolvedConfiguredRoot === managedRootPath;
+  const hasEntryMismatch = recoveredEntryFile !== state.entryFile;
+
+  if (configuredRootMatchesManaged && !hasEntryMismatch) {
+    return state;
+  }
+
+  const warnings = [...state.warnings];
+  if (!configuredRootMatchesManaged) {
+    warnings.push(
+      `Recovered managed instructions from disk at ${managedRootPath}; ignoring stale configured root ${state.rootPath}.`,
+    );
+  }
+  if (hasEntryMismatch) {
+    warnings.push(
+      `Recovered managed instructions entry file from disk as ${recoveredEntryFile}; previous entry ${state.entryFile} was missing.`,
+    );
+  }
+
   return {
     ...state,
     mode: "managed",
     rootPath: managedRootPath,
-    resolvedEntryPath: path.resolve(managedRootPath, state.entryFile),
+    entryFile: recoveredEntryFile,
+    resolvedEntryPath: path.resolve(managedRootPath, recoveredEntryFile),
+    warnings,
   };
 }
 

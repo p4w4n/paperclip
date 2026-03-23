@@ -236,4 +236,42 @@ describe("agent instructions bundle routes", () => {
       expect.any(Object),
     );
   });
+
+  it("merges same-adapter config patches so instructions metadata is not dropped", async () => {
+    mockAgentService.getById.mockResolvedValue({
+      ...makeAgent(),
+      adapterType: "codex_local",
+      adapterConfig: {
+        instructionsBundleMode: "managed",
+        instructionsRootPath: "/tmp/agent-1",
+        instructionsEntryFile: "AGENTS.md",
+        instructionsFilePath: "/tmp/agent-1/AGENTS.md",
+        model: "gpt-5.4",
+      },
+    });
+
+    const res = await request(createApp())
+      .patch("/api/agents/11111111-1111-4111-8111-111111111111?companyId=company-1")
+      .send({
+        adapterConfig: {
+          command: "codex --profile engineer",
+        },
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(mockAgentService.update).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      expect.objectContaining({
+        adapterConfig: expect.objectContaining({
+          command: "codex --profile engineer",
+          model: "gpt-5.4",
+          instructionsBundleMode: "managed",
+          instructionsRootPath: "/tmp/agent-1",
+          instructionsEntryFile: "AGENTS.md",
+          instructionsFilePath: "/tmp/agent-1/AGENTS.md",
+        }),
+      }),
+      expect.any(Object),
+    );
+  });
 });

@@ -1727,9 +1727,13 @@ export function agentRoutes(db: Db) {
       const existingAdapterConfig = asRecord(existing.adapterConfig) ?? {};
       const changingAdapterType =
         typeof patchData.adapterType === "string" && patchData.adapterType !== existing.adapterType;
-      let rawEffectiveAdapterConfig = Object.prototype.hasOwnProperty.call(patchData, "adapterConfig")
+      const requestedAdapterConfig = Object.prototype.hasOwnProperty.call(patchData, "adapterConfig")
         ? (asRecord(patchData.adapterConfig) ?? {})
-        : existingAdapterConfig;
+        : null;
+      let rawEffectiveAdapterConfig = requestedAdapterConfig ?? existingAdapterConfig;
+      if (requestedAdapterConfig && !changingAdapterType) {
+        rawEffectiveAdapterConfig = { ...existingAdapterConfig, ...requestedAdapterConfig };
+      }
       if (changingAdapterType) {
         rawEffectiveAdapterConfig = preserveInstructionsBundleConfig(
           existingAdapterConfig,
