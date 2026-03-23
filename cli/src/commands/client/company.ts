@@ -390,7 +390,7 @@ export function registerCompanyCommands(program: Command): void {
     company
       .command("import")
       .description("Import a portable markdown company package from local path, URL, or GitHub")
-      .requiredOption("--from <pathOrUrl>", "Source path or URL")
+      .argument("<fromPathOrUrl>", "Source path or URL")
       .option("--include <values>", "Comma-separated include set: company,agents,projects,issues,tasks,skills", "company,agents")
       .option("--target <mode>", "Target mode: new | existing")
       .option("-C, --company-id <id>", "Existing target company ID")
@@ -398,12 +398,12 @@ export function registerCompanyCommands(program: Command): void {
       .option("--agents <list>", "Comma-separated agent slugs to import, or all", "all")
       .option("--collision <mode>", "Collision strategy: rename | skip | replace", "rename")
       .option("--dry-run", "Run preview only without applying", false)
-      .action(async (opts: CompanyImportOptions) => {
+      .action(async (fromPathOrUrl: string, opts: CompanyImportOptions) => {
         try {
           const ctx = resolveCommandContext(opts);
-          const from = (opts.from ?? "").trim();
+          const from = fromPathOrUrl.trim();
           if (!from) {
-            throw new Error("--from is required");
+            throw new Error("Source path or URL is required.");
           }
 
           const include = parseInclude(opts.include);

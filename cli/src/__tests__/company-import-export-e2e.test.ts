@@ -390,7 +390,6 @@ describe("paperclipai company import/export e2e", () => {
       [
         "company",
         "import",
-        "--from",
         exportDir,
         "--target",
         "new",
@@ -435,7 +434,6 @@ describe("paperclipai company import/export e2e", () => {
       [
         "company",
         "import",
-        "--from",
         exportDir,
         "--target",
         "existing",
@@ -463,7 +461,6 @@ describe("paperclipai company import/export e2e", () => {
       [
         "company",
         "import",
-        "--from",
         exportDir,
         "--target",
         "existing",
