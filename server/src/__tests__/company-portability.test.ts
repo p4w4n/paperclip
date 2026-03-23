@@ -440,6 +440,64 @@ describe("company portability", () => {
     expect(exported.warnings).toContain("Agent claudecoder PATH override was omitted from export because it is system-dependent.");
   });
 
+  it("exports default sidebar order into the Paperclip extension and manifest", async () => {
+    const portability = companyPortabilityService({} as any);
+
+    projectSvc.list.mockResolvedValue([
+      {
+        id: "project-2",
+        companyId: "company-1",
+        name: "Zulu",
+        urlKey: "zulu",
+        description: null,
+        leadAgentId: null,
+        targetDate: null,
+        color: null,
+        status: "planned",
+        executionWorkspacePolicy: null,
+        archivedAt: null,
+        workspaces: [],
+      },
+      {
+        id: "project-1",
+        companyId: "company-1",
+        name: "Alpha",
+        urlKey: "alpha",
+        description: null,
+        leadAgentId: null,
+        targetDate: null,
+        color: null,
+        status: "planned",
+        executionWorkspacePolicy: null,
+        archivedAt: null,
+        workspaces: [],
+      },
+    ]);
+
+    const exported = await portability.exportBundle("company-1", {
+      include: {
+        company: true,
+        agents: true,
+        projects: true,
+        issues: false,
+      },
+    });
+
+    expect(asTextFile(exported.files[".paperclip.yaml"])).toContain([
+      "sidebar:",
+      "  agents:",
+      '    - "claudecoder"',
+      '    - "cmo"',
+      "  projects:",
+      '    - "alpha"',
+      '    - "zulu"',
+    ].join("\n"));
+    expect(exported.manifest.sidebar).toEqual({
+      agents: ["claudecoder", "cmo"],
+      projects: ["alpha", "zulu"],
+    });
+  });
+
   it("expands referenced skills when requested", async () => {
     const portability = companyPortabilityService({} as any);
 

@@ -1,23 +1,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type {
+  Agent,
   CompanyPortabilityFileEntry,
   CompanyPortabilityExportPreviewResult,
   CompanyPortabilityExportResult,
   CompanyPortabilityManifest,
+  Project,
 } from "@paperclipai/shared";
 import { useNavigate, useLocation } from "@/lib/router";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useToast } from "../context/ToastContext";
+import { agentsApi } from "../api/agents";
+import { authApi } from "../api/auth";
 import { companiesApi } from "../api/companies";
+import { projectsApi } from "../api/projects";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { MarkdownBody } from "../components/MarkdownBody";
 import { cn } from "../lib/utils";
+import { queryKeys } from "../lib/queryKeys";
 import { createZipArchive } from "../lib/zip";
 import { buildInitialExportCheckedFiles } from "../lib/company-export-selection";
+import { useAgentOrder } from "../hooks/useAgentOrder";
+import { useProjectOrder } from "../hooks/useProjectOrder";
+import { buildPortableSidebarOrder } from "../lib/company-portability-sidebar";
 import { getPortableFileDataUrl, getPortableFileText, isPortableImageFile } from "../lib/portable-files";
 import {
   Download,
@@ -75,15 +84,29 @@ function filterPaperclipYaml(yaml: string, checkedFiles: Set<string>): string {
 
   // Sections whose entries are slug-keyed and should be filtered
   const filterableSections = new Set(["agents", "projects", "tasks", "routines"]);
+  const sidebarSections = new Set(["agents", "projects"]);
 
   let currentSection: string | null = null; // top-level key (e.g. "agents")
   let currentEntry: string | null = null;   // slug under that section
   let includeEntry = true;
+  let currentSidebarList: string | null = null;
+  let currentSidebarHeaderLine: string | null = null;
+  let currentSidebarBuffer: string[] = [];
   // Collect entries per section so we can omit empty section headers
   let sectionHeaderLine: string | null = null;
   let sectionBuffer: string[] = [];
 
+  function flushSidebarSection() {
+    if (currentSidebarHeaderLine !== null && currentSidebarBuffer.length > 0) {
+      sectionBuffer.push(currentSidebarHeaderLine);
+      sectionBuffer.push(...currentSidebarBuffer);
+    }
+    currentSidebarHeaderLine = null;
+    currentSidebarBuffer = [];
+  }
+
   function flushSection() {
+    flushSidebarSection();
     if (sectionHeaderLine !== null && sectionBuffer.length > 0) {
       out.push(sectionHeaderLine);
       out.push(...sectionBuffer);
@@ -106,9 +129,40 @@ function filterPaperclipYaml(yaml: string, checkedFiles: Set<string>): string {
         currentSection = key;
         sectionHeaderLine = line;
         continue;
+      } else if (key === "sidebar") {
+        currentSection = key;
+        currentSidebarList = null;
+        sectionHeaderLine = line;
+        continue;
       } else {
         currentSection = null;
         out.push(line);
+        continue;
+      }
+    }
+
+    if (currentSection === "sidebar") {
+      const sidebarMatch = line.match(/^  ([\w-]+):\s*$/);
+      if (sidebarMatch && !line.startsWith("    ")) {
+        flushSidebarSection();
+        const sidebarKey = sidebarMatch[1];
+        currentSidebarList = sidebarKey && sidebarSections.has(sidebarKey) ? sidebarKey : null;
+        currentSidebarHeaderLine = currentSidebarList ? line : null;
+        continue;
+      }
+
+      const sidebarEntryMatch = line.match(/^    - ["']?([^"'\n]+)["']?\s*$/);
+      if (sidebarEntryMatch && currentSidebarList) {
+        const slug = sidebarEntryMatch[1];
+        const sectionSlugs = slugs[currentSidebarList as keyof typeof slugs];
+        if (slug && sectionSlugs.has(slug)) {
+          currentSidebarBuffer.push(line);
+        }
+        continue;
+      }
+
+      if (currentSidebarList) {
+        currentSidebarBuffer.push(line);
         continue;
       }
     }
@@ -529,6 +583,20 @@ export function CompanyExport() {
   const { pushToast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
+  const { data: session, isFetched: isSessionFetched } = useQuery({
+    queryKey: queryKeys.auth.session,
+    queryFn: () => authApi.getSession(),
+  });
+  const { data: agents = [], isFetched: areAgentsFetched } = useQuery({
+    queryKey: queryKeys.agents.list(selectedCompanyId!),
+    queryFn: () => agentsApi.list(selectedCompanyId!),
+    enabled: !!selectedCompanyId,
+  });
+  const { data: projects = [], isFetched: areProjectsFetched } = useQuery({
+    queryKey: queryKeys.projects.list(selectedCompanyId!),
+    queryFn: () => projectsApi.list(selectedCompanyId!),
+    enabled: !!selectedCompanyId,
+  });
 
   const [exportData, setExportData] = useState<CompanyPortabilityExportPreviewResult | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
@@ -538,6 +606,38 @@ export function CompanyExport() {
   const [taskLimit, setTaskLimit] = useState(TASKS_PAGE_SIZE);
   const savedExpandedRef = useRef<Set<string> | null>(null);
   const initialFileFromUrl = useRef(filePathFromLocation(location.pathname));
+  const currentUserId = session?.user?.id ?? session?.session?.userId ?? null;
+  const visibleAgents = useMemo(
+    () => agents.filter((agent: Agent) => agent.status !== "terminated"),
+    [agents],
+  );
+  const visibleProjects = useMemo(
+    () => projects.filter((project: Project) => !project.archivedAt),
+    [projects],
+  );
+  const { orderedAgents } = useAgentOrder({
+    agents: visibleAgents,
+    companyId: selectedCompanyId,
+    userId: currentUserId,
+  });
+  const { orderedProjects } = useProjectOrder({
+    projects: visibleProjects,
+    companyId: selectedCompanyId,
+    userId: currentUserId,
+  });
+  const sidebarOrder = useMemo(
+    () => buildPortableSidebarOrder({
+      agents: visibleAgents,
+      orderedAgents,
+      projects: visibleProjects,
+      orderedProjects,
+    }),
+    [orderedAgents, orderedProjects, visibleAgents, visibleProjects],
+  );
+  const sidebarOrderKey = useMemo(
+    () => JSON.stringify(sidebarOrder ?? null),
+    [sidebarOrder],
+  );
 
   // Navigate-aware file selection: updates state + URL without page reload.
   // `replace` = true skips history entry (used for initial load); false = pushes (used for clicks).
@@ -581,6 +681,7 @@ export function CompanyExport() {
     mutationFn: () =>
       companiesApi.exportPreview(selectedCompanyId!, {
         include: { company: true, agents: true, projects: true, issues: true },
+        sidebarOrder,
       }),
     onSuccess: (result) => {
       setExportData(result);
@@ -629,6 +730,7 @@ export function CompanyExport() {
       companiesApi.exportPackage(selectedCompanyId!, {
         include: { company: true, agents: true, projects: true, issues: true },
         selectedFiles: Array.from(checkedFiles).sort(),
+        sidebarOrder,
       }),
     onSuccess: (result) => {
       const resultCheckedFiles = new Set(Object.keys(result.files));
@@ -650,10 +752,11 @@ export function CompanyExport() {
 
   useEffect(() => {
     if (!selectedCompanyId || exportPreviewMutation.isPending) return;
+    if (!isSessionFetched || !areAgentsFetched || !areProjectsFetched) return;
     setExportData(null);
     exportPreviewMutation.mutate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCompanyId]);
+  }, [selectedCompanyId, isSessionFetched, areAgentsFetched, areProjectsFetched, sidebarOrderKey]);
 
   const tree = useMemo(
     () => (exportData ? buildFileTree(exportData.files) : []),

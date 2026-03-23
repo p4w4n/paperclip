@@ -24,6 +24,7 @@ import type {
   CompanyPortabilityIssueRoutineManifestEntry,
   CompanyPortabilityIssueRoutineTriggerManifestEntry,
   CompanyPortabilityIssueManifestEntry,
+  CompanyPortabilitySidebarOrder,
   CompanyPortabilitySkillManifestEntry,
   CompanySkill,
 } from "@paperclipai/shared";
@@ -1321,76 +1322,100 @@ function collectSelectedExportSlugs(selectedFiles: Set<string>) {
   return { agents, projects, tasks, routines: new Set(tasks) };
 }
 
+function normalizePortableSlugList(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "string") continue;
+    const trimmed = entry.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  }
+  return normalized;
+}
+
+function normalizePortableSidebarOrder(value: unknown): CompanyPortabilitySidebarOrder | null {
+  if (!isPlainRecord(value)) return null;
+  const sidebar = {
+    agents: normalizePortableSlugList(value.agents),
+    projects: normalizePortableSlugList(value.projects),
+  };
+  return sidebar.agents.length > 0 || sidebar.projects.length > 0 ? sidebar : null;
+}
+
+function sortAgentsBySidebarOrder<T extends { id: string; name: string; reportsTo: string | null }>(agents: T[]) {
+  if (agents.length === 0) return [];
+
+  const byId = new Map(agents.map((agent) => [agent.id, agent]));
+  const childrenOf = new Map<string | null, T[]>();
+  for (const agent of agents) {
+    const parentId = agent.reportsTo && byId.has(agent.reportsTo) ? agent.reportsTo : null;
+    const siblings = childrenOf.get(parentId) ?? [];
+    siblings.push(agent);
+    childrenOf.set(parentId, siblings);
+  }
+
+  for (const siblings of childrenOf.values()) {
+    siblings.sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  const sorted: T[] = [];
+  const queue = [...(childrenOf.get(null) ?? [])];
+  while (queue.length > 0) {
+    const agent = queue.shift();
+    if (!agent) continue;
+    sorted.push(agent);
+    const children = childrenOf.get(agent.id);
+    if (children) queue.push(...children);
+  }
+
+  return sorted;
+}
+
 function filterPortableExtensionYaml(yaml: string, selectedFiles: Set<string>) {
   const selected = collectSelectedExportSlugs(selectedFiles);
-  const lines = yaml.split("\n");
-  const out: string[] = [];
-  const filterableSections = new Set(["agents", "projects", "tasks", "routines"]);
-
-  let currentSection: string | null = null;
-  let currentEntry: string | null = null;
-  let includeEntry = true;
-  let sectionHeaderLine: string | null = null;
-  let sectionBuffer: string[] = [];
-
-  const flushSection = () => {
-    if (sectionHeaderLine !== null && sectionBuffer.length > 0) {
-      out.push(sectionHeaderLine);
-      out.push(...sectionBuffer);
+  const parsed = parseYamlFile(yaml);
+  for (const section of ["agents", "projects", "tasks", "routines"] as const) {
+    const sectionValue = parsed[section];
+    if (!isPlainRecord(sectionValue)) continue;
+    const sectionSlugs = selected[section];
+    const filteredEntries = Object.fromEntries(
+      Object.entries(sectionValue).filter(([slug]) => sectionSlugs.has(slug)),
+    );
+    if (Object.keys(filteredEntries).length > 0) {
+      parsed[section] = filteredEntries;
+    } else {
+      delete parsed[section];
     }
-    sectionHeaderLine = null;
-    sectionBuffer = [];
-  };
-
-  for (const line of lines) {
-    const topMatch = line.match(/^([a-zA-Z_][\w-]*):\s*(.*)$/);
-    if (topMatch && !line.startsWith(" ")) {
-      flushSection();
-      currentEntry = null;
-      includeEntry = true;
-
-      const key = topMatch[1]!;
-      if (filterableSections.has(key)) {
-        currentSection = key;
-        sectionHeaderLine = line;
-        continue;
-      }
-
-      currentSection = null;
-      out.push(line);
-      continue;
-    }
-
-    if (currentSection && filterableSections.has(currentSection)) {
-      const entryMatch = line.match(/^  ([\w][\w-]*):\s*(.*)$/);
-      if (entryMatch && !line.startsWith("    ")) {
-        const slug = entryMatch[1]!;
-        currentEntry = slug;
-        const sectionSlugs = selected[currentSection as keyof typeof selected];
-        includeEntry = sectionSlugs.has(slug);
-        if (includeEntry) sectionBuffer.push(line);
-        continue;
-      }
-
-      if (currentEntry !== null) {
-        if (includeEntry) sectionBuffer.push(line);
-        continue;
-      }
-
-      sectionBuffer.push(line);
-      continue;
-    }
-
-    out.push(line);
   }
 
-  flushSection();
-  let filtered = out.join("\n");
-  const logoPathMatch = filtered.match(/^\s{2}logoPath:\s*["']?([^"'\n]+)["']?\s*$/m);
-  if (logoPathMatch && !selectedFiles.has(logoPathMatch[1]!)) {
-    filtered = filtered.replace(/^\s{2}logoPath:\s*["']?([^"'\n]+)["']?\s*\n?/m, "");
+  const companySection = parsed.company;
+  if (isPlainRecord(companySection)) {
+    const logoPath = asString(companySection.logoPath) ?? asString(companySection.logo);
+    if (logoPath && !selectedFiles.has(logoPath)) {
+      delete companySection.logoPath;
+      delete companySection.logo;
+    }
   }
-  return filtered;
+
+  const sidebarOrder = normalizePortableSidebarOrder(parsed.sidebar);
+  if (sidebarOrder) {
+    const filteredSidebar = stripEmptyValues({
+      agents: sidebarOrder.agents.filter((slug) => selected.agents.has(slug)),
+      projects: sidebarOrder.projects.filter((slug) => selected.projects.has(slug)),
+    });
+    if (isPlainRecord(filteredSidebar)) {
+      parsed.sidebar = filteredSidebar;
+    } else {
+      delete parsed.sidebar;
+    }
+  } else {
+    delete parsed.sidebar;
+  }
+
+  return buildYamlFile(parsed, { preserveEmptyStrings: true });
 }
 
 function filterExportFiles(
@@ -2218,6 +2243,7 @@ function buildManifestFromPackageFiles(
     ? parseYamlFile(readPortableTextFile(normalizedFiles, paperclipExtensionPath) ?? "")
     : {};
   const paperclipCompany = isPlainRecord(paperclipExtension.company) ? paperclipExtension.company : {};
+  const paperclipSidebar = normalizePortableSidebarOrder(paperclipExtension.sidebar);
   const paperclipAgents = isPlainRecord(paperclipExtension.agents) ? paperclipExtension.agents : {};
   const paperclipProjects = isPlainRecord(paperclipExtension.projects) ? paperclipExtension.projects : {};
   const paperclipTasks = isPlainRecord(paperclipExtension.tasks) ? paperclipExtension.tasks : {};
@@ -2283,6 +2309,7 @@ function buildManifestFromPackageFiles(
           ? paperclipCompany.requireBoardApprovalForNewAgents
           : readCompanyApprovalDefault(companyFrontmatter),
     },
+    sidebar: paperclipSidebar,
     agents: [],
     skills: [],
     projects: [],
@@ -2711,6 +2738,7 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
     const files: Record<string, CompanyPortabilityFileEntry> = {};
     const warnings: string[] = [];
     const envInputs: CompanyPortabilityManifest["envInputs"] = [];
+    const requestedSidebarOrder = normalizePortableSidebarOrder(input.sidebarOrder);
     const rootPath = normalizeAgentUrlKey(company.name) ?? "company-package";
     let companyLogoPath: string | null = null;
 
@@ -2892,6 +2920,14 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
       const baseSlug = deriveProjectUrlKey(project.name, project.name);
       projectSlugById.set(project.id, uniqueSlug(baseSlug, usedProjectSlugs));
     }
+    const sidebarOrder = requestedSidebarOrder ?? stripEmptyValues({
+      agents: sortAgentsBySidebarOrder(Array.from(selectedAgents.values()))
+        .map((agent) => idToSlug.get(agent.id))
+        .filter((slug): slug is string => Boolean(slug)),
+      projects: selectedProjectRows
+        .map((project) => projectSlugById.get(project.id))
+        .filter((slug): slug is string => Boolean(slug)),
+    });
 
     const companyPath = "COMPANY.md";
     files[companyPath] = buildMarkdown(
@@ -3190,6 +3226,7 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
           logoPath: companyLogoPath,
           requireBoardApprovalForNewAgents: company.requireBoardApprovalForNewAgents ? undefined : false,
         }),
+        sidebar: stripEmptyValues(sidebarOrder),
         agents: Object.keys(paperclipAgents).length > 0 ? paperclipAgents : undefined,
         projects: Object.keys(paperclipProjects).length > 0 ? paperclipProjects : undefined,
         tasks: Object.keys(paperclipTasks).length > 0 ? paperclipTasks : undefined,
@@ -3772,6 +3809,7 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
     }
 
     const resultAgents: CompanyPortabilityImportResult["agents"] = [];
+    const resultProjects: CompanyPortabilityImportResult["projects"] = [];
     const importedSlugToAgentId = new Map<string, string>();
     const existingSlugToAgentId = new Map<string, string>();
     const existingAgents = await agents.list(targetCompany.id);
@@ -3951,7 +3989,16 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
       for (const planProject of plan.preview.plan.projectPlans) {
         const manifestProject = sourceManifest.projects.find((project) => project.slug === planProject.slug);
         if (!manifestProject) continue;
-        if (planProject.action === "skip") continue;
+        if (planProject.action === "skip") {
+          resultProjects.push({
+            slug: planProject.slug,
+            id: planProject.existingProjectId,
+            action: "skipped",
+            name: planProject.plannedName,
+            reason: planProject.reason,
+          });
+          continue;
+        }
 
         const projectLeadAgentId = manifestProject.leadAgentSlug
           ? importedSlugToAgentId.get(manifestProject.leadAgentSlug)
@@ -3976,16 +4023,37 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
           const updated = await projects.update(planProject.existingProjectId, projectPatch);
           if (!updated) {
             warnings.push(`Skipped update for missing project ${planProject.existingProjectId}.`);
+            resultProjects.push({
+              slug: planProject.slug,
+              id: null,
+              action: "skipped",
+              name: planProject.plannedName,
+              reason: "Existing target project not found.",
+            });
             continue;
           }
           projectId = updated.id;
           importedSlugToProjectId.set(planProject.slug, updated.id);
           existingProjectSlugToId.set(updated.urlKey, updated.id);
+          resultProjects.push({
+            slug: planProject.slug,
+            id: updated.id,
+            action: "updated",
+            name: updated.name,
+            reason: planProject.reason,
+          });
         } else {
           const created = await projects.create(targetCompany.id, projectPatch);
           projectId = created.id;
           importedSlugToProjectId.set(planProject.slug, created.id);
           existingProjectSlugToId.set(created.urlKey, created.id);
+          resultProjects.push({
+            slug: planProject.slug,
+            id: created.id,
+            action: "created",
+            name: created.name,
+            reason: planProject.reason,
+          });
         }
 
         if (!projectId) continue;
@@ -4154,6 +4222,7 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
         action: companyAction,
       },
       agents: resultAgents,
+      projects: resultProjects,
       envInputs: sourceManifest.envInputs ?? [],
       warnings,
     };
