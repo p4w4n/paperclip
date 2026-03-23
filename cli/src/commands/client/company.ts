@@ -50,6 +50,7 @@ interface CompanyImportOptions extends BaseClientOptions {
   agents?: string;
   collision?: CompanyCollisionMode;
   ref?: string;
+  yes?: boolean;
   dryRun?: boolean;
 }
 
@@ -82,6 +83,28 @@ const IMPORT_INCLUDE_OPTIONS: Array<{
 ];
 
 const IMPORT_PREVIEW_SAMPLE_LIMIT = 6;
+
+type ImportSelectableGroup = "projects" | "issues" | "agents" | "skills";
+
+type ImportSelectionCatalog = {
+  company: {
+    includedByDefault: boolean;
+    files: string[];
+  };
+  projects: Array<{ key: string; label: string; hint?: string; files: string[] }>;
+  issues: Array<{ key: string; label: string; hint?: string; files: string[] }>;
+  agents: Array<{ key: string; label: string; hint?: string; files: string[] }>;
+  skills: Array<{ key: string; label: string; hint?: string; files: string[] }>;
+  extensionPath: string | null;
+};
+
+type ImportSelectionState = {
+  company: boolean;
+  projects: Set<string>;
+  issues: Set<string>;
+  agents: Set<string>;
+  skills: Set<string>;
+};
 
 const binaryContentTypeByExtension: Record<string, string> = {
   ".gif": "image/gif",
@@ -152,44 +175,266 @@ function isInteractiveTerminal(): boolean {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY);
 }
 
-function includeToValues(include: CompanyPortabilityInclude): Array<keyof CompanyPortabilityInclude> {
-  return IMPORT_INCLUDE_OPTIONS
-    .map((option) => option.value)
-    .filter((value) => include[value]);
+function resolveImportInclude(input: string | undefined): CompanyPortabilityInclude {
+  return parseInclude(input, DEFAULT_IMPORT_INCLUDE);
 }
 
-async function resolveImportIncludeSelection(
-  input: string | undefined,
-  opts?: { prompt?: boolean },
-): Promise<CompanyPortabilityInclude> {
-  if (input?.trim()) {
-    return parseInclude(input, DEFAULT_IMPORT_INCLUDE);
+function normalizePortablePath(filePath: string): string {
+  return filePath.replace(/\\/g, "/");
+}
+
+function findPortableExtensionPath(files: Record<string, CompanyPortabilityFileEntry>): string | null {
+  if (files[".paperclip.yaml"] !== undefined) return ".paperclip.yaml";
+  if (files[".paperclip.yml"] !== undefined) return ".paperclip.yml";
+  return Object.keys(files).find((entry) => entry.endsWith("/.paperclip.yaml") || entry.endsWith("/.paperclip.yml")) ?? null;
+}
+
+function collectFilesUnderDirectory(
+  files: Record<string, CompanyPortabilityFileEntry>,
+  directory: string,
+  opts?: { excludePrefixes?: string[] },
+): string[] {
+  const normalizedDirectory = normalizePortablePath(directory).replace(/\/+$/, "");
+  if (!normalizedDirectory) return [];
+  const prefix = `${normalizedDirectory}/`;
+  const excluded = (opts?.excludePrefixes ?? []).map((entry) => normalizePortablePath(entry).replace(/\/+$/, "")).filter(Boolean);
+  return Object.keys(files)
+    .map(normalizePortablePath)
+    .filter((filePath) => filePath.startsWith(prefix))
+    .filter((filePath) => !excluded.some((excludePrefix) => filePath.startsWith(`${excludePrefix}/`)))
+    .sort((left, right) => left.localeCompare(right));
+}
+
+function collectEntityFiles(
+  files: Record<string, CompanyPortabilityFileEntry>,
+  entryPath: string,
+  opts?: { excludePrefixes?: string[] },
+): string[] {
+  const normalizedPath = normalizePortablePath(entryPath);
+  const directory = normalizedPath.includes("/") ? normalizedPath.slice(0, normalizedPath.lastIndexOf("/")) : "";
+  const selected = new Set<string>([normalizedPath]);
+  if (directory) {
+    for (const filePath of collectFilesUnderDirectory(files, directory, opts)) {
+      selected.add(filePath);
+    }
+  }
+  return Array.from(selected).sort((left, right) => left.localeCompare(right));
+}
+
+export function buildImportSelectionCatalog(preview: CompanyPortabilityPreviewResult): ImportSelectionCatalog {
+  const selectedAgentSlugs = new Set(preview.selectedAgentSlugs);
+  const companyFiles = new Set<string>();
+  const companyPath = preview.manifest.company?.path ? normalizePortablePath(preview.manifest.company.path) : null;
+  if (companyPath) {
+    companyFiles.add(companyPath);
+  }
+  const readmePath = Object.keys(preview.files).find((entry) => normalizePortablePath(entry) === "README.md");
+  if (readmePath) {
+    companyFiles.add(normalizePortablePath(readmePath));
+  }
+  const logoPath = preview.manifest.company?.logoPath ? normalizePortablePath(preview.manifest.company.logoPath) : null;
+  if (logoPath && preview.files[logoPath] !== undefined) {
+    companyFiles.add(logoPath);
   }
 
-  if (!opts?.prompt || !isInteractiveTerminal()) {
-    return { ...DEFAULT_IMPORT_INCLUDE };
-  }
-
-  const selection = await p.multiselect<keyof CompanyPortabilityInclude>({
-    message: "What should Paperclip import?",
-    options: IMPORT_INCLUDE_OPTIONS,
-    initialValues: includeToValues(DEFAULT_IMPORT_INCLUDE),
-    required: true,
-  });
-
-  if (p.isCancel(selection)) {
-    p.cancel("Import cancelled.");
-    process.exit(0);
-  }
-
-  const values = new Set(selection);
   return {
-    company: values.has("company"),
-    agents: values.has("agents"),
-    projects: values.has("projects"),
-    issues: values.has("issues"),
-    skills: values.has("skills"),
+    company: {
+      includedByDefault: preview.include.company && preview.manifest.company !== null,
+      files: Array.from(companyFiles).sort((left, right) => left.localeCompare(right)),
+    },
+    projects: preview.manifest.projects.map((project) => {
+      const projectPath = normalizePortablePath(project.path);
+      const projectDir = projectPath.includes("/") ? projectPath.slice(0, projectPath.lastIndexOf("/")) : "";
+      return {
+        key: project.slug,
+        label: project.name,
+        hint: project.slug,
+        files: collectEntityFiles(preview.files, projectPath, {
+          excludePrefixes: projectDir ? [`${projectDir}/issues`] : [],
+        }),
+      };
+    }),
+    issues: preview.manifest.issues.map((issue) => ({
+      key: issue.slug,
+      label: issue.title,
+      hint: issue.identifier ?? issue.slug,
+      files: collectEntityFiles(preview.files, normalizePortablePath(issue.path)),
+    })),
+    agents: preview.manifest.agents
+      .filter((agent) => selectedAgentSlugs.size === 0 || selectedAgentSlugs.has(agent.slug))
+      .map((agent) => ({
+        key: agent.slug,
+        label: agent.name,
+        hint: agent.slug,
+        files: collectEntityFiles(preview.files, normalizePortablePath(agent.path)),
+      })),
+    skills: preview.manifest.skills.map((skill) => ({
+      key: skill.slug,
+      label: skill.name,
+      hint: skill.slug,
+      files: collectEntityFiles(preview.files, normalizePortablePath(skill.path)),
+    })),
+    extensionPath: findPortableExtensionPath(preview.files),
   };
+}
+
+function toKeySet(items: Array<{ key: string }>): Set<string> {
+  return new Set(items.map((item) => item.key));
+}
+
+export function buildDefaultImportSelectionState(catalog: ImportSelectionCatalog): ImportSelectionState {
+  return {
+    company: catalog.company.includedByDefault,
+    projects: toKeySet(catalog.projects),
+    issues: toKeySet(catalog.issues),
+    agents: toKeySet(catalog.agents),
+    skills: toKeySet(catalog.skills),
+  };
+}
+
+function countSelected(state: ImportSelectionState, group: ImportSelectableGroup): number {
+  return state[group].size;
+}
+
+function countTotal(catalog: ImportSelectionCatalog, group: ImportSelectableGroup): number {
+  return catalog[group].length;
+}
+
+function summarizeGroupSelection(catalog: ImportSelectionCatalog, state: ImportSelectionState, group: ImportSelectableGroup): string {
+  return `${countSelected(state, group)}/${countTotal(catalog, group)} selected`;
+}
+
+function getGroupLabel(group: ImportSelectableGroup): string {
+  switch (group) {
+    case "projects":
+      return "Projects";
+    case "issues":
+      return "Tasks";
+    case "agents":
+      return "Agents";
+    case "skills":
+      return "Skills";
+  }
+}
+
+export function buildSelectedFilesFromImportSelection(
+  catalog: ImportSelectionCatalog,
+  state: ImportSelectionState,
+): string[] {
+  const selected = new Set<string>();
+
+  if (state.company) {
+    for (const filePath of catalog.company.files) {
+      selected.add(normalizePortablePath(filePath));
+    }
+  }
+
+  for (const group of ["projects", "issues", "agents", "skills"] as const) {
+    const selectedKeys = state[group];
+    for (const item of catalog[group]) {
+      if (!selectedKeys.has(item.key)) continue;
+      for (const filePath of item.files) {
+        selected.add(normalizePortablePath(filePath));
+      }
+    }
+  }
+
+  if (selected.size > 0 && catalog.extensionPath) {
+    selected.add(normalizePortablePath(catalog.extensionPath));
+  }
+
+  return Array.from(selected).sort((left, right) => left.localeCompare(right));
+}
+
+async function promptForImportSelection(preview: CompanyPortabilityPreviewResult): Promise<string[]> {
+  const catalog = buildImportSelectionCatalog(preview);
+  const state = buildDefaultImportSelectionState(catalog);
+
+  while (true) {
+    const choice = await p.select<ImportSelectableGroup | "company" | "confirm">({
+      message: "Select what Paperclip should import",
+      options: [
+        {
+          value: "company",
+          label: state.company ? "Company: included" : "Company: skipped",
+          hint: catalog.company.files.length > 0 ? "toggle company metadata" : "no company metadata in package",
+        },
+        {
+          value: "projects",
+          label: "Select Projects",
+          hint: summarizeGroupSelection(catalog, state, "projects"),
+        },
+        {
+          value: "issues",
+          label: "Select Tasks",
+          hint: summarizeGroupSelection(catalog, state, "issues"),
+        },
+        {
+          value: "agents",
+          label: "Select Agents",
+          hint: summarizeGroupSelection(catalog, state, "agents"),
+        },
+        {
+          value: "skills",
+          label: "Select Skills",
+          hint: summarizeGroupSelection(catalog, state, "skills"),
+        },
+        {
+          value: "confirm",
+          label: "Confirm",
+          hint: `${buildSelectedFilesFromImportSelection(catalog, state).length} files selected`,
+        },
+      ],
+      initialValue: "confirm",
+    });
+
+    if (p.isCancel(choice)) {
+      p.cancel("Import cancelled.");
+      process.exit(0);
+    }
+
+    if (choice === "confirm") {
+      const selectedFiles = buildSelectedFilesFromImportSelection(catalog, state);
+      if (selectedFiles.length === 0) {
+        p.note("Select at least one import target before confirming.", "Nothing selected");
+        continue;
+      }
+      return selectedFiles;
+    }
+
+    if (choice === "company") {
+      if (catalog.company.files.length === 0) {
+        p.note("This package does not include company metadata to toggle.", "No company metadata");
+        continue;
+      }
+      state.company = !state.company;
+      continue;
+    }
+
+    const group = choice;
+    const groupItems = catalog[group];
+    if (groupItems.length === 0) {
+      p.note(`This package does not include any ${getGroupLabel(group).toLowerCase()}.`, `No ${getGroupLabel(group)}`);
+      continue;
+    }
+
+    const selection = await p.multiselect<string>({
+      message: `${getGroupLabel(group)} to import. Press enter to go back.`,
+      options: groupItems.map((item) => ({
+        value: item.key,
+        label: item.label,
+        hint: item.hint,
+      })),
+      initialValues: Array.from(state[group]),
+    });
+
+    if (p.isCancel(selection)) {
+      p.cancel("Import cancelled.");
+      process.exit(0);
+    }
+
+    state[group] = new Set(selection);
+  }
 }
 
 function summarizeInclude(include: CompanyPortabilityInclude): string {
@@ -814,6 +1059,7 @@ export function registerCompanyCommands(program: Command): void {
       .option("--agents <list>", "Comma-separated agent slugs to import, or all", "all")
       .option("--collision <mode>", "Collision strategy: rename | skip | replace", "rename")
       .option("--ref <value>", "Git ref to use for GitHub imports (branch, tag, or commit)")
+      .option("--yes", "Accept the default import selection without opening the TUI", false)
       .option("--dry-run", "Run preview only without applying", false)
       .action(async (fromPathOrUrl: string, opts: CompanyImportOptions) => {
         try {
@@ -824,7 +1070,7 @@ export function registerCompanyCommands(program: Command): void {
             throw new Error("Source path or URL is required.");
           }
 
-          const include = await resolveImportIncludeSelection(opts.include, { prompt: interactiveView });
+          const include = resolveImportInclude(opts.include);
           const agents = parseAgents(opts.agents);
           const collision = (opts.collision ?? "rename").toLowerCase() as CompanyCollisionMode;
           if (!["rename", "skip", "replace"].includes(collision)) {
@@ -882,6 +1128,26 @@ export function registerCompanyCommands(program: Command): void {
 
           const sourceLabel = formatSourceLabel(sourcePayload);
           const targetLabel = formatTargetLabel(targetPayload);
+          const previewApiPath = resolveCompanyImportApiPath({
+            dryRun: true,
+            targetMode: targetPayload.mode,
+            companyId: targetPayload.mode === "existing_company" ? targetPayload.companyId : null,
+          });
+
+          let selectedFiles: string[] | undefined;
+          if (interactiveView && !opts.yes && !opts.include?.trim()) {
+            const initialPreview = await ctx.api.post<CompanyPortabilityPreviewResult>(previewApiPath, {
+              source: sourcePayload,
+              include,
+              target: targetPayload,
+              agents,
+              collisionStrategy: collision,
+            });
+            if (!initialPreview) {
+              throw new Error("Import preview returned no data.");
+            }
+            selectedFiles = await promptForImportSelection(initialPreview);
+          }
 
           const payload = {
             source: sourcePayload,
@@ -889,6 +1155,7 @@ export function registerCompanyCommands(program: Command): void {
             target: targetPayload,
             agents,
             collisionStrategy: collision,
+            selectedFiles,
           };
           const importApiPath = resolveCompanyImportApiPath({
             dryRun: Boolean(opts.dryRun),
