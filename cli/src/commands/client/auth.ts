@@ -25,7 +25,6 @@ export function registerClientAuthCommands(auth: Command): void {
     auth
       .command("login")
       .description("Authenticate the CLI for board-user access")
-      .option("-C, --company-id <id>", "Request access for a specific company")
       .option("--instance-admin", "Request instance-admin approval instead of plain board access", false)
       .action(async (opts: AuthLoginOptions) => {
         try {
