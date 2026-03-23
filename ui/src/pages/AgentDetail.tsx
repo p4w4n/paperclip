@@ -18,6 +18,7 @@ import { issuesApi } from "../api/issues";
 import { usePanel } from "../context/PanelContext";
 import { useSidebar } from "../context/SidebarContext";
 import { useCompany } from "../context/CompanyContext";
+import { useToast } from "../context/ToastContext";
 import { useDialog } from "../context/DialogContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
@@ -1420,6 +1421,7 @@ function ConfigurationTab({
   hideInstructionsFile?: boolean;
 }) {
   const queryClient = useQueryClient();
+  const { pushToast } = useToast();
   const [awaitingRefreshAfterSave, setAwaitingRefreshAfterSave] = useState(false);
   const lastAgentRef = useRef(agent);
 
@@ -1441,9 +1443,17 @@ function ConfigurationTab({
       queryClient.invalidateQueries({ queryKey: queryKeys.agents.detail(agent.id) });
       queryClient.invalidateQueries({ queryKey: queryKeys.agents.detail(agent.urlKey) });
       queryClient.invalidateQueries({ queryKey: queryKeys.agents.configRevisions(agent.id) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.agents.list(agent.companyId) });
     },
-    onError: () => {
+    onError: (err) => {
       setAwaitingRefreshAfterSave(false);
+      const message =
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "Could not save agent";
+      pushToast({ title: "Save failed", body: message, tone: "error" });
     },
   });
 
