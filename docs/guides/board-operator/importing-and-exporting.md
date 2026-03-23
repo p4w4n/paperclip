@@ -92,13 +92,6 @@ paperclipai company import org/repo
 paperclipai company import org/repo/companies/acme
 ```
 
-If you are working inside the Paperclip repo, `./companies.sh` is a thin wrapper around `paperclipai company import`. It accepts the same source-first form and still supports legacy `--from <path-or-url>` compatibility:
-
-```sh
-./companies.sh org/repo/companies/acme --dry-run
-./companies.sh --from ./my-export --target existing --company-id abc123
-```
-
 ### Options
 
 | Option | Description | Default |

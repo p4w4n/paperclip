@@ -54,9 +54,6 @@ pnpm paperclipai company import \
   --target new \
   --new-company-name "Acme Imported" \
   --include company,agents
-
-# Repo helper wrapper with the same source-first ergonomics
-./companies.sh org/repo/company-template --target new --dry-run
 ```
 
 ## Agent Commands
