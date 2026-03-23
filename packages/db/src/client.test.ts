@@ -154,4 +154,48 @@ describe("applyPendingMigrations", () => {
     },
     20_000,
   );
+
+  it(
+    "replays migration 0044 safely when its schema changes already exist",
+    async () => {
+      const connectionString = await createTempDatabase();
+
+      await applyPendingMigrations(connectionString);
+
+      const sql = postgres(connectionString, { max: 1, onnotice: () => {} });
+      try {
+        const illegalToadHash = await migrationHash("0044_illegal_toad.sql");
+
+        await sql.unsafe(
+          `DELETE FROM "drizzle"."__drizzle_migrations" WHERE hash = '${illegalToadHash}'`,
+        );
+
+        const columns = await sql.unsafe<{ column_name: string }[]>(
+          `
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'instance_settings'
+              AND column_name = 'general'
+          `,
+        );
+        expect(columns).toHaveLength(1);
+      } finally {
+        await sql.end();
+      }
+
+      const pendingState = await inspectMigrations(connectionString);
+      expect(pendingState).toMatchObject({
+        status: "needsMigrations",
+        pendingMigrations: ["0044_illegal_toad.sql"],
+        reason: "pending-migrations",
+      });
+
+      await applyPendingMigrations(connectionString);
+
+      const finalState = await inspectMigrations(connectionString);
+      expect(finalState.status).toBe("upToDate");
+    },
+    20_000,
+  );
 });
