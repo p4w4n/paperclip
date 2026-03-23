@@ -12,6 +12,7 @@ import type {
   CompanyPortabilityImportResult,
 } from "@paperclipai/shared";
 import { ApiRequestError } from "../../client/http.js";
+import { openUrl } from "../../client/board-auth.js";
 import { readZipArchive } from "./zip.js";
 import {
   addCommonClientOptions,
@@ -654,13 +655,17 @@ export function renderCompanyImportPreview(
 
 export function renderCompanyImportResult(
   result: CompanyPortabilityImportResult,
-  meta: { targetLabel: string; infoMessages?: string[] },
+  meta: { targetLabel: string; companyUrl?: string; infoMessages?: string[] },
 ): string {
   const lines: string[] = [
     `${pc.bold("Target")}  ${meta.targetLabel}`,
     `${pc.bold("Company")} ${result.company.name} (${actionChip(result.company.action)})`,
     `${pc.bold("Agents")}  ${summarizeImportAgentResults(result.agents)}`,
   ];
+
+  if (meta.companyUrl) {
+    lines.splice(1, 0, `${pc.bold("URL")}     ${meta.companyUrl}`);
+  }
 
   appendPreviewExamples(
     lines,
@@ -711,6 +716,15 @@ export function resolveCompanyImportApiPath(input: {
   }
 
   return input.dryRun ? "/api/companies/import/preview" : "/api/companies/import";
+}
+
+export function buildCompanyDashboardUrl(apiBase: string, issuePrefix: string): string {
+  const url = new URL(apiBase);
+  const normalizedPrefix = issuePrefix.trim().replace(/^\/+|\/+$/g, "");
+  url.pathname = `${url.pathname.replace(/\/+$/, "")}/${normalizedPrefix}/dashboard`;
+  url.search = "";
+  url.hash = "";
+  return url.toString();
 }
 
 export function resolveCompanyImportApplyConfirmationMode(input: {
@@ -1298,6 +1312,18 @@ export function registerCompanyCommands(program: Command): void {
           if (!imported) {
             throw new Error("Import request returned no data.");
           }
+          let companyUrl: string | undefined;
+          if (!ctx.json) {
+            try {
+              const importedCompany = await ctx.api.get<Company>(`/api/companies/${imported.company.id}`);
+              const issuePrefix = importedCompany?.issuePrefix?.trim();
+              if (issuePrefix) {
+                companyUrl = buildCompanyDashboardUrl(ctx.api.apiBase, issuePrefix);
+              }
+            } catch {
+              companyUrl = undefined;
+            }
+          }
           if (ctx.json) {
             printOutput(imported, { json: true });
           } else {
@@ -1305,10 +1331,24 @@ export function registerCompanyCommands(program: Command): void {
               "Import Result",
               renderCompanyImportResult(imported, {
                 targetLabel,
+                companyUrl,
                 infoMessages: adapterMessages,
               }),
               { interactive: interactiveView },
             );
+            if (interactiveView && companyUrl) {
+              const openImportedCompany = await p.confirm({
+                message: "Open the imported company in your browser?",
+                initialValue: true,
+              });
+              if (!p.isCancel(openImportedCompany) && openImportedCompany) {
+                if (openUrl(companyUrl)) {
+                  p.log.info(`Opened ${companyUrl}`);
+                } else {
+                  p.log.warn(`Could not open your browser automatically. Open this URL manually:\n${companyUrl}`);
+                }
+              }
+            }
           }
         } catch (err) {
           handleCommandError(err);

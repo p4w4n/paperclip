@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CompanyPortabilityPreviewResult } from "@paperclipai/shared";
 import {
+  buildCompanyDashboardUrl,
   buildDefaultImportAdapterOverrides,
   buildDefaultImportSelectionState,
   buildImportSelectionCatalog,
@@ -101,6 +102,14 @@ describe("resolveCompanyImportApplyConfirmationMode", () => {
   });
 });
 
+describe("buildCompanyDashboardUrl", () => {
+  it("preserves the configured base path when building a dashboard URL", () => {
+    expect(buildCompanyDashboardUrl("https://paperclip.example/app/", "PAP")).toBe(
+      "https://paperclip.example/app/PAP/dashboard",
+    );
+  });
+});
+
 describe("renderCompanyImportPreview", () => {
   it("summarizes the preview with counts, selection info, and truncated examples", () => {
     const preview: CompanyPortabilityPreviewResult = {
@@ -154,6 +163,10 @@ describe("renderCompanyImportPreview", () => {
           brandColor: null,
           logoPath: null,
           requireBoardApprovalForNewAgents: false,
+        },
+        sidebar: {
+          agents: ["ceo"],
+          projects: ["alpha"],
         },
         agents: [
           {
@@ -291,16 +304,19 @@ describe("renderCompanyImportResult", () => {
           { slug: "cto", id: "agent-2", action: "updated", name: "CTO", reason: "replace strategy" },
           { slug: "ops", id: null, action: "skipped", name: "Ops", reason: "skip strategy" },
         ],
+        projects: [],
         envInputs: [],
         warnings: ["Review API keys"],
       },
       {
         targetLabel: "Imported Co (company-123)",
+        companyUrl: "https://paperclip.example/PAP/dashboard",
         infoMessages: ["Using claude-local adapter"],
       },
     );
 
     expect(rendered).toContain("Company");
+    expect(rendered).toContain("https://paperclip.example/PAP/dashboard");
     expect(rendered).toContain("3 agents total (1 created, 1 updated, 1 skipped)");
     expect(rendered).toContain("Agent results");
     expect(rendered).toContain("Using claude-local adapter");
@@ -349,6 +365,10 @@ describe("import selection catalog", () => {
           brandColor: null,
           logoPath: "images/company-logo.png",
           requireBoardApprovalForNewAgents: false,
+        },
+        sidebar: {
+          agents: ["ceo"],
+          projects: ["alpha"],
         },
         agents: [
           {
@@ -504,6 +524,7 @@ describe("default adapter overrides", () => {
           skills: false,
         },
         company: null,
+        sidebar: null,
         agents: [
           {
             slug: "legacy-agent",
