@@ -28,10 +28,6 @@ function sortByHierarchy(agents: Agent[]): Agent[] {
     list.push(a);
     childrenOf.set(parent, list);
   }
-  // Sort children at each level alphabetically by name
-  for (const [, list] of childrenOf) {
-    list.sort((a, b) => a.name.localeCompare(b.name));
-  }
   const sorted: Agent[] = [];
   const queue = childrenOf.get(null) ?? [];
   while (queue.length > 0) {
