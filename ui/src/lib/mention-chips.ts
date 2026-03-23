@@ -112,15 +112,11 @@ function buildAgentIconMask(iconName: string | null): string | null {
   if (cached) return cached;
 
   const Icon = getAgentIcon(iconName);
-  const rendered = (
+  const iconNode = (
     Icon as unknown as {
-      render: (
-        props: Record<string, unknown>,
-        ref: unknown,
-      ) => { props?: { iconNode?: Array<[string, Record<string, string>]> } };
+      iconNode?: Array<[string, Record<string, string>]>;
     }
-  ).render({ size: 12, strokeWidth: 2 }, null);
-  const iconNode = rendered?.props?.iconNode;
+  ).iconNode;
   if (!Array.isArray(iconNode) || iconNode.length === 0) return null;
 
   const body = iconNode.map(([tag, attrs]) => {

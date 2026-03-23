@@ -664,12 +664,17 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
   const { pushToast } = useToast();
   const location = useLocation();
   const gateRef = useRef<ToastGate>({ cooldownHits: new Map(), suppressUntil: 0 });
+  const pathnameRef = useRef(location.pathname);
   const { data: session } = useQuery({
     queryKey: queryKeys.auth.session,
     queryFn: () => authApi.getSession(),
     retry: false,
   });
   const currentUserId = session?.user?.id ?? session?.session?.userId ?? null;
+
+  useEffect(() => {
+    pathnameRef.current = location.pathname;
+  }, [location.pathname]);
 
   useEffect(() => {
     if (!selectedCompanyId) return;
@@ -715,7 +720,7 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
 
         try {
           const parsed = JSON.parse(raw) as LiveEvent;
-          handleLiveEvent(queryClient, selectedCompanyId, location.pathname, parsed, pushToast, gateRef.current, {
+          handleLiveEvent(queryClient, selectedCompanyId, pathnameRef.current, parsed, pushToast, gateRef.current, {
             userId: currentUserId,
             agentId: null,
           });
@@ -747,7 +752,7 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
         socket.close(1000, "provider_unmount");
       }
     };
-  }, [queryClient, selectedCompanyId, pushToast, currentUserId, location.pathname]);
+  }, [queryClient, selectedCompanyId, pushToast, currentUserId]);
 
   return <>{children}</>;
 }
