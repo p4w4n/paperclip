@@ -77,9 +77,38 @@ export function InstanceSettings() {
     },
   });
 
+  const disableAllMutation = useMutation({
+    mutationFn: async (agentRows: InstanceSchedulerHeartbeatAgent[]) => {
+      const enabled = agentRows.filter((a) => a.heartbeatEnabled);
+      for (const agentRow of enabled) {
+        const agent = await agentsApi.get(agentRow.id, agentRow.companyId);
+        const runtimeConfig = asRecord(agent.runtimeConfig) ?? {};
+        const heartbeat = asRecord(runtimeConfig.heartbeat) ?? {};
+        await agentsApi.update(
+          agentRow.id,
+          {
+            runtimeConfig: {
+              ...runtimeConfig,
+              heartbeat: { ...heartbeat, enabled: false },
+            },
+          },
+          agentRow.companyId,
+        );
+      }
+    },
+    onSuccess: async () => {
+      setActionError(null);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.instance.schedulerHeartbeats });
+    },
+    onError: (error) => {
+      setActionError(error instanceof Error ? error.message : "Failed to disable all heartbeats.");
+    },
+  });
+
   const agents = heartbeatsQuery.data ?? [];
   const activeCount = agents.filter((agent) => agent.schedulerActive).length;
   const disabledCount = agents.length - activeCount;
+  const anyEnabled = agents.some((a) => a.heartbeatEnabled);
 
   const grouped = useMemo(() => {
     const map = new Map<string, { companyName: string; agents: InstanceSchedulerHeartbeatAgent[] }>();
@@ -120,10 +149,21 @@ export function InstanceSettings() {
         </p>
       </div>
 
-      <div className="flex gap-4 text-sm text-muted-foreground">
+      <div className="flex items-center gap-4 text-sm text-muted-foreground">
         <span><span className="font-semibold text-foreground">{activeCount}</span> active</span>
         <span><span className="font-semibold text-foreground">{disabledCount}</span> disabled</span>
         <span><span className="font-semibold text-foreground">{grouped.length}</span> {grouped.length === 1 ? "company" : "companies"}</span>
+        {anyEnabled && (
+          <Button
+            variant="destructive"
+            size="sm"
+            className="ml-auto h-7 text-xs"
+            disabled={disableAllMutation.isPending}
+            onClick={() => disableAllMutation.mutate(agents)}
+          >
+            {disableAllMutation.isPending ? "Disabling..." : "Disable All"}
+          </Button>
+        )}
       </div>
 
       {actionError && (
