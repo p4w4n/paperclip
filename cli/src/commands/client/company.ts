@@ -704,6 +704,27 @@ export function resolveCompanyImportApiPath(input: {
   return input.dryRun ? "/api/companies/import/preview" : "/api/companies/import";
 }
 
+export function resolveCompanyImportApplyConfirmationMode(input: {
+  yes?: boolean;
+  interactive: boolean;
+  json: boolean;
+}): "skip" | "prompt" {
+  if (input.yes) {
+    return "skip";
+  }
+  if (input.json) {
+    throw new Error(
+      "Applying a company import with --json requires --yes. Use --dry-run first to inspect the preview.",
+    );
+  }
+  if (!input.interactive) {
+    throw new Error(
+      "Applying a company import from a non-interactive terminal requires --yes. Use --dry-run first to inspect the preview.",
+    );
+  }
+  return "prompt";
+}
+
 export function isHttpUrl(input: string): boolean {
   return /^https?:\/\//i.test(input.trim());
 }
@@ -1095,7 +1116,7 @@ export function registerCompanyCommands(program: Command): void {
       .option("--collision <mode>", "Collision strategy: rename | skip | replace", "rename")
       .option("--ref <value>", "Git ref to use for GitHub imports (branch, tag, or commit)")
       .option("--paperclip-url <url>", "Alias for --api-base on this command")
-      .option("--yes", "Accept the default import selection without opening the TUI", false)
+      .option("--yes", "Accept default selection and skip the pre-import confirmation prompt", false)
       .option("--dry-run", "Run preview only without applying", false)
       .action(async (fromPathOrUrl: string, opts: CompanyImportOptions) => {
         try {
@@ -1218,6 +1239,34 @@ export function registerCompanyCommands(program: Command): void {
               );
             }
             return;
+          }
+
+          if (!ctx.json) {
+            printCompanyImportView(
+              "Import Preview",
+              renderCompanyImportPreview(preview, {
+                sourceLabel,
+                targetLabel: formatTargetLabel(targetPayload, preview),
+                infoMessages: adapterMessages,
+              }),
+              { interactive: interactiveView },
+            );
+          }
+
+          const confirmationMode = resolveCompanyImportApplyConfirmationMode({
+            yes: opts.yes,
+            interactive: interactiveView,
+            json: ctx.json,
+          });
+          if (confirmationMode === "prompt") {
+            const confirmed = await p.confirm({
+              message: "Apply this import? (y/N)",
+              initialValue: false,
+            });
+            if (p.isCancel(confirmed) || !confirmed) {
+              p.log.warn("Import cancelled.");
+              return;
+            }
           }
 
           const importApiPath = resolveCompanyImportApiPath({

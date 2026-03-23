@@ -7,6 +7,7 @@ import {
   buildSelectedFilesFromImportSelection,
   renderCompanyImportPreview,
   renderCompanyImportResult,
+  resolveCompanyImportApplyConfirmationMode,
   resolveCompanyImportApiPath,
 } from "../commands/client/company.js";
 
@@ -55,6 +56,48 @@ describe("resolveCompanyImportApiPath", () => {
         companyId: " ",
       })
     ).toThrow(/require a companyId/i);
+  });
+});
+
+describe("resolveCompanyImportApplyConfirmationMode", () => {
+  it("skips confirmation when --yes is set", () => {
+    expect(
+      resolveCompanyImportApplyConfirmationMode({
+        yes: true,
+        interactive: false,
+        json: false,
+      }),
+    ).toBe("skip");
+  });
+
+  it("prompts in interactive text mode when --yes is not set", () => {
+    expect(
+      resolveCompanyImportApplyConfirmationMode({
+        yes: false,
+        interactive: true,
+        json: false,
+      }),
+    ).toBe("prompt");
+  });
+
+  it("requires --yes for non-interactive apply", () => {
+    expect(() =>
+      resolveCompanyImportApplyConfirmationMode({
+        yes: false,
+        interactive: false,
+        json: false,
+      })
+    ).toThrow(/non-interactive terminal requires --yes/i);
+  });
+
+  it("requires --yes for json apply", () => {
+    expect(() =>
+      resolveCompanyImportApplyConfirmationMode({
+        yes: false,
+        interactive: false,
+        json: true,
+      })
+    ).toThrow(/with --json requires --yes/i);
   });
 });
 
