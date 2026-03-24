@@ -2,15 +2,15 @@ import { describe, expect, it } from "vitest";
 import { normalizeAgentMentionToken } from "../services/issues.ts";
 
 describe("normalizeAgentMentionToken", () => {
-  it("strips hex numeric entities such as space (&#x20;)", () => {
+  it("decodes hex numeric entities such as space (&#x20;)", () => {
     expect(normalizeAgentMentionToken("Baba&#x20;")).toBe("Baba");
   });
 
-  it("strips decimal numeric entities", () => {
+  it("decodes decimal numeric entities", () => {
     expect(normalizeAgentMentionToken("Baba&#32;")).toBe("Baba");
   });
 
-  it("strips common named entities", () => {
+  it("decodes common named whitespace entities", () => {
     expect(normalizeAgentMentionToken("Baba&nbsp;")).toBe("Baba");
   });
 
@@ -19,11 +19,19 @@ describe("normalizeAgentMentionToken", () => {
     expect(normalizeAgentMentionToken("M&amp;M")).toBe("M&M");
   });
 
+  it("decodes named entities mid-token (e.g. copyright) for full HTML named coverage", () => {
+    expect(normalizeAgentMentionToken("Agent&copy;Name")).toBe("Agent©Name");
+  });
+
+  it("leaves unknown semicolon-terminated named references unchanged", () => {
+    expect(normalizeAgentMentionToken("Baba&notarealentity;")).toBe("Baba&notarealentity;");
+  });
+
   it("returns plain names unchanged", () => {
     expect(normalizeAgentMentionToken("Baba")).toBe("Baba");
   });
 
-  it("trims after stripping entities", () => {
+  it("trims after decoding entities", () => {
     expect(normalizeAgentMentionToken("Baba&#x20;&#x20;")).toBe("Baba");
   });
 });

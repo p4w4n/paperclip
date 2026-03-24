@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import { pickTextColorForPillBg } from "@/lib/color-contrast";
 import { Link, useLocation, useNavigate, useParams } from "@/lib/router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { issuesApi } from "../api/issues";
@@ -48,6 +49,7 @@ import {
   MessageSquare,
   MoreHorizontal,
   Paperclip,
+  Repeat,
   SlidersHorizontal,
   Trash2,
 } from "lucide-react";
@@ -340,6 +342,8 @@ export function IssueDetail() {
         id: `agent:${agent.id}`,
         name: agent.name,
         kind: "agent",
+        agentId: agent.id,
+        agentIcon: agent.icon,
       });
     }
     for (const project of orderedProjects) {
@@ -669,7 +673,12 @@ export function IssueDetail() {
         )}
       >
         <Paperclip className="h-3.5 w-3.5 mr-1.5" />
-        {uploadAttachment.isPending || importMarkdownDocument.isPending ? "Uploading..." : "Upload attachment"}
+        {uploadAttachment.isPending || importMarkdownDocument.isPending ? "Uploading..." : (
+          <>
+            <span className="hidden sm:inline">Upload attachment</span>
+            <span className="sm:hidden">Upload</span>
+          </>
+        )}
       </Button>
     </>
   );
@@ -726,6 +735,16 @@ export function IssueDetail() {
             </span>
           )}
 
+          {issue.originKind === "routine_execution" && issue.originId && (
+            <Link
+              to={`/routines/${issue.originId}`}
+              className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 border border-violet-500/30 px-2 py-0.5 text-[10px] font-medium text-violet-600 dark:text-violet-400 shrink-0 hover:bg-violet-500/20 transition-colors"
+            >
+              <Repeat className="h-3 w-3" />
+              Routine
+            </Link>
+          )}
+
           {issue.projectId ? (
             <Link
               to={`/projects/${issue.projectId}`}
@@ -749,7 +768,7 @@ export function IssueDetail() {
                   className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium"
                   style={{
                     borderColor: label.color,
-                    color: label.color,
+                    color: pickTextColorForPillBg(label.color, 0.12),
                     backgroundColor: `${label.color}1f`,
                   }}
                 >

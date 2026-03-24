@@ -50,7 +50,6 @@ interface CommentThreadProps {
   mentions?: MentionOption[];
 }
 
-const CLOSED_STATUSES = new Set(["done", "cancelled"]);
 const DRAFT_DEBOUNCE_MS = 800;
 
 function loadDraft(draftKey: string): string {
@@ -261,7 +260,6 @@ export function CommentThread({
   companyId,
   projectId,
   onAdd,
-  issueStatus,
   agentMap,
   imageUploadHandler,
   onAttachImage,
@@ -285,8 +283,6 @@ export function CommentThread({
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const location = useLocation();
   const hasScrolledRef = useRef(false);
-
-  const isClosed = issueStatus ? CLOSED_STATUSES.has(issueStatus) : false;
 
   const timeline = useMemo<TimelineItem[]>(() => {
     const commentItems: TimelineItem[] = comments.map((comment) => ({
@@ -315,8 +311,11 @@ export function CommentThread({
     return Array.from(agentMap.values())
       .filter((a) => a.status !== "terminated")
       .map((a) => ({
-        id: a.id,
+        id: `agent:${a.id}`,
         name: a.name,
+        kind: "agent",
+        agentId: a.id,
+        agentIcon: a.icon,
       }));
   }, [agentMap, providedMentions]);
 
@@ -369,10 +368,10 @@ export function CommentThread({
 
     setSubmitting(true);
     try {
-      await onAdd(trimmed, isClosed && reopen ? true : undefined, reassignment ?? undefined);
+      await onAdd(trimmed, reopen ? true : undefined, reassignment ?? undefined);
       setBody("");
       if (draftKey) clearDraft(draftKey);
-      setReopen(false);
+      setReopen(true);
       setReassignTarget(effectiveSuggestedAssigneeValue);
     } finally {
       setSubmitting(false);
@@ -381,10 +380,17 @@ export function CommentThread({
 
   async function handleAttachFile(evt: ChangeEvent<HTMLInputElement>) {
     const file = evt.target.files?.[0];
-    if (!file || !onAttachImage) return;
+    if (!file) return;
     setAttaching(true);
     try {
-      await onAttachImage(file);
+      if (imageUploadHandler) {
+        const url = await imageUploadHandler(file);
+        const safeName = file.name.replace(/[[\]]/g, "\\$&");
+        const markdown = `![${safeName}](${url})`;
+        setBody((prev) => prev ? `${prev}\n\n${markdown}` : markdown);
+      } else if (onAttachImage) {
+        await onAttachImage(file);
+      }
     } finally {
       setAttaching(false);
       if (attachInputRef.current) attachInputRef.current.value = "";
@@ -419,7 +425,7 @@ export function CommentThread({
           contentClassName="min-h-[60px] text-sm"
         />
         <div className="flex items-center justify-end gap-3">
-          {onAttachImage && (
+          {(imageUploadHandler || onAttachImage) && (
             <div className="mr-auto flex items-center gap-3">
               <input
                 ref={attachInputRef}
@@ -439,17 +445,15 @@ export function CommentThread({
               </Button>
             </div>
           )}
-          {isClosed && (
-            <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={reopen}
-                onChange={(e) => setReopen(e.target.checked)}
-                className="rounded border-border"
-              />
-              Re-open
-            </label>
-          )}
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={reopen}
+              onChange={(e) => setReopen(e.target.checked)}
+              className="rounded border-border"
+            />
+            Re-open
+          </label>
           {enableReassign && reassignOptions.length > 0 && (
             <InlineEntitySelector
               value={reassignTarget}
