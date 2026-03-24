@@ -196,11 +196,38 @@ function unreadForUserCondition(companyId: string, userId: string) {
   `;
 }
 
-const HTML_ENTITY_IN_MENTION = /&#x[0-9a-fA-F]+;|&#[0-9]+;|&[a-z]+;/gi;
+/** Named entities the rich-text editor may emit in issue bodies; unknown names are left unchanged. */
+const WELL_KNOWN_NAMED_HTML_ENTITIES: Readonly<Record<string, string>> = {
+  amp: "&",
+  apos: "'",
+  gt: ">",
+  lt: "<",
+  nbsp: "\u00A0",
+  quot: '"',
+  ensp: "\u2002",
+  emsp: "\u2003",
+  thinsp: "\u2009",
+};
 
-/** Strips common HTML entities from a raw @mention capture so UI-encoded bodies still match agent names. */
+function decodeNumericHtmlEntity(digits: string, radix: 16 | 10): string | null {
+  const n = Number.parseInt(digits, radix);
+  if (Number.isNaN(n) || n < 0 || n > 0x10ffff) return null;
+  try {
+    return String.fromCodePoint(n);
+  } catch {
+    return null;
+  }
+}
+
+/** Decodes HTML entities in a raw @mention capture so UI-encoded bodies still match agent names. */
 export function normalizeAgentMentionToken(raw: string): string {
-  return raw.replace(HTML_ENTITY_IN_MENTION, "").trim();
+  let s = raw.replace(/&#x([0-9a-fA-F]+);/gi, (full, hex: string) => decodeNumericHtmlEntity(hex, 16) ?? full);
+  s = s.replace(/&#([0-9]+);/g, (full, dec: string) => decodeNumericHtmlEntity(dec, 10) ?? full);
+  s = s.replace(/&([a-z][a-z0-9]*);/gi, (full, name: string) => {
+    const decoded = WELL_KNOWN_NAMED_HTML_ENTITIES[name.toLowerCase()];
+    return decoded !== undefined ? decoded : full;
+  });
+  return s.trim();
 }
 
 export function deriveIssueUserContext(

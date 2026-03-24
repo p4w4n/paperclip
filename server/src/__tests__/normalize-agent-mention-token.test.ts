@@ -14,6 +14,11 @@ describe("normalizeAgentMentionToken", () => {
     expect(normalizeAgentMentionToken("Baba&nbsp;")).toBe("Baba");
   });
 
+  it("decodes named entities mid-token so agent names can include &", () => {
+    expect(normalizeAgentMentionToken("Ba&amp;ba")).toBe("Ba&ba");
+    expect(normalizeAgentMentionToken("M&amp;M")).toBe("M&M");
+  });
+
   it("returns plain names unchanged", () => {
     expect(normalizeAgentMentionToken("Baba")).toBe("Baba");
   });
