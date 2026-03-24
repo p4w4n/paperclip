@@ -112,11 +112,7 @@ function buildAgentIconMask(iconName: string | null): string | null {
   if (cached) return cached;
 
   const Icon = getAgentIcon(iconName);
-  const iconNode = (
-    Icon as unknown as {
-      iconNode?: Array<[string, Record<string, string>]>;
-    }
-  ).iconNode;
+  const iconNode = resolveLucideIconNode(Icon);
   if (!Array.isArray(iconNode) || iconNode.length === 0) return null;
 
   const body = iconNode.map(([tag, attrs]) => {
@@ -134,6 +130,32 @@ function buildAgentIconMask(iconName: string | null): string | null {
   const url = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
   iconMaskCache.set(cacheKey, url);
   return url;
+}
+
+function resolveLucideIconNode(
+  icon: unknown,
+): Array<[string, Record<string, string>]> | null {
+  const staticIconNode = (
+    icon as {
+      iconNode?: Array<[string, Record<string, string>]>;
+    }
+  ).iconNode;
+  if (Array.isArray(staticIconNode) && staticIconNode.length > 0) {
+    return staticIconNode;
+  }
+
+  const render = (
+    icon as {
+      render?: (props: Record<string, unknown>, ref: unknown) => {
+        props?: { iconNode?: Array<[string, Record<string, string>]> };
+      } | null;
+    }
+  ).render;
+  const rendered = typeof render === "function" ? render({}, null) : null;
+  const renderedIconNode = rendered?.props?.iconNode;
+  return Array.isArray(renderedIconNode) && renderedIconNode.length > 0
+    ? renderedIconNode
+    : null;
 }
 
 function escapeAttribute(value: string): string {
