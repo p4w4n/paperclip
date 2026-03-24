@@ -69,6 +69,7 @@ import {
   ChevronDown,
   ArrowLeft,
   HelpCircle,
+  FolderOpen,
 } from "lucide-react";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -1512,6 +1513,7 @@ function ConfigurationTab({
             <button
               type="button"
               role="switch"
+              data-slot="toggle"
               aria-checked={canCreateAgents}
               className={cn(
                 "relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 disabled:cursor-not-allowed disabled:opacity-50",
@@ -1543,6 +1545,7 @@ function ConfigurationTab({
             <button
               type="button"
               role="switch"
+              data-slot="toggle"
               aria-checked={canAssignTasks}
               className={cn(
                 "relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 disabled:cursor-not-allowed disabled:opacity-50",
@@ -1589,7 +1592,9 @@ function PromptsTab({
 }) {
   const queryClient = useQueryClient();
   const { selectedCompanyId } = useCompany();
+  const { isMobile } = useSidebar();
   const [selectedFile, setSelectedFile] = useState<string>("AGENTS.md");
+  const [showFilePanel, setShowFilePanel] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
   const [bundleDraft, setBundleDraft] = useState<{
     mode: "managed" | "external";
@@ -2042,21 +2047,38 @@ function PromptsTab({
         </CollapsibleContent>
       </Collapsible>
 
-      <div ref={containerRef} className="flex gap-0">
-        <div className="border border-border rounded-lg p-3 space-y-3 shrink-0" style={{ width: filePanelWidth }}>
+      <div ref={containerRef} className={cn("flex gap-0", isMobile && "flex-col gap-3")}>
+        <div className={cn(
+          "border border-border rounded-lg p-3 space-y-3 shrink-0",
+          isMobile && showFilePanel && "block",
+          isMobile && !showFilePanel && "hidden",
+        )} style={isMobile ? undefined : { width: filePanelWidth }}>
           <div className="flex items-center justify-between">
             <h4 className="text-sm font-medium">Files</h4>
-            {!showNewFileInput && (
-              <Button
-                type="button"
-                size="icon"
-                variant="outline"
-                className="h-7 w-7"
-                onClick={() => setShowNewFileInput(true)}
-              >
-                +
-              </Button>
-            )}
+            <div className="flex items-center gap-1">
+              {!showNewFileInput && (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="h-7 w-7"
+                  onClick={() => setShowNewFileInput(true)}
+                >
+                  +
+                </Button>
+              )}
+              {isMobile && (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7"
+                  onClick={() => setShowFilePanel(false)}
+                >
+                  ✕
+                </Button>
+              )}
+            </div>
           </div>
           {showNewFileInput && (
             <div className="space-y-2">
@@ -2121,6 +2143,7 @@ function PromptsTab({
             onSelectFile={(filePath) => {
               setSelectedFile(filePath);
               if (!fileOptions.includes(filePath)) setDraft("");
+              if (isMobile) setShowFilePanel(false);
             }}
             onToggleCheck={() => {}}
             showCheckboxes={false}
@@ -2151,22 +2174,37 @@ function PromptsTab({
         </div>
 
         {/* Draggable separator */}
-        <div
-          className="w-1 shrink-0 cursor-col-resize hover:bg-border active:bg-primary/50 rounded transition-colors mx-1"
-          onMouseDown={handleSeparatorDrag}
-        />
+        {!isMobile && (
+          <div
+            className="w-1 shrink-0 cursor-col-resize hover:bg-border active:bg-primary/50 rounded transition-colors mx-1"
+            onMouseDown={handleSeparatorDrag}
+          />
+        )}
 
-        <div className="border border-border rounded-lg p-4 space-y-3 min-w-0 flex-1">
+        <div className={cn("border border-border rounded-lg p-4 space-y-3 min-w-0 flex-1", isMobile && showFilePanel && "hidden")}>
           <div className="flex items-center justify-between gap-3">
-            <div>
-              <h4 className="text-sm font-medium font-mono">{selectedOrEntryFile}</h4>
-              <p className="text-xs text-muted-foreground">
-                {selectedFileExists
-                  ? selectedFileSummary?.deprecated
-                    ? "Deprecated virtual file"
-                    : `${selectedFileDetail?.language ?? "text"} file`
-                  : "New file in this bundle"}
-              </p>
+            <div className="flex items-center gap-2 min-w-0">
+              {isMobile && (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="h-7 w-7 shrink-0"
+                  onClick={() => setShowFilePanel(true)}
+                >
+                  <FolderOpen className="h-3.5 w-3.5" />
+                </Button>
+              )}
+              <div className="min-w-0">
+                <h4 className="text-sm font-medium font-mono truncate">{selectedOrEntryFile}</h4>
+                <p className="text-xs text-muted-foreground">
+                  {selectedFileExists
+                    ? selectedFileSummary?.deprecated
+                      ? "Deprecated virtual file"
+                      : `${selectedFileDetail?.language ?? "text"} file`
+                    : "New file in this bundle"}
+                </p>
+              </div>
             </div>
             {selectedFileExists && !selectedFileSummary?.deprecated && selectedOrEntryFile !== currentEntryFile && (
               <Button
