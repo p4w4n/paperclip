@@ -3864,6 +3864,16 @@ export function companyPortabilityService(db: Db, storage?: StorageService) {
               : []),
         );
         const markdownRaw = bundleFiles["AGENTS.md"] ?? readPortableTextFile(plan.source.files, manifestAgent.path);
+        const entryRelativePath = normalizePortablePath(manifestAgent.path).startsWith(bundlePrefix)
+          ? normalizePortablePath(manifestAgent.path).slice(bundlePrefix.length)
+          : "AGENTS.md";
+        if (typeof markdownRaw === "string") {
+          const importedInstructionsBody = parseFrontmatterMarkdown(markdownRaw).body;
+          bundleFiles[entryRelativePath] = importedInstructionsBody;
+          if (entryRelativePath !== "AGENTS.md") {
+            bundleFiles["AGENTS.md"] = importedInstructionsBody;
+          }
+        }
         const fallbackPromptTemplate = asString((manifestAgent.adapterConfig as Record<string, unknown>).promptTemplate) || "";
         if (!markdownRaw && fallbackPromptTemplate) {
           bundleFiles["AGENTS.md"] = fallbackPromptTemplate;
