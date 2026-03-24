@@ -14,8 +14,12 @@ describe("normalizeAgentMentionToken", () => {
     expect(normalizeAgentMentionToken("Baba&nbsp;")).toBe("Baba");
   });
 
-  // Greptile: entity mid-token (not only trailing) — must decode &amp; to &, not delete the sequence.
-  it("decodes &amp; in the middle of a mention token", () => {
+  /**
+   * Greptile (PR review): cover an entity in the *middle* of a token, not only trailing `&#x20;` / `&nbsp;`.
+   * Earlier implementation *stripped* `&amp;`, turning `Ba&amp;ba` into `Baba` and breaking names like `M&amp;M`.
+   * Current behavior decodes `&amp;` → `&`, so the expected value is `Ba&ba`, not `Baba`.
+   */
+  it("decodes a named entity mid-token (Ba&amp;ba → Ba&ba, not strip to Baba)", () => {
     expect(normalizeAgentMentionToken("Ba&amp;ba")).toBe("Ba&ba");
   });
 
