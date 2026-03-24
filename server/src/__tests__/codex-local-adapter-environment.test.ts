@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -7,6 +7,9 @@ import { testEnvironment } from "@paperclipai/adapter-codex-local/server";
 const itWindows = process.platform === "win32" ? it : it.skip;
 
 describe("codex_local environment diagnostics", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
   it("creates a missing working directory when cwd is absolute", async () => {
     const cwd = path.join(
       os.tmpdir(),
@@ -33,6 +36,7 @@ describe("codex_local environment diagnostics", () => {
   });
 
   it("emits codex_native_auth_present when ~/.codex/auth.json exists and OPENAI_API_KEY is unset", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "");
     const root = path.join(
       os.tmpdir(),
       `paperclip-codex-auth-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -65,6 +69,7 @@ describe("codex_local environment diagnostics", () => {
   });
 
   it("emits codex_openai_api_key_missing when neither env var nor native auth exists", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "");
     const root = path.join(
       os.tmpdir(),
       `paperclip-codex-noauth-${Date.now()}-${Math.random().toString(16).slice(2)}`,
