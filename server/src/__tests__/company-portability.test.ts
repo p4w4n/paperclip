@@ -2108,5 +2108,8 @@ describe("company portability", () => {
         replaceExisting: true,
       }),
     );
+    const materializedFiles = agentInstructionsSvc.materializeManagedBundle.mock.calls[0]?.[1] as Record<string, string>;
+    expect(materializedFiles["AGENTS.md"]).not.toMatch(/^---\n/);
+    expect(materializedFiles["AGENTS.md"]).not.toContain('name: "ClaudeCoder"');
   });
 });
