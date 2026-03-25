@@ -21,7 +21,7 @@ import {
   runChildProcess,
 } from "@paperclipai/adapter-utils/server-utils";
 import { parseCodexJsonl, isCodexUnknownSessionError } from "./parse.js";
-import { pathExists, prepareManagedCodexHome, resolveManagedCodexHomeDir } from "./codex-home.js";
+import { pathExists, prepareManagedCodexHome, resolveManagedCodexHomeDir, resolveSharedCodexHomeDir } from "./codex-home.js";
 import { resolveCodexDesiredSkillNames } from "./skills.js";
 
 const __moduleDir = path.dirname(fileURLToPath(import.meta.url));
@@ -157,7 +157,7 @@ export async function ensureCodexSkillsInjected(
   const skillsEntries = allSkillsEntries.filter((entry) => desiredSet.has(entry.key));
   if (skillsEntries.length === 0) return;
 
-  const skillsHome = options.skillsHome ?? resolveCodexSkillsHome();
+  const skillsHome = options.skillsHome ?? resolveCodexSkillsDir(resolveSharedCodexHomeDir());
   await fs.mkdir(skillsHome, { recursive: true });
   const linkSkill = options.linkSkill;
   for (const entry of skillsEntries) {
