@@ -21,7 +21,7 @@ import {
   runChildProcess,
 } from "@paperclipai/adapter-utils/server-utils";
 import { parseCodexJsonl, isCodexUnknownSessionError } from "./parse.js";
-import { pathExists, prepareManagedCodexHome, resolveManagedCodexHomeDir, resolveSharedCodexHomeDir } from "./codex-home.js";
+import { pathExists, prepareManagedCodexHome, resolveManagedCodexHomeDir } from "./codex-home.js";
 import { resolveCodexDesiredSkillNames } from "./skills.js";
 
 const __moduleDir = path.dirname(fileURLToPath(import.meta.url));
@@ -135,8 +135,8 @@ async function pruneBrokenUnavailablePaperclipSkillSymlinks(
   }
 }
 
-function resolveCodexSkillsHome(): string {
-  return path.join(resolveSharedCodexHomeDir(), "skills");
+function resolveCodexSkillsDir(codexHome: string): string {
+  return path.join(codexHome, "skills");
 }
 
 type EnsureCodexSkillsInjectedOptions = {
@@ -273,7 +273,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const defaultCodexHome = resolveManagedCodexHomeDir(process.env, agent.companyId);
   const effectiveCodexHome = configuredCodexHome ?? preparedManagedCodexHome ?? defaultCodexHome;
   await fs.mkdir(effectiveCodexHome, { recursive: true });
-  const codexSkillsDir = resolveCodexSkillsHome();
+  const codexSkillsDir = resolveCodexSkillsDir(effectiveCodexHome);
   await ensureCodexSkillsInjected(
     onLog,
     {
