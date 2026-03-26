@@ -12,7 +12,7 @@ import {
   ensurePathInEnv,
   runChildProcess,
 } from "@paperclipai/adapter-utils/server-utils";
-import fs from "node:fs";
+import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { DEFAULT_CURSOR_LOCAL_MODEL } from "../index.js";
@@ -61,10 +61,10 @@ export function cursorConfigPath(cursorHome?: string): string {
   return path.join(cursorHome ?? path.join(os.homedir(), ".cursor"), "cli-config.json");
 }
 
-export function readCursorAuthInfo(cursorHome?: string): CursorAuthInfo | null {
+export async function readCursorAuthInfo(cursorHome?: string): Promise<CursorAuthInfo | null> {
   let raw: string;
   try {
-    raw = fs.readFileSync(cursorConfigPath(cursorHome), "utf8");
+    raw = await fs.readFile(cursorConfigPath(cursorHome), "utf8");
   } catch {
     return null;
   }
@@ -147,7 +147,7 @@ export async function testEnvironment(
     });
   } else {
     const cursorHome = isNonEmpty(env.CURSOR_HOME) ? env.CURSOR_HOME : undefined;
-    const cursorAuth = readCursorAuthInfo(cursorHome);
+    const cursorAuth = await readCursorAuthInfo(cursorHome).catch(() => null);
     if (cursorAuth) {
       checks.push({
         code: "cursor_native_auth_present",
