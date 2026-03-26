@@ -1,0 +1,108 @@
+import type { ExecutionWorkspace, Issue, Project } from "@paperclipai/shared";
+
+type ProjectWorkspaceLike = Pick<Project, "workspaces" | "primaryWorkspace">;
+
+export interface ProjectWorkspaceSummary {
+  key: string;
+  kind: "execution_workspace" | "project_workspace";
+  workspaceId: string;
+  workspaceName: string;
+  branchName: string | null;
+  lastUpdatedAt: Date;
+  projectWorkspaceId: string | null;
+  executionWorkspaceId: string | null;
+  issues: Issue[];
+}
+
+function toDate(value: Date | string | null | undefined): Date | null {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function maxDate(...values: Array<Date | string | null | undefined>): Date {
+  let latest = new Date(0);
+  for (const value of values) {
+    const date = toDate(value);
+    if (date && date.getTime() > latest.getTime()) latest = date;
+  }
+  return latest;
+}
+
+function primaryWorkspaceId(project: ProjectWorkspaceLike): string | null {
+  return project.primaryWorkspace?.id
+    ?? project.workspaces.find((workspace) => workspace.isPrimary)?.id
+    ?? project.workspaces[0]?.id
+    ?? null;
+}
+
+export function buildProjectWorkspaceSummaries(input: {
+  project: ProjectWorkspaceLike;
+  issues: Issue[];
+  executionWorkspaces: ExecutionWorkspace[];
+}): ProjectWorkspaceSummary[] {
+  const primaryId = primaryWorkspaceId(input.project);
+  const executionWorkspacesById = new Map(
+    input.executionWorkspaces.map((workspace) => [workspace.id, workspace] as const),
+  );
+  const projectWorkspacesById = new Map(
+    input.project.workspaces.map((workspace) => [workspace.id, workspace] as const),
+  );
+  const summaries = new Map<string, ProjectWorkspaceSummary>();
+
+  for (const issue of input.issues) {
+    if (issue.executionWorkspaceId) {
+      const executionWorkspace = executionWorkspacesById.get(issue.executionWorkspaceId);
+      if (!executionWorkspace) continue;
+
+      const existing = summaries.get(`execution:${executionWorkspace.id}`);
+      const nextIssues = [...(existing?.issues ?? []), issue].sort(
+        (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+      );
+
+      summaries.set(`execution:${executionWorkspace.id}`, {
+        key: `execution:${executionWorkspace.id}`,
+        kind: "execution_workspace",
+        workspaceId: executionWorkspace.id,
+        workspaceName: executionWorkspace.name,
+        branchName: executionWorkspace.branchName ?? executionWorkspace.baseRef ?? null,
+        lastUpdatedAt: maxDate(
+          existing?.lastUpdatedAt,
+          executionWorkspace.lastUsedAt,
+          executionWorkspace.updatedAt,
+          issue.updatedAt,
+        ),
+        projectWorkspaceId: executionWorkspace.projectWorkspaceId ?? issue.projectWorkspaceId ?? null,
+        executionWorkspaceId: executionWorkspace.id,
+        issues: nextIssues,
+      });
+      continue;
+    }
+
+    if (!issue.projectWorkspaceId || issue.projectWorkspaceId === primaryId) continue;
+    const projectWorkspace = projectWorkspacesById.get(issue.projectWorkspaceId);
+    if (!projectWorkspace) continue;
+
+    const existing = summaries.get(`project:${projectWorkspace.id}`);
+    const nextIssues = [...(existing?.issues ?? []), issue].sort(
+      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+    );
+
+    summaries.set(`project:${projectWorkspace.id}`, {
+      key: `project:${projectWorkspace.id}`,
+      kind: "project_workspace",
+      workspaceId: projectWorkspace.id,
+      workspaceName: projectWorkspace.name,
+      branchName: projectWorkspace.repoRef ?? projectWorkspace.defaultRef ?? null,
+      lastUpdatedAt: maxDate(existing?.lastUpdatedAt, projectWorkspace.updatedAt, issue.updatedAt),
+      projectWorkspaceId: projectWorkspace.id,
+      executionWorkspaceId: null,
+      issues: nextIssues,
+    });
+  }
+
+  return [...summaries.values()].sort((a, b) => {
+    const diff = b.lastUpdatedAt.getTime() - a.lastUpdatedAt.getTime();
+    return diff !== 0 ? diff : a.workspaceName.localeCompare(b.workspaceName);
+  });
+}
