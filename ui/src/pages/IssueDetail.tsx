@@ -21,6 +21,7 @@ import { InlineEditor } from "../components/InlineEditor";
 import { CommentThread } from "../components/CommentThread";
 import { IssueDocumentsSection } from "../components/IssueDocumentsSection";
 import { IssueProperties } from "../components/IssueProperties";
+import { IssueWorkspaceCard } from "../components/IssueWorkspaceCard";
 import { LiveRunWidget } from "../components/LiveRunWidget";
 import type { MentionOption } from "../components/MarkdownEditor";
 import { ScrollToBottom } from "../components/ScrollToBottom";
@@ -990,6 +991,12 @@ export function IssueDetail() {
         </div>
         </div>
       ) : null}
+
+      <IssueWorkspaceCard
+        issue={issue}
+        project={orderedProjects.find((p) => p.id === issue.projectId) ?? null}
+        onUpdate={(data) => updateIssue.mutate(data)}
+      />
 
       <Separator />
 
