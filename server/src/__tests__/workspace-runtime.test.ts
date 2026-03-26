@@ -126,6 +126,7 @@ afterEach(async () => {
   delete process.env.PAPERCLIP_CONFIG;
   delete process.env.PAPERCLIP_HOME;
   delete process.env.PAPERCLIP_INSTANCE_ID;
+  delete process.env.PAPERCLIP_WORKTREES_DIR;
   delete process.env.DATABASE_URL;
 });
 
@@ -284,10 +285,11 @@ describe("realizeExecutionWorkspace", () => {
     await expect(fs.readFile(path.join(reused.cwd, ".paperclip-provision-created"), "utf8")).resolves.toBe("false\n");
   });
 
-  it("seeds repo-local Paperclip config and worktree branding when provisioning", async () => {
+  it("writes an isolated repo-local Paperclip config and worktree branding when provisioning", async () => {
     const repoRoot = await createTempRepo();
     const previousCwd = process.cwd();
     const paperclipHome = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-worktree-home-"));
+    const isolatedWorktreeHome = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-worktrees-"));
     const instanceId = "worktree-base";
     const sharedConfigDir = path.join(paperclipHome, "instances", instanceId);
     const sharedConfigPath = path.join(sharedConfigDir, "config.json");
@@ -295,6 +297,7 @@ describe("realizeExecutionWorkspace", () => {
 
     process.env.PAPERCLIP_HOME = paperclipHome;
     process.env.PAPERCLIP_INSTANCE_ID = instanceId;
+    process.env.PAPERCLIP_WORKTREES_DIR = isolatedWorktreeHome;
 
     await fs.mkdir(sharedConfigDir, { recursive: true });
     await fs.writeFile(
@@ -397,17 +400,36 @@ describe("realizeExecutionWorkspace", () => {
         },
       });
 
-      const configLinkPath = path.join(workspace.cwd, ".paperclip", "config.json");
+      const configPath = path.join(workspace.cwd, ".paperclip", "config.json");
       const envPath = path.join(workspace.cwd, ".paperclip", ".env");
       const envContents = await fs.readFile(envPath, "utf8");
+      const configContents = JSON.parse(await fs.readFile(configPath, "utf8"));
+      const configStats = await fs.lstat(configPath);
+      const expectedInstanceId = "pap-885-show-worktree-banner";
+      const expectedInstanceRoot = path.join(
+        isolatedWorktreeHome,
+        "instances",
+        expectedInstanceId,
+      );
 
-      expect(await fs.readlink(configLinkPath)).toBe(sharedConfigPath);
-      expect(envContents).toContain('DATABASE_URL="postgres://worktree:test@db.example.com:6543/paperclip"');
+      expect(configStats.isSymbolicLink()).toBe(false);
+      expect(configContents.database.embeddedPostgresDataDir).toBe(path.join(expectedInstanceRoot, "db"));
+      expect(configContents.database.embeddedPostgresDataDir).not.toBe(path.join(sharedConfigDir, "db"));
+      expect(configContents.server.port).not.toBe(3100);
+      expect(configContents.secrets.localEncrypted.keyFilePath).toBe(
+        path.join(expectedInstanceRoot, "secrets", "master.key"),
+      );
+      expect(envContents).not.toContain("DATABASE_URL=");
+      expect(envContents).toContain(`PAPERCLIP_HOME=${JSON.stringify(isolatedWorktreeHome)}`);
+      expect(envContents).toContain(`PAPERCLIP_INSTANCE_ID=${JSON.stringify(expectedInstanceId)}`);
+      expect(envContents).toContain(`PAPERCLIP_CONFIG=${JSON.stringify(configPath)}`);
       expect(envContents).toContain("PAPERCLIP_IN_WORKTREE=true");
-      expect(envContents).toContain("PAPERCLIP_WORKTREE_NAME=PAP-885-show-worktree-banner");
+      expect(envContents).toContain(
+        `PAPERCLIP_WORKTREE_NAME=${JSON.stringify("PAP-885-show-worktree-banner")}`,
+      );
 
       process.chdir(workspace.cwd);
-      expect(resolvePaperclipConfigPath()).toBe(configLinkPath);
+      expect(resolvePaperclipConfigPath()).toBe(configPath);
     } finally {
       process.chdir(previousCwd);
     }
