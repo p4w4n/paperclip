@@ -149,10 +149,89 @@ function writeConfigFile(configPath: string, config: PaperclipConfig): void {
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", { mode: 0o600 });
 }
 
+function resolveRepoManagedWorktreesRoot(worktreeRoot: string): string | null {
+  const normalized = path.resolve(worktreeRoot);
+  const marker = `${path.sep}.paperclip${path.sep}worktrees${path.sep}`;
+  const index = normalized.indexOf(marker);
+  if (index === -1) return null;
+  const repoRoot = normalized.slice(0, index);
+  return path.resolve(repoRoot, ".paperclip", "worktrees");
+}
+
+function collectSiblingWorktreePorts(context: WorktreeRuntimeContext): {
+  serverPorts: Set<number>;
+  databasePorts: Set<number>;
+} {
+  const serverPorts = new Set<number>();
+  const databasePorts = new Set<number>();
+  const siblingConfigPaths = new Set<string>();
+  const instancesDir = path.resolve(context.homeDir, "instances");
+  if (fs.existsSync(instancesDir)) {
+    for (const entry of fs.readdirSync(instancesDir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name === context.instanceId) continue;
+
+      const siblingConfigPath = path.resolve(instancesDir, entry.name, "config.json");
+      if (fs.existsSync(siblingConfigPath)) {
+        siblingConfigPaths.add(siblingConfigPath);
+      }
+    }
+  }
+
+  const repoManagedWorktreesRoot = resolveRepoManagedWorktreesRoot(path.dirname(context.configPath));
+  if (repoManagedWorktreesRoot && fs.existsSync(repoManagedWorktreesRoot)) {
+    for (const entry of fs.readdirSync(repoManagedWorktreesRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+
+      const siblingConfigPath = path.resolve(repoManagedWorktreesRoot, entry.name, ".paperclip", "config.json");
+      if (path.resolve(siblingConfigPath) === path.resolve(context.configPath)) continue;
+      if (fs.existsSync(siblingConfigPath)) {
+        siblingConfigPaths.add(siblingConfigPath);
+      }
+    }
+  }
+
+  for (const siblingConfigPath of siblingConfigPaths) {
+    try {
+      const siblingConfig = JSON.parse(fs.readFileSync(siblingConfigPath, "utf8")) as PaperclipConfig;
+      if (Number.isInteger(siblingConfig.server.port) && siblingConfig.server.port > 0) {
+        serverPorts.add(siblingConfig.server.port);
+      }
+      if (
+        siblingConfig.database.mode === "embedded-postgres" &&
+        Number.isInteger(siblingConfig.database.embeddedPostgresPort) &&
+        siblingConfig.database.embeddedPostgresPort > 0
+      ) {
+        databasePorts.add(siblingConfig.database.embeddedPostgresPort);
+      }
+    } catch {
+      // Ignore sibling configs that are missing or malformed.
+    }
+  }
+
+  return { serverPorts, databasePorts };
+}
+
+function findNextUnclaimedPort(preferredPort: number, claimedPorts: Set<number>): number {
+  let port = Math.max(1, Math.trunc(preferredPort));
+  while (claimedPorts.has(port)) {
+    port += 1;
+  }
+  return port;
+}
+
 function buildIsolatedWorktreeConfig(
   config: PaperclipConfig,
   context: WorktreeRuntimeContext,
+  portOverrides?: {
+    serverPort?: number;
+    databasePort?: number;
+  },
 ): PaperclipConfig {
+  const serverPort = portOverrides?.serverPort ?? config.server.port;
+  const databasePort =
+    config.database.mode === "embedded-postgres"
+      ? portOverrides?.databasePort ?? config.database.embeddedPostgresPort
+      : undefined;
   const nextConfig: PaperclipConfig = {
     ...config,
     database: {
@@ -160,12 +239,17 @@ function buildIsolatedWorktreeConfig(
       ...(config.database.mode === "embedded-postgres"
         ? {
             embeddedPostgresDataDir: context.embeddedPostgresDataDir,
+            embeddedPostgresPort: databasePort ?? config.database.embeddedPostgresPort,
             backup: {
               ...config.database.backup,
               dir: context.backupDir,
             },
           }
         : {}),
+    },
+    server: {
+      ...config.server,
+      port: serverPort,
     },
     logging: {
       ...config.logging,
@@ -190,7 +274,7 @@ function buildIsolatedWorktreeConfig(
   if (config.auth.baseUrlMode === "explicit" && config.auth.publicBaseUrl) {
     nextConfig.auth = {
       ...config.auth,
-      publicBaseUrl: rewriteLocalUrlPort(config.auth.publicBaseUrl, config.server.port),
+      publicBaseUrl: rewriteLocalUrlPort(config.auth.publicBaseUrl, serverPort),
     };
   }
 
@@ -298,8 +382,34 @@ export function maybeRepairLegacyWorktreeConfigAndEnvFiles(): {
   if (fs.existsSync(context.configPath)) {
     try {
       const parsed = JSON.parse(fs.readFileSync(context.configPath, "utf8")) as PaperclipConfig;
-      if (needsWorktreeConfigRepair(parsed, context)) {
-        writeConfigFile(context.configPath, buildIsolatedWorktreeConfig(parsed, context));
+      const siblingPorts = collectSiblingWorktreePorts(context);
+      const hasSiblingPortCollision =
+        siblingPorts.serverPorts.has(parsed.server.port) ||
+        (parsed.database.mode === "embedded-postgres" &&
+          siblingPorts.databasePorts.has(parsed.database.embeddedPostgresPort));
+
+      if (needsWorktreeConfigRepair(parsed, context) || hasSiblingPortCollision) {
+        const selectedServerPort = findNextUnclaimedPort(
+          parsed.server.port === 3100 ? 3101 : parsed.server.port,
+          siblingPorts.serverPorts,
+        );
+        const selectedDatabasePort =
+          parsed.database.mode === "embedded-postgres"
+            ? findNextUnclaimedPort(
+                parsed.database.embeddedPostgresPort === 54329
+                  ? 54330
+                  : parsed.database.embeddedPostgresPort,
+                new Set([...siblingPorts.databasePorts, selectedServerPort]),
+              )
+            : undefined;
+
+        writeConfigFile(
+          context.configPath,
+          buildIsolatedWorktreeConfig(parsed, context, {
+            serverPort: selectedServerPort,
+            databasePort: selectedDatabasePort,
+          }),
+        );
         repairedConfig = true;
       }
     } catch {

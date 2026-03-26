@@ -139,6 +139,195 @@ describe("worktree config repair", () => {
     expect(process.env.PAPERCLIP_INSTANCE_ID).toBe("pap-884-ai-commits-component");
   });
 
+  it("avoids sibling worktree ports when repairing legacy configs", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-worktree-repair-ports-"));
+    const worktreeRoot = path.join(tempRoot, "PAP-880-thumbs-capture-for-evals-feature");
+    const paperclipDir = path.join(worktreeRoot, ".paperclip");
+    const configPath = path.join(paperclipDir, "config.json");
+    const envPath = path.join(paperclipDir, ".env");
+    const sharedRoot = path.join(tempRoot, ".paperclip", "instances", "default");
+    const isolatedHome = path.join(tempRoot, ".paperclip-worktrees");
+    const siblingInstanceRoot = path.join(isolatedHome, "instances", "pap-878-create-a-mine-tab-in-inbox");
+
+    await fs.mkdir(paperclipDir, { recursive: true });
+    await fs.mkdir(siblingInstanceRoot, { recursive: true });
+    await fs.writeFile(configPath, JSON.stringify(buildLegacyConfig(sharedRoot), null, 2) + "\n", "utf8");
+    await fs.writeFile(
+      envPath,
+      [
+        "# Paperclip environment variables",
+        "PAPERCLIP_IN_WORKTREE=true",
+        "PAPERCLIP_WORKTREE_NAME=PAP-880-thumbs-capture-for-evals-feature",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(siblingInstanceRoot, "config.json"),
+      JSON.stringify(
+        {
+          ...buildLegacyConfig(siblingInstanceRoot),
+          database: {
+            mode: "embedded-postgres",
+            embeddedPostgresDataDir: path.join(siblingInstanceRoot, "db"),
+            embeddedPostgresPort: 54330,
+            backup: {
+              enabled: true,
+              intervalMinutes: 60,
+              retentionDays: 30,
+              dir: path.join(siblingInstanceRoot, "data", "backups"),
+            },
+          },
+          server: {
+            deploymentMode: "local_trusted",
+            exposure: "private",
+            host: "127.0.0.1",
+            port: 3101,
+            allowedHostnames: [],
+            serveUi: true,
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+      "utf8",
+    );
+
+    process.chdir(worktreeRoot);
+    process.env.PAPERCLIP_IN_WORKTREE = "true";
+    process.env.PAPERCLIP_WORKTREE_NAME = "PAP-880-thumbs-capture-for-evals-feature";
+    process.env.PAPERCLIP_WORKTREES_DIR = isolatedHome;
+
+    const result = maybeRepairLegacyWorktreeConfigAndEnvFiles();
+    const repairedConfig = JSON.parse(await fs.readFile(configPath, "utf8"));
+
+    expect(result.repairedConfig).toBe(true);
+    expect(repairedConfig.server.port).toBe(3102);
+    expect(repairedConfig.database.embeddedPostgresPort).toBe(54331);
+  });
+
+  it("rebalances duplicate ports for already isolated worktree configs", async () => {
+    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-worktree-rebalance-"));
+    const isolatedHome = path.join(tempRoot, ".paperclip-worktrees");
+    const repoWorktreesRoot = path.join(tempRoot, "repo", ".paperclip", "worktrees");
+    const siblingWorktreeRoot = path.join(repoWorktreesRoot, "PAP-878-create-a-mine-tab-in-inbox");
+    const siblingInstanceRoot = path.join(isolatedHome, "instances", "pap-878-create-a-mine-tab-in-inbox");
+    const currentWorktreeRoot = path.join(repoWorktreesRoot, "PAP-884-ai-commits-component");
+    const paperclipDir = path.join(currentWorktreeRoot, ".paperclip");
+    const configPath = path.join(paperclipDir, "config.json");
+    const envPath = path.join(paperclipDir, ".env");
+    const currentInstanceRoot = path.join(isolatedHome, "instances", "pap-884-ai-commits-component");
+    const siblingConfigPath = path.join(siblingWorktreeRoot, ".paperclip", "config.json");
+
+    await fs.mkdir(paperclipDir, { recursive: true });
+    await fs.mkdir(path.dirname(siblingConfigPath), { recursive: true });
+    await fs.writeFile(
+      configPath,
+      JSON.stringify(
+        {
+          ...buildLegacyConfig(currentInstanceRoot),
+          database: {
+            mode: "embedded-postgres",
+            embeddedPostgresDataDir: path.join(currentInstanceRoot, "db"),
+            embeddedPostgresPort: 54330,
+            backup: {
+              enabled: true,
+              intervalMinutes: 60,
+              retentionDays: 30,
+              dir: path.join(currentInstanceRoot, "data", "backups"),
+            },
+          },
+          logging: {
+            mode: "file",
+            logDir: path.join(currentInstanceRoot, "logs"),
+          },
+          server: {
+            deploymentMode: "local_trusted",
+            exposure: "private",
+            host: "127.0.0.1",
+            port: 3101,
+            allowedHostnames: [],
+            serveUi: true,
+          },
+          storage: {
+            provider: "local_disk",
+            localDisk: {
+              baseDir: path.join(currentInstanceRoot, "data", "storage"),
+            },
+            s3: {
+              bucket: "paperclip",
+              region: "us-east-1",
+              prefix: "",
+              forcePathStyle: false,
+            },
+          },
+          secrets: {
+            provider: "local_encrypted",
+            strictMode: false,
+            localEncrypted: {
+              keyFilePath: path.join(currentInstanceRoot, "secrets", "master.key"),
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      envPath,
+      [
+        "# Paperclip environment variables",
+        "PAPERCLIP_IN_WORKTREE=true",
+        "PAPERCLIP_WORKTREE_NAME=PAP-884-ai-commits-component",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    await fs.writeFile(
+      siblingConfigPath,
+      JSON.stringify(
+        {
+          ...buildLegacyConfig(siblingInstanceRoot),
+          database: {
+            mode: "embedded-postgres",
+            embeddedPostgresDataDir: path.join(siblingInstanceRoot, "db"),
+            embeddedPostgresPort: 54330,
+            backup: {
+              enabled: true,
+              intervalMinutes: 60,
+              retentionDays: 30,
+              dir: path.join(siblingInstanceRoot, "data", "backups"),
+            },
+          },
+          server: {
+            deploymentMode: "local_trusted",
+            exposure: "private",
+            host: "127.0.0.1",
+            port: 3101,
+            allowedHostnames: [],
+            serveUi: true,
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+      "utf8",
+    );
+
+    process.chdir(currentWorktreeRoot);
+    process.env.PAPERCLIP_IN_WORKTREE = "true";
+    process.env.PAPERCLIP_WORKTREE_NAME = "PAP-884-ai-commits-component";
+    process.env.PAPERCLIP_WORKTREES_DIR = isolatedHome;
+
+    const result = maybeRepairLegacyWorktreeConfigAndEnvFiles();
+    const repairedConfig = JSON.parse(await fs.readFile(configPath, "utf8"));
+
+    expect(result.repairedConfig).toBe(true);
+    expect(repairedConfig.server.port).toBe(3102);
+    expect(repairedConfig.database.embeddedPostgresPort).toBe(54331);
+  });
+
   it("persists runtime-selected worktree ports back into config", async () => {
     const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-worktree-ports-"));
     const worktreeRoot = path.join(tempRoot, "PAP-878-create-a-mine-tab-in-inbox");
