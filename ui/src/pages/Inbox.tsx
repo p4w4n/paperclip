@@ -94,35 +94,6 @@ function readIssueIdFromRun(run: HeartbeatRun): string | null {
   return null;
 }
 
-function InboxArchiveButton({
-  onArchive,
-  disabled,
-}: {
-  onArchive: () => void;
-  disabled: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        onArchive();
-      }}
-      onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        event.stopPropagation();
-        onArchive();
-      }}
-      disabled={disabled}
-      className="rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover:opacity-100 disabled:pointer-events-none disabled:opacity-30"
-      aria-label="Archive from mine"
-    >
-      <X className="h-4 w-4" />
-    </button>
-  );
-}
 
 function FailedRunInboxRow({
   run,
@@ -957,8 +928,8 @@ export function Inbox() {
                     issueLinkState={issueLinkState}
                     className={
                       isArchiving
-                        ? "pointer-events-none -translate-x-3 opacity-0 transition-transform transition-opacity duration-200"
-                        : "transition-transform transition-opacity duration-200"
+                        ? "pointer-events-none -translate-x-4 scale-[0.98] opacity-0 transition-all duration-200 ease-out"
+                        : "transition-all duration-200 ease-out"
                     }
                     desktopMetaLeading={(
                       <>
@@ -987,19 +958,15 @@ export function Inbox() {
                         : `updated ${timeAgo(issue.updatedAt)}`
                     }
                     unreadState={
-                      isMineTab
-                        ? null
-                        : isUnread ? "visible" : isFading ? "fading" : "hidden"
+                      isUnread ? "visible" : isFading ? "fading" : "hidden"
                     }
                     onMarkRead={() => markReadMutation.mutate(issue.id)}
-                    desktopTrailing={
-                      isMineTab ? (
-                        <InboxArchiveButton
-                          onArchive={() => archiveIssueMutation.mutate(issue.id)}
-                          disabled={isArchiving || archiveIssueMutation.isPending}
-                        />
-                      ) : undefined
+                    onArchive={
+                      isMineTab
+                        ? () => archiveIssueMutation.mutate(issue.id)
+                        : undefined
                     }
+                    archiveDisabled={isArchiving || archiveIssueMutation.isPending}
                     trailingMeta={
                       issue.lastExternalCommentAt
                         ? `commented ${timeAgo(issue.lastExternalCommentAt)}`
