@@ -6,6 +6,7 @@ import {
   companies,
   createDb,
   issueComments,
+  issueInboxArchives,
   issues,
 } from "@paperclipai/db";
 import {
@@ -36,6 +37,7 @@ describeEmbeddedPostgres("issueService.list participantAgentId", () => {
 
   afterEach(async () => {
     await db.delete(issueComments);
+    await db.delete(issueInboxArchives);
     await db.delete(activityLog);
     await db.delete(issues);
     await db.delete(agents);
@@ -215,5 +217,100 @@ describeEmbeddedPostgres("issueService.list participantAgentId", () => {
     });
 
     expect(result.map((issue) => issue.id)).toEqual([matchedIssueId]);
+  });
+
+  it("hides archived inbox issues until new external activity arrives", async () => {
+    const companyId = randomUUID();
+    const userId = "user-1";
+    const otherUserId = "user-2";
+
+    await db.insert(companies).values({
+      id: companyId,
+      name: "Paperclip",
+      issuePrefix: `T${companyId.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+      requireBoardApprovalForNewAgents: false,
+    });
+
+    const visibleIssueId = randomUUID();
+    const archivedIssueId = randomUUID();
+    const resurfacedIssueId = randomUUID();
+
+    await db.insert(issues).values([
+      {
+        id: visibleIssueId,
+        companyId,
+        title: "Visible issue",
+        status: "todo",
+        priority: "medium",
+        createdByUserId: userId,
+        createdAt: new Date("2026-03-26T10:00:00.000Z"),
+        updatedAt: new Date("2026-03-26T10:00:00.000Z"),
+      },
+      {
+        id: archivedIssueId,
+        companyId,
+        title: "Archived issue",
+        status: "todo",
+        priority: "medium",
+        createdByUserId: userId,
+        createdAt: new Date("2026-03-26T11:00:00.000Z"),
+        updatedAt: new Date("2026-03-26T11:00:00.000Z"),
+      },
+      {
+        id: resurfacedIssueId,
+        companyId,
+        title: "Resurfaced issue",
+        status: "todo",
+        priority: "medium",
+        createdByUserId: userId,
+        createdAt: new Date("2026-03-26T12:00:00.000Z"),
+        updatedAt: new Date("2026-03-26T12:00:00.000Z"),
+      },
+    ]);
+
+    await svc.archiveInbox(
+      companyId,
+      archivedIssueId,
+      userId,
+      new Date("2026-03-26T12:30:00.000Z"),
+    );
+    await svc.archiveInbox(
+      companyId,
+      resurfacedIssueId,
+      userId,
+      new Date("2026-03-26T13:00:00.000Z"),
+    );
+
+    await db.insert(issueComments).values({
+      companyId,
+      issueId: resurfacedIssueId,
+      authorUserId: otherUserId,
+      body: "This should bring the issue back into Mine.",
+      createdAt: new Date("2026-03-26T13:30:00.000Z"),
+      updatedAt: new Date("2026-03-26T13:30:00.000Z"),
+    });
+
+    const archivedFiltered = await svc.list(companyId, {
+      touchedByUserId: userId,
+      inboxArchivedByUserId: userId,
+    });
+
+    expect(archivedFiltered.map((issue) => issue.id)).toEqual([
+      resurfacedIssueId,
+      visibleIssueId,
+    ]);
+
+    await svc.unarchiveInbox(companyId, archivedIssueId, userId);
+
+    const afterUnarchive = await svc.list(companyId, {
+      touchedByUserId: userId,
+      inboxArchivedByUserId: userId,
+    });
+
+    expect(new Set(afterUnarchive.map((issue) => issue.id))).toEqual(new Set([
+      visibleIssueId,
+      archivedIssueId,
+      resurfacedIssueId,
+    ]));
   });
 });
