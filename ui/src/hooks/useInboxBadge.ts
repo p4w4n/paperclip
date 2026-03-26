@@ -12,7 +12,6 @@ import {
   getRecentTouchedIssues,
   loadDismissedInboxItems,
   saveDismissedInboxItems,
-  getUnreadTouchedIssues,
 } from "../lib/inbox";
 
 const INBOX_ISSUE_STATUSES = "backlog,todo,in_progress,in_review,blocked,done";
@@ -72,20 +71,18 @@ export function useInboxBadge(companyId: string | null | undefined) {
     enabled: !!companyId,
   });
 
-  const { data: touchedIssues = [] } = useQuery({
-    queryKey: queryKeys.issues.listTouchedByMe(companyId!),
+  const { data: mineIssuesRaw = [] } = useQuery({
+    queryKey: queryKeys.issues.listMineByMe(companyId!),
     queryFn: () =>
       issuesApi.list(companyId!, {
         touchedByUserId: "me",
+        inboxArchivedByUserId: "me",
         status: INBOX_ISSUE_STATUSES,
       }),
     enabled: !!companyId,
   });
 
-  const unreadIssues = useMemo(
-    () => getUnreadTouchedIssues(getRecentTouchedIssues(touchedIssues)),
-    [touchedIssues],
-  );
+  const mineIssues = useMemo(() => getRecentTouchedIssues(mineIssuesRaw), [mineIssuesRaw]);
 
   const { data: heartbeatRuns = [] } = useQuery({
     queryKey: queryKeys.heartbeats(companyId!),
@@ -100,9 +97,9 @@ export function useInboxBadge(companyId: string | null | undefined) {
         joinRequests,
         dashboard,
         heartbeatRuns,
-        unreadIssues,
+        mineIssues,
         dismissed,
       }),
-    [approvals, joinRequests, dashboard, heartbeatRuns, unreadIssues, dismissed],
+    [approvals, joinRequests, dashboard, heartbeatRuns, mineIssues, dismissed],
   );
 }

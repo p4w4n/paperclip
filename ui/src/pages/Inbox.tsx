@@ -15,6 +15,7 @@ import { createIssueDetailLocationState } from "../lib/issueDetailBreadcrumb";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { IssueRow } from "../components/IssueRow";
+import { SwipeToArchive } from "../components/SwipeToArchive";
 
 import { StatusIcon } from "../components/StatusIcon";
 import { StatusBadge } from "../components/StatusBadge";
@@ -64,6 +65,8 @@ type SectionKey =
   | "work_items"
   | "alerts";
 
+const INBOX_ISSUE_STATUSES = "backlog,todo,in_progress,in_review,blocked,done";
+
 function firstNonEmptyLine(value: string | null | undefined): string | null {
   if (!value) return null;
   const line = value.split("\n").map((chunk) => chunk.trim()).find(Boolean);
@@ -89,6 +92,36 @@ function readIssueIdFromRun(run: HeartbeatRun): string | null {
   if (typeof taskId === "string" && taskId.length > 0) return taskId;
 
   return null;
+}
+
+function InboxArchiveButton({
+  onArchive,
+  disabled,
+}: {
+  onArchive: () => void;
+  disabled: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onArchive();
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        event.stopPropagation();
+        onArchive();
+      }}
+      disabled={disabled}
+      className="rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover:opacity-100 disabled:pointer-events-none disabled:opacity-30"
+      aria-label="Archive from mine"
+    >
+      <X className="h-4 w-4" />
+    </button>
+  );
 }
 
 function FailedRunInboxRow({
@@ -370,9 +403,11 @@ export function Inbox() {
   const [allApprovalFilter, setAllApprovalFilter] = useState<InboxApprovalFilter>("all");
   const { dismissed, dismiss } = useDismissedInboxItems();
 
-  const pathSegment = location.pathname.split("/").pop() ?? "recent";
+  const pathSegment = location.pathname.split("/").pop() ?? "mine";
   const tab: InboxTab =
-    pathSegment === "all" || pathSegment === "unread" ? pathSegment : "recent";
+    pathSegment === "mine" || pathSegment === "recent" || pathSegment === "all" || pathSegment === "unread"
+      ? pathSegment
+      : "mine";
   const issueLinkState = useMemo(
     () =>
       createIssueDetailLocationState(
@@ -437,6 +472,19 @@ export function Inbox() {
     enabled: !!selectedCompanyId,
   });
   const {
+    data: mineIssuesRaw = [],
+    isLoading: isMineIssuesLoading,
+  } = useQuery({
+    queryKey: queryKeys.issues.listMineByMe(selectedCompanyId!),
+    queryFn: () =>
+      issuesApi.list(selectedCompanyId!, {
+        touchedByUserId: "me",
+        inboxArchivedByUserId: "me",
+        status: INBOX_ISSUE_STATUSES,
+      }),
+    enabled: !!selectedCompanyId,
+  });
+  const {
     data: touchedIssuesRaw = [],
     isLoading: isTouchedIssuesLoading,
   } = useQuery({
@@ -444,7 +492,7 @@ export function Inbox() {
     queryFn: () =>
       issuesApi.list(selectedCompanyId!, {
         touchedByUserId: "me",
-        status: "backlog,todo,in_progress,in_review,blocked,done",
+        status: INBOX_ISSUE_STATUSES,
       }),
     enabled: !!selectedCompanyId,
   });
@@ -455,14 +503,19 @@ export function Inbox() {
     enabled: !!selectedCompanyId,
   });
 
+  const mineIssues = useMemo(() => getRecentTouchedIssues(mineIssuesRaw), [mineIssuesRaw]);
   const touchedIssues = useMemo(() => getRecentTouchedIssues(touchedIssuesRaw), [touchedIssuesRaw]);
   const unreadTouchedIssues = useMemo(
     () => touchedIssues.filter((issue) => issue.isUnreadForMe),
     [touchedIssues],
   );
   const issuesToRender = useMemo(
-    () => (tab === "unread" ? unreadTouchedIssues : touchedIssues),
-    [tab, touchedIssues, unreadTouchedIssues],
+    () => {
+      if (tab === "mine") return mineIssues;
+      if (tab === "unread") return unreadTouchedIssues;
+      return touchedIssues;
+    },
+    [tab, mineIssues, touchedIssues, unreadTouchedIssues],
   );
 
   const agentById = useMemo(() => {
@@ -511,6 +564,7 @@ export function Inbox() {
 
   const joinRequestsForTab = useMemo(() => {
     if (tab === "all" && !showJoinRequestsCategory) return [];
+    if (tab === "mine") return joinRequests;
     if (tab === "recent") return joinRequests;
     if (tab === "unread") return joinRequests;
     return joinRequests;
@@ -624,13 +678,44 @@ export function Inbox() {
   });
 
   const [fadingOutIssues, setFadingOutIssues] = useState<Set<string>>(new Set());
+  const [archivingIssueIds, setArchivingIssueIds] = useState<Set<string>>(new Set());
 
   const invalidateInboxIssueQueries = () => {
     if (!selectedCompanyId) return;
+    queryClient.invalidateQueries({ queryKey: queryKeys.issues.listMineByMe(selectedCompanyId) });
     queryClient.invalidateQueries({ queryKey: queryKeys.issues.listTouchedByMe(selectedCompanyId) });
     queryClient.invalidateQueries({ queryKey: queryKeys.issues.listUnreadTouchedByMe(selectedCompanyId) });
     queryClient.invalidateQueries({ queryKey: queryKeys.sidebarBadges(selectedCompanyId) });
   };
+
+  const archiveIssueMutation = useMutation({
+    mutationFn: (id: string) => issuesApi.archiveFromInbox(id),
+    onMutate: (id) => {
+      setActionError(null);
+      setArchivingIssueIds((prev) => new Set(prev).add(id));
+    },
+    onSuccess: () => {
+      invalidateInboxIssueQueries();
+    },
+    onError: (err, id) => {
+      setActionError(err instanceof Error ? err.message : "Failed to archive issue");
+      setArchivingIssueIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    },
+    onSettled: (_data, error, id) => {
+      if (error) return;
+      window.setTimeout(() => {
+        setArchivingIssueIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }, 500);
+    },
+  });
 
   const markReadMutation = useMutation({
     mutationFn: (id: string) => issuesApi.markRead(id),
@@ -692,6 +777,7 @@ export function Inbox() {
   const showAlertsSection = shouldShowInboxSection({
     tab,
     hasItems: hasAlerts,
+    showOnMine: hasAlerts,
     showOnRecent: hasAlerts,
     showOnUnread: hasAlerts,
     showOnAll: showAlertsCategory && hasAlerts,
@@ -707,12 +793,14 @@ export function Inbox() {
     !isApprovalsLoading &&
     !isDashboardLoading &&
     !isIssuesLoading &&
+    !isMineIssuesLoading &&
     !isTouchedIssuesLoading &&
     !isRunsLoading;
 
   const showSeparatorBefore = (key: SectionKey) => visibleSections.indexOf(key) > 0;
-  const unreadIssueIds = unreadTouchedIssues
-    .filter((issue) => !fadingOutIssues.has(issue.id))
+  const markAllReadIssues = (tab === "mine" ? mineIssues : unreadTouchedIssues)
+    .filter((issue) => issue.isUnreadForMe && !fadingOutIssues.has(issue.id) && !archivingIssueIds.has(issue.id));
+  const unreadIssueIds = markAllReadIssues
     .map((issue) => issue.id);
   const canMarkAllRead = unreadIssueIds.length > 0;
 
@@ -723,6 +811,10 @@ export function Inbox() {
           <Tabs value={tab} onValueChange={(value) => navigate(`/inbox/${value}`)}>
             <PageTabBar
               items={[
+                {
+                  value: "mine",
+                  label: "Mine",
+                },
                 {
                   value: "recent",
                   label: "Recent",
@@ -796,7 +888,9 @@ export function Inbox() {
         <EmptyState
           icon={InboxIcon}
           message={
-            tab === "unread"
+            tab === "mine"
+              ? "Inbox zero."
+              : tab === "unread"
               ? "No new inbox items."
               : tab === "recent"
                 ? "No recent inbox items."
@@ -854,11 +948,18 @@ export function Inbox() {
                 const issue = item.issue;
                 const isUnread = issue.isUnreadForMe && !fadingOutIssues.has(issue.id);
                 const isFading = fadingOutIssues.has(issue.id);
-                return (
+                const isMineTab = tab === "mine";
+                const isArchiving = archivingIssueIds.has(issue.id);
+                const row = (
                   <IssueRow
                     key={`issue:${issue.id}`}
                     issue={issue}
                     issueLinkState={issueLinkState}
+                    className={
+                      isArchiving
+                        ? "pointer-events-none -translate-x-3 opacity-0 transition-transform transition-opacity duration-200"
+                        : "transition-transform transition-opacity duration-200"
+                    }
                     desktopMetaLeading={(
                       <>
                         <span className="hidden shrink-0 sm:inline-flex">
@@ -885,8 +986,20 @@ export function Inbox() {
                         ? `commented ${timeAgo(issue.lastExternalCommentAt)}`
                         : `updated ${timeAgo(issue.updatedAt)}`
                     }
-                    unreadState={isUnread ? "visible" : isFading ? "fading" : "hidden"}
+                    unreadState={
+                      isMineTab
+                        ? null
+                        : isUnread ? "visible" : isFading ? "fading" : "hidden"
+                    }
                     onMarkRead={() => markReadMutation.mutate(issue.id)}
+                    desktopTrailing={
+                      isMineTab ? (
+                        <InboxArchiveButton
+                          onArchive={() => archiveIssueMutation.mutate(issue.id)}
+                          disabled={isArchiving || archiveIssueMutation.isPending}
+                        />
+                      ) : undefined
+                    }
                     trailingMeta={
                       issue.lastExternalCommentAt
                         ? `commented ${timeAgo(issue.lastExternalCommentAt)}`
@@ -894,6 +1007,16 @@ export function Inbox() {
                     }
                   />
                 );
+
+                return isMineTab ? (
+                  <SwipeToArchive
+                    key={`issue:${issue.id}`}
+                    disabled={isArchiving || archiveIssueMutation.isPending}
+                    onArchive={() => archiveIssueMutation.mutate(issue.id)}
+                  >
+                    {row}
+                  </SwipeToArchive>
+                ) : row;
               })}
             </div>
           </div>

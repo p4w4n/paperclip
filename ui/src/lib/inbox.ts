@@ -11,7 +11,7 @@ export const FAILED_RUN_STATUSES = new Set(["failed", "timed_out"]);
 export const ACTIONABLE_APPROVAL_STATUSES = new Set(["pending", "revision_requested"]);
 export const DISMISSED_KEY = "paperclip:inbox:dismissed";
 export const INBOX_LAST_TAB_KEY = "paperclip:inbox:last-tab";
-export type InboxTab = "recent" | "unread" | "all";
+export type InboxTab = "mine" | "recent" | "unread" | "all";
 export type InboxApprovalFilter = "all" | "actionable" | "resolved";
 export type InboxWorkItem =
   | {
@@ -40,7 +40,7 @@ export interface InboxBadgeData {
   approvals: number;
   failedRuns: number;
   joinRequests: number;
-  unreadTouchedIssues: number;
+  mineIssues: number;
   alerts: number;
 }
 
@@ -64,11 +64,11 @@ export function saveDismissedInboxItems(ids: Set<string>) {
 export function loadLastInboxTab(): InboxTab {
   try {
     const raw = localStorage.getItem(INBOX_LAST_TAB_KEY);
-    if (raw === "all" || raw === "unread" || raw === "recent") return raw;
-    if (raw === "new") return "recent";
-    return "recent";
+    if (raw === "all" || raw === "unread" || raw === "recent" || raw === "mine") return raw;
+    if (raw === "new") return "mine";
+    return "mine";
   } catch {
-    return "recent";
+    return "mine";
   }
 }
 
@@ -135,7 +135,7 @@ export function getApprovalsForTab(
     (a, b) => normalizeTimestamp(b.updatedAt) - normalizeTimestamp(a.updatedAt),
   );
 
-  if (tab === "recent") return sortedApprovals;
+  if (tab === "mine" || tab === "recent") return sortedApprovals;
   if (tab === "unread") {
     return sortedApprovals.filter((approval) => ACTIONABLE_APPROVAL_STATUSES.has(approval.status));
   }
@@ -203,17 +203,20 @@ export function getInboxWorkItems({
 export function shouldShowInboxSection({
   tab,
   hasItems,
+  showOnMine,
   showOnRecent,
   showOnUnread,
   showOnAll,
 }: {
   tab: InboxTab;
   hasItems: boolean;
+  showOnMine: boolean;
   showOnRecent: boolean;
   showOnUnread: boolean;
   showOnAll: boolean;
 }): boolean {
   if (!hasItems) return false;
+  if (tab === "mine") return showOnMine;
   if (tab === "recent") return showOnRecent;
   if (tab === "unread") return showOnUnread;
   return showOnAll;
@@ -224,14 +227,14 @@ export function computeInboxBadgeData({
   joinRequests,
   dashboard,
   heartbeatRuns,
-  unreadIssues,
+  mineIssues,
   dismissed,
 }: {
   approvals: Approval[];
   joinRequests: JoinRequest[];
   dashboard: DashboardSummary | undefined;
   heartbeatRuns: HeartbeatRun[];
-  unreadIssues: Issue[];
+  mineIssues: Issue[];
   dismissed: Set<string>;
 }): InboxBadgeData {
   const actionableApprovals = approvals.filter((approval) =>
@@ -240,7 +243,7 @@ export function computeInboxBadgeData({
   const failedRuns = getLatestFailedRunsByAgent(heartbeatRuns).filter(
     (run) => !dismissed.has(`run:${run.id}`),
   ).length;
-  const unreadTouchedIssues = unreadIssues.length;
+  const visibleMineIssues = mineIssues.length;
   const agentErrorCount = dashboard?.agents.error ?? 0;
   const monthBudgetCents = dashboard?.costs.monthBudgetCents ?? 0;
   const monthUtilizationPercent = dashboard?.costs.monthUtilizationPercent ?? 0;
@@ -255,11 +258,11 @@ export function computeInboxBadgeData({
   const alerts = Number(showAggregateAgentError) + Number(showBudgetAlert);
 
   return {
-    inbox: actionableApprovals + joinRequests.length + failedRuns + unreadTouchedIssues + alerts,
+    inbox: actionableApprovals + joinRequests.length + failedRuns + visibleMineIssues + alerts,
     approvals: actionableApprovals,
     failedRuns,
     joinRequests: joinRequests.length,
-    unreadTouchedIssues,
+    mineIssues: visibleMineIssues,
     alerts,
   };
 }
