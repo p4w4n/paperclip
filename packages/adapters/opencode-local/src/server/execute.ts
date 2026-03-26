@@ -128,6 +128,10 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const hasExplicitApiKey =
     typeof envConfig.PAPERCLIP_API_KEY === "string" && envConfig.PAPERCLIP_API_KEY.trim().length > 0;
   const env: Record<string, string> = { ...buildPaperclipEnv(agent) };
+  // Prevent OpenCode from writing an opencode.json config file into the
+  // project working directory (which would pollute the git repo).  Model
+  // selection is already handled via the --model CLI flag.
+  env.OPENCODE_DISABLE_PROJECT_CONFIG = "true";
   env.PAPERCLIP_RUN_ID = runId;
   const wakeTaskId =
     (typeof context.taskId === "string" && context.taskId.trim().length > 0 && context.taskId.trim()) ||
