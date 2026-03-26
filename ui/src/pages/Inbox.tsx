@@ -966,7 +966,8 @@ export function Inbox() {
           setSelectedIndex((prev) => Math.max(prev - 1, 0));
           break;
         }
-        case "a": {
+        case "a":
+        case "y": {
           if (!isMineTab || selectedIndex < 0 || selectedIndex >= itemCount) return;
           e.preventDefault();
           const item = workItemsToRender[selectedIndex];
