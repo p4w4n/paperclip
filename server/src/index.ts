@@ -10,9 +10,11 @@ import { and, eq } from "drizzle-orm";
 import {
   createDb,
   ensurePostgresDatabase,
+  formatEmbeddedPostgresError,
   getPostgresDataDirectory,
   inspectMigrations,
   applyPendingMigrations,
+  createEmbeddedPostgresLogBuffer,
   reconcilePendingMigrationHistory,
   formatDatabaseBackupResult,
   runDatabaseBackup,
@@ -272,29 +274,31 @@ export async function startServer(): Promise<StartedServer> {
     const dataDir = resolve(config.embeddedPostgresDataDir);
     const configuredPort = config.embeddedPostgresPort;
     let port = configuredPort;
-    const embeddedPostgresLogBuffer: string[] = [];
-    const EMBEDDED_POSTGRES_LOG_BUFFER_LIMIT = 120;
+    const logBuffer = createEmbeddedPostgresLogBuffer(120);
     const verboseEmbeddedPostgresLogs = process.env.PAPERCLIP_EMBEDDED_POSTGRES_VERBOSE === "true";
     const appendEmbeddedPostgresLog = (message: unknown) => {
-      const text = typeof message === "string" ? message : message instanceof Error ? message.message : String(message ?? "");
-      for (const lineRaw of text.split(/\r?\n/)) {
+      logBuffer.append(message);
+      if (!verboseEmbeddedPostgresLogs) {
+        return;
+      }
+      const lines = typeof message === "string"
+        ? message.split(/\r?\n/)
+        : message instanceof Error
+          ? [message.message]
+          : [String(message ?? "")];
+      for (const lineRaw of lines) {
         const line = lineRaw.trim();
         if (!line) continue;
-        embeddedPostgresLogBuffer.push(line);
-        if (embeddedPostgresLogBuffer.length > EMBEDDED_POSTGRES_LOG_BUFFER_LIMIT) {
-          embeddedPostgresLogBuffer.splice(0, embeddedPostgresLogBuffer.length - EMBEDDED_POSTGRES_LOG_BUFFER_LIMIT);
-        }
-        if (verboseEmbeddedPostgresLogs) {
-          logger.info({ embeddedPostgresLog: line }, "embedded-postgres");
-        }
+        logger.info({ embeddedPostgresLog: line }, "embedded-postgres");
       }
     };
     const logEmbeddedPostgresFailure = (phase: "initialise" | "start", err: unknown) => {
-      if (embeddedPostgresLogBuffer.length > 0) {
+      const recentLogs = logBuffer.getRecentLogs();
+      if (recentLogs.length > 0) {
         logger.error(
           {
             phase,
-            recentLogs: embeddedPostgresLogBuffer,
+            recentLogs,
             err,
           },
           "Embedded PostgreSQL failed; showing buffered startup logs",
@@ -371,7 +375,10 @@ export async function startServer(): Promise<StartedServer> {
             await embeddedPostgres.initialise();
           } catch (err) {
             logEmbeddedPostgresFailure("initialise", err);
-            throw err;
+            throw formatEmbeddedPostgresError(err, {
+              fallbackMessage: `Failed to initialize embedded PostgreSQL cluster in ${dataDir} on port ${port}`,
+              recentLogs: logBuffer.getRecentLogs(),
+            });
           }
         } else {
           logger.info(`Embedded PostgreSQL cluster already exists (${clusterVersionFile}); skipping init`);
@@ -385,7 +392,10 @@ export async function startServer(): Promise<StartedServer> {
           await embeddedPostgres.start();
         } catch (err) {
           logEmbeddedPostgresFailure("start", err);
-          throw err;
+          throw formatEmbeddedPostgresError(err, {
+            fallbackMessage: `Failed to start embedded PostgreSQL on port ${port}`,
+            recentLogs: logBuffer.getRecentLogs(),
+          });
         }
         embeddedPostgresStartedByThisProcess = true;
       }
