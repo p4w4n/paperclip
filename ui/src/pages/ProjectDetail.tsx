@@ -28,7 +28,7 @@ import { timeAgo } from "../lib/timeAgo";
 import { Tabs } from "@/components/ui/tabs";
 import { PluginLauncherOutlet } from "@/plugins/launchers";
 import { PluginSlotMount, PluginSlotOutlet, usePluginSlots } from "@/plugins/slots";
-import { Clock3, GitBranch, Rows3 } from "lucide-react";
+import { Clock3, GitBranch } from "lucide-react";
 
 /* ── Top-level tab types ── */
 
@@ -228,49 +228,31 @@ function ProjectWorkspacesContent({
           >
             <div className="grid gap-4 md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)_auto] md:items-start">
               <div className="min-w-0">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  {summary.executionWorkspaceId ? (
-                    <Link
-                      to={`/execution-workspaces/${summary.executionWorkspaceId}`}
-                      className="truncate text-sm font-medium hover:underline"
-                    >
-                      {summary.workspaceName}
-                    </Link>
-                  ) : (
-                    <div className="truncate text-sm font-medium">{summary.workspaceName}</div>
-                  )}
-                  <span className="inline-flex items-center rounded-full border border-border bg-background px-2 py-0.5 text-[11px] text-muted-foreground">
-                    {summary.kind === "execution_workspace" ? "Isolated workspace" : "Project workspace"}
-                  </span>
-                </div>
+                <div className="truncate text-sm font-medium">{summary.workspaceName}</div>
 
                 <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                   <span className="inline-flex items-center gap-1">
                     <GitBranch className="h-3.5 w-3.5" />
                     <span className="font-mono">{summary.branchName ?? "No branch info"}</span>
                   </span>
-                  <span className="inline-flex items-center gap-1">
-                    <Rows3 className="h-3.5 w-3.5" />
-                    {summary.issues.length} linked {summary.issues.length === 1 ? "issue" : "issues"}
-                  </span>
                 </div>
               </div>
 
               <div className="min-w-0">
                 <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                  Issues
+                  Issues ({summary.issues.length})
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {visibleIssues.map((issue) => (
                     <Link
                       key={issue.id}
                       to={`/issues/${issue.identifier ?? issue.id}`}
-                      className="inline-flex max-w-full items-center gap-2 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs transition-colors hover:bg-accent"
+                      className="inline-flex max-w-full items-center gap-2 rounded-md border border-border bg-background px-2.5 py-1.5 text-left text-xs leading-none transition-colors hover:bg-accent"
                     >
                       <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
                         {issue.identifier ?? issue.id.slice(0, 8)}
                       </span>
-                      <span className="truncate">{issue.title}</span>
+                      <span className="truncate leading-tight">{issue.title}</span>
                     </Link>
                   ))}
                   {hiddenIssueCount > 0 ? (
