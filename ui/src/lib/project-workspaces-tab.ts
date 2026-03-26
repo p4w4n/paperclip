@@ -36,6 +36,16 @@ function primaryWorkspaceId(project: ProjectWorkspaceLike): string | null {
     ?? null;
 }
 
+function isDefaultSharedExecutionWorkspace(input: {
+  executionWorkspace: ExecutionWorkspace;
+  issue: Issue;
+  primaryWorkspaceId: string | null;
+}) {
+  const linkedProjectWorkspaceId =
+    input.executionWorkspace.projectWorkspaceId ?? input.issue.projectWorkspaceId ?? null;
+  return input.executionWorkspace.mode === "shared_workspace" && linkedProjectWorkspaceId === input.primaryWorkspaceId;
+}
+
 export function buildProjectWorkspaceSummaries(input: {
   project: ProjectWorkspaceLike;
   issues: Issue[];
@@ -54,6 +64,11 @@ export function buildProjectWorkspaceSummaries(input: {
     if (issue.executionWorkspaceId) {
       const executionWorkspace = executionWorkspacesById.get(issue.executionWorkspaceId);
       if (!executionWorkspace) continue;
+      if (isDefaultSharedExecutionWorkspace({
+        executionWorkspace,
+        issue,
+        primaryWorkspaceId: primaryId,
+      })) continue;
 
       const existing = summaries.get(`execution:${executionWorkspace.id}`);
       const nextIssues = [...(existing?.issues ?? []), issue].sort(

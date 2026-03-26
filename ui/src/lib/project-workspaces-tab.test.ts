@@ -195,4 +195,31 @@ describe("buildProjectWorkspaceSummaries", () => {
     expect(summaries).toHaveLength(1);
     expect(summaries[0]?.key).toBe("execution:exec-2");
   });
+
+  it("excludes issues that only use the default shared workspace", () => {
+    const summaries = buildProjectWorkspaceSummaries({
+      project,
+      issues: [
+        createIssue({
+          id: "issue-default-shared",
+          projectWorkspaceId: primaryWorkspace.id,
+          executionWorkspaceId: "exec-shared-default",
+          updatedAt: new Date("2026-03-26T12:00:00Z"),
+        }),
+      ],
+      executionWorkspaces: [
+        createExecutionWorkspace({
+          id: "exec-shared-default",
+          mode: "shared_workspace",
+          strategyType: "project_primary",
+          projectWorkspaceId: primaryWorkspace.id,
+          branchName: null,
+          baseRef: null,
+          providerType: "local_fs",
+        }),
+      ],
+    });
+
+    expect(summaries).toHaveLength(0);
+  });
 });
