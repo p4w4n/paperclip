@@ -10,6 +10,7 @@ export const RECENT_ISSUES_LIMIT = 100;
 export const FAILED_RUN_STATUSES = new Set(["failed", "timed_out"]);
 export const ACTIONABLE_APPROVAL_STATUSES = new Set(["pending", "revision_requested"]);
 export const DISMISSED_KEY = "paperclip:inbox:dismissed";
+export const READ_ITEMS_KEY = "paperclip:inbox:read-items";
 export const INBOX_LAST_TAB_KEY = "paperclip:inbox:last-tab";
 export type InboxTab = "mine" | "recent" | "unread" | "all";
 export type InboxApprovalFilter = "all" | "actionable" | "resolved";
@@ -56,6 +57,23 @@ export function loadDismissedInboxItems(): Set<string> {
 export function saveDismissedInboxItems(ids: Set<string>) {
   try {
     localStorage.setItem(DISMISSED_KEY, JSON.stringify([...ids]));
+  } catch {
+    // Ignore localStorage failures.
+  }
+}
+
+export function loadReadInboxItems(): Set<string> {
+  try {
+    const raw = localStorage.getItem(READ_ITEMS_KEY);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+export function saveReadInboxItems(ids: Set<string>) {
+  try {
+    localStorage.setItem(READ_ITEMS_KEY, JSON.stringify([...ids]));
   } catch {
     // Ignore localStorage failures.
   }
@@ -237,11 +255,16 @@ export function computeInboxBadgeData({
   mineIssues: Issue[];
   dismissed: Set<string>;
 }): InboxBadgeData {
-  const actionableApprovals = approvals.filter((approval) =>
-    ACTIONABLE_APPROVAL_STATUSES.has(approval.status),
+  const actionableApprovals = approvals.filter(
+    (approval) =>
+      ACTIONABLE_APPROVAL_STATUSES.has(approval.status) &&
+      !dismissed.has(`approval:${approval.id}`),
   ).length;
   const failedRuns = getLatestFailedRunsByAgent(heartbeatRuns).filter(
     (run) => !dismissed.has(`run:${run.id}`),
+  ).length;
+  const visibleJoinRequests = joinRequests.filter(
+    (jr) => !dismissed.has(`join:${jr.id}`),
   ).length;
   const visibleMineIssues = mineIssues.length;
   const agentErrorCount = dashboard?.agents.error ?? 0;
@@ -258,10 +281,10 @@ export function computeInboxBadgeData({
   const alerts = Number(showAggregateAgentError) + Number(showBudgetAlert);
 
   return {
-    inbox: actionableApprovals + joinRequests.length + failedRuns + visibleMineIssues + alerts,
+    inbox: actionableApprovals + visibleJoinRequests + failedRuns + visibleMineIssues + alerts,
     approvals: actionableApprovals,
     failedRuns,
-    joinRequests: joinRequests.length,
+    joinRequests: visibleJoinRequests,
     mineIssues: visibleMineIssues,
     alerts,
   };

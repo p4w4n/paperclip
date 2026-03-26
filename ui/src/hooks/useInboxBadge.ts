@@ -12,6 +12,9 @@ import {
   getRecentTouchedIssues,
   loadDismissedInboxItems,
   saveDismissedInboxItems,
+  loadReadInboxItems,
+  saveReadInboxItems,
+  READ_ITEMS_KEY,
 } from "../lib/inbox";
 
 const INBOX_ISSUE_STATUSES = "backlog,todo,in_progress,in_review,blocked,done";
@@ -38,6 +41,30 @@ export function useDismissedInboxItems() {
   };
 
   return { dismissed, dismiss };
+}
+
+export function useReadInboxItems() {
+  const [readItems, setReadItems] = useState<Set<string>>(loadReadInboxItems);
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== READ_ITEMS_KEY) return;
+      setReadItems(loadReadInboxItems());
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
+
+  const markRead = (id: string) => {
+    setReadItems((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      saveReadInboxItems(next);
+      return next;
+    });
+  };
+
+  return { readItems, markRead };
 }
 
 export function useInboxBadge(companyId: string | null | undefined) {
