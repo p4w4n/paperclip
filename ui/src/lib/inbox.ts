@@ -98,6 +98,10 @@ export function saveLastInboxTab(tab: InboxTab) {
   }
 }
 
+export function isMineInboxTab(tab: InboxTab): boolean {
+  return tab === "mine";
+}
+
 export function getLatestFailedRunsByAgent(runs: HeartbeatRun[]): HeartbeatRun[] {
   const sorted = [...runs].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),

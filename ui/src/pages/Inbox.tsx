@@ -48,6 +48,7 @@ import {
   getInboxWorkItems,
   getLatestFailedRunsByAgent,
   getRecentTouchedIssues,
+  isMineInboxTab,
   InboxApprovalFilter,
   saveLastInboxTab,
   shouldShowInboxSection,
@@ -520,6 +521,7 @@ export function Inbox() {
     pathSegment === "mine" || pathSegment === "recent" || pathSegment === "all" || pathSegment === "unread"
       ? pathSegment
       : "mine";
+  const canArchiveFromTab = isMineInboxTab(tab);
   const issueLinkState = useMemo(
     () =>
       createIssueDetailLocationState(
@@ -911,7 +913,7 @@ export function Inbox() {
   }, [dismiss]);
 
   const nonIssueUnreadState = (key: string): NonIssueUnreadState => {
-    if (tab !== "mine") return null;
+    if (!canArchiveFromTab) return null;
     const isRead = readItems.has(key);
     const isFading = fadingNonIssueItems.has(key);
     if (isFading) return "fading";
@@ -951,7 +953,7 @@ export function Inbox() {
       }
 
       // Keyboard shortcuts are only active on the "mine" tab
-      if (tab !== "mine") return;
+      if (!canArchiveFromTab) return;
 
       const itemCount = workItemsToRender.length;
       if (itemCount === 0) return;
@@ -1033,7 +1035,7 @@ export function Inbox() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
-    workItemsToRender, selectedIndex, tab, navigate, issueLinkState,
+    workItemsToRender, selectedIndex, canArchiveFromTab, navigate, issueLinkState,
     getWorkItemKey, archivingIssueIds, archivingNonIssueIds,
     fadingOutIssues, readItems,
     archiveIssueMutation, markReadMutation, markUnreadMutation,
@@ -1219,7 +1221,6 @@ export function Inbox() {
                     </div>,
                   );
                 }
-                const isMineTab = tab === "mine";
                 const isSelected = selectedIndex === index;
 
                 if (item.kind === "approval") {
@@ -1235,7 +1236,7 @@ export function Inbox() {
                       isPending={approveMutation.isPending || rejectMutation.isPending}
                       unreadState={nonIssueUnreadState(approvalKey)}
                       onMarkRead={() => handleMarkNonIssueRead(approvalKey)}
-                      onArchive={isMineTab ? () => handleArchiveNonIssue(approvalKey) : undefined}
+                      onArchive={canArchiveFromTab ? () => handleArchiveNonIssue(approvalKey) : undefined}
                       archiveDisabled={isArchiving}
                       className={
                         isArchiving
@@ -1244,7 +1245,7 @@ export function Inbox() {
                       }
                     />
                   );
-                  elements.push(wrapItem(approvalKey, isSelected, isMineTab ? (
+                  elements.push(wrapItem(approvalKey, isSelected, canArchiveFromTab ? (
                     <SwipeToArchive
                       key={approvalKey}
                       disabled={isArchiving}
@@ -1271,7 +1272,7 @@ export function Inbox() {
                       isRetrying={retryingRunIds.has(item.run.id)}
                       unreadState={nonIssueUnreadState(runKey)}
                       onMarkRead={() => handleMarkNonIssueRead(runKey)}
-                      onArchive={isMineTab ? () => handleArchiveNonIssue(runKey) : undefined}
+                      onArchive={canArchiveFromTab ? () => handleArchiveNonIssue(runKey) : undefined}
                       archiveDisabled={isArchiving}
                       className={
                         isArchiving
@@ -1280,7 +1281,7 @@ export function Inbox() {
                       }
                     />
                   );
-                  elements.push(wrapItem(runKey, isSelected, isMineTab ? (
+                  elements.push(wrapItem(runKey, isSelected, canArchiveFromTab ? (
                     <SwipeToArchive
                       key={runKey}
                       disabled={isArchiving}
@@ -1304,7 +1305,7 @@ export function Inbox() {
                       isPending={approveJoinMutation.isPending || rejectJoinMutation.isPending}
                       unreadState={nonIssueUnreadState(joinKey)}
                       onMarkRead={() => handleMarkNonIssueRead(joinKey)}
-                      onArchive={isMineTab ? () => handleArchiveNonIssue(joinKey) : undefined}
+                      onArchive={canArchiveFromTab ? () => handleArchiveNonIssue(joinKey) : undefined}
                       archiveDisabled={isArchiving}
                       className={
                         isArchiving
@@ -1313,7 +1314,7 @@ export function Inbox() {
                       }
                     />
                   );
-                  elements.push(wrapItem(joinKey, isSelected, isMineTab ? (
+                  elements.push(wrapItem(joinKey, isSelected, canArchiveFromTab ? (
                     <SwipeToArchive
                       key={joinKey}
                       disabled={isArchiving}
@@ -1370,7 +1371,7 @@ export function Inbox() {
                     }
                     onMarkRead={() => markReadMutation.mutate(issue.id)}
                     onArchive={
-                      isMineTab
+                      canArchiveFromTab
                         ? () => archiveIssueMutation.mutate(issue.id)
                         : undefined
                     }
@@ -1383,7 +1384,7 @@ export function Inbox() {
                   />
                 );
 
-                elements.push(wrapItem(`issue:${issue.id}`, isSelected, isMineTab ? (
+                elements.push(wrapItem(`issue:${issue.id}`, isSelected, canArchiveFromTab ? (
                   <SwipeToArchive
                     key={`issue:${issue.id}`}
                     disabled={isArchiving || archiveIssueMutation.isPending}

@@ -83,7 +83,7 @@ describe("SwipeToArchive", () => {
     expect(onClick).not.toHaveBeenCalled();
 
     act(() => {
-      vi.advanceTimersByTime(210);
+      vi.advanceTimersByTime(140);
     });
 
     expect(onArchive).toHaveBeenCalledTimes(1);

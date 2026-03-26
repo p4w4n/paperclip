@@ -9,9 +9,9 @@ interface SwipeToArchiveProps {
   className?: string;
 }
 
-const COMMIT_THRESHOLD = 0.4;
-const MAX_SWIPE = 0.92;
-const COMMIT_DELAY_MS = 210;
+const COMMIT_THRESHOLD = 0.32;
+const MAX_SWIPE = 0.88;
+const COMMIT_DELAY_MS = 140;
 
 export function SwipeToArchive({
   children,

@@ -8,6 +8,7 @@ import {
   getInboxWorkItems,
   getRecentTouchedIssues,
   getUnreadTouchedIssues,
+  isMineInboxTab,
   loadLastInboxTab,
   RECENT_ISSUES_LIMIT,
   saveLastInboxTab,
@@ -399,5 +400,12 @@ describe("inbox helpers", () => {
   it("maps legacy new-tab storage to mine", () => {
     localStorage.setItem("paperclip:inbox:last-tab", "new");
     expect(loadLastInboxTab()).toBe("mine");
+  });
+
+  it("enables swipe archive only on the mine tab", () => {
+    expect(isMineInboxTab("mine")).toBe(true);
+    expect(isMineInboxTab("recent")).toBe(false);
+    expect(isMineInboxTab("unread")).toBe(false);
+    expect(isMineInboxTab("all")).toBe(false);
   });
 });
