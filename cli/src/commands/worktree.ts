@@ -41,6 +41,8 @@ import {
   projects,
   runDatabaseBackup,
   runDatabaseRestore,
+  createEmbeddedPostgresLogBuffer,
+  formatEmbeddedPostgresError,
 } from "@paperclipai/db";
 import type { Command } from "commander";
 import { ensureAgentJwtSecret, loadPaperclipEnvFile, mergePaperclipEnvEntries, readPaperclipEnvEntries, resolvePaperclipEnvFile } from "../config/env.js";
@@ -806,6 +808,7 @@ async function ensureEmbeddedPostgres(dataDir: string, preferredPort: number): P
   }
 
   const port = await findAvailablePort(preferredPort);
+  const logBuffer = createEmbeddedPostgresLogBuffer();
   const instance = new EmbeddedPostgres({
     databaseDir: dataDir,
     user: "paperclip",
@@ -813,17 +816,31 @@ async function ensureEmbeddedPostgres(dataDir: string, preferredPort: number): P
     port,
     persistent: true,
     initdbFlags: ["--encoding=UTF8", "--locale=C", "--lc-messages=C"],
-    onLog: () => {},
-    onError: () => {},
+    onLog: logBuffer.append,
+    onError: logBuffer.append,
   });
 
   if (!existsSync(path.resolve(dataDir, "PG_VERSION"))) {
-    await instance.initialise();
+    try {
+      await instance.initialise();
+    } catch (error) {
+      throw formatEmbeddedPostgresError(error, {
+        fallbackMessage: `Failed to initialize embedded PostgreSQL cluster in ${dataDir} on port ${port}`,
+        recentLogs: logBuffer.getRecentLogs(),
+      });
+    }
   }
   if (existsSync(postmasterPidFile)) {
     rmSync(postmasterPidFile, { force: true });
   }
-  await instance.start();
+  try {
+    await instance.start();
+  } catch (error) {
+    throw formatEmbeddedPostgresError(error, {
+      fallbackMessage: `Failed to start embedded PostgreSQL on port ${port}`,
+      recentLogs: logBuffer.getRecentLogs(),
+    });
+  }
 
   return {
     port,
