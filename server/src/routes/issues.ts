@@ -713,6 +713,38 @@ export function issueRoutes(db: Db, storage: StorageService) {
     res.json(readState);
   });
 
+  router.delete("/issues/:id/read", async (req, res) => {
+    const id = req.params.id as string;
+    const issue = await svc.getById(id);
+    if (!issue) {
+      res.status(404).json({ error: "Issue not found" });
+      return;
+    }
+    assertCompanyAccess(req, issue.companyId);
+    if (req.actor.type !== "board") {
+      res.status(403).json({ error: "Board authentication required" });
+      return;
+    }
+    if (!req.actor.userId) {
+      res.status(403).json({ error: "Board user context required" });
+      return;
+    }
+    const removed = await svc.markUnread(issue.companyId, issue.id, req.actor.userId);
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId: issue.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "issue.read_unmarked",
+      entityType: "issue",
+      entityId: issue.id,
+      details: { userId: req.actor.userId },
+    });
+    res.json({ id: issue.id, removed });
+  });
+
   router.post("/issues/:id/inbox-archive", async (req, res) => {
     const id = req.params.id as string;
     const issue = await svc.getById(id);

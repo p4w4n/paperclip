@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "@/lib/router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { approvalsApi } from "../api/approvals";
@@ -52,6 +52,7 @@ import {
   saveLastInboxTab,
   shouldShowInboxSection,
   type InboxTab,
+  type InboxWorkItem,
 } from "../lib/inbox";
 import { useDismissedInboxItems, useReadInboxItems } from "../hooks/useInboxBadge";
 
@@ -512,7 +513,7 @@ export function Inbox() {
   const [allCategoryFilter, setAllCategoryFilter] = useState<InboxCategoryFilter>("everything");
   const [allApprovalFilter, setAllApprovalFilter] = useState<InboxApprovalFilter>("all");
   const { dismissed, dismiss } = useDismissedInboxItems();
-  const { readItems, markRead: markItemRead } = useReadInboxItems();
+  const { readItems, markRead: markItemRead, markUnread: markItemUnread } = useReadInboxItems();
 
   const pathSegment = location.pathname.split("/").pop() ?? "mine";
   const tab: InboxTab =
@@ -540,6 +541,7 @@ export function Inbox() {
 
   useEffect(() => {
     saveLastInboxTab(tab);
+    setSelectedIndex(-1);
   }, [tab]);
 
   const {
@@ -793,6 +795,8 @@ export function Inbox() {
   const [archivingIssueIds, setArchivingIssueIds] = useState<Set<string>>(new Set());
   const [fadingNonIssueItems, setFadingNonIssueItems] = useState<Set<string>>(new Set());
   const [archivingNonIssueIds, setArchivingNonIssueIds] = useState<Set<string>>(new Set());
+  const [selectedIndex, setSelectedIndex] = useState<number>(-1);
+  const listRef = useRef<HTMLDivElement>(null);
 
   const invalidateInboxIssueQueries = () => {
     if (!selectedCompanyId) return;
@@ -875,7 +879,14 @@ export function Inbox() {
     },
   });
 
-  const handleMarkNonIssueRead = (key: string) => {
+  const markUnreadMutation = useMutation({
+    mutationFn: (id: string) => issuesApi.markUnread(id),
+    onSuccess: () => {
+      invalidateInboxIssueQueries();
+    },
+  });
+
+  const handleMarkNonIssueRead = useCallback((key: string) => {
     setFadingNonIssueItems((prev) => new Set(prev).add(key));
     markItemRead(key);
     setTimeout(() => {
@@ -885,9 +896,9 @@ export function Inbox() {
         return next;
       });
     }, 300);
-  };
+  }, [markItemRead]);
 
-  const handleArchiveNonIssue = (key: string) => {
+  const handleArchiveNonIssue = useCallback((key: string) => {
     setArchivingNonIssueIds((prev) => new Set(prev).add(key));
     setTimeout(() => {
       dismiss(key);
@@ -897,7 +908,7 @@ export function Inbox() {
         return next;
       });
     }, 200);
-  };
+  }, [dismiss]);
 
   const nonIssueUnreadState = (key: string): NonIssueUnreadState => {
     if (tab !== "mine") return null;
@@ -907,6 +918,133 @@ export function Inbox() {
     if (!isRead) return "visible";
     return "hidden";
   };
+
+  const getWorkItemKey = useCallback((item: InboxWorkItem): string => {
+    if (item.kind === "issue") return `issue:${item.issue.id}`;
+    if (item.kind === "approval") return `approval:${item.approval.id}`;
+    if (item.kind === "failed_run") return `run:${item.run.id}`;
+    return `join:${item.joinRequest.id}`;
+  }, []);
+
+  // Reset selection when the list changes
+  useEffect(() => {
+    setSelectedIndex((prev) =>
+      prev >= workItemsToRender.length ? workItemsToRender.length - 1 : prev,
+    );
+  }, [workItemsToRender.length]);
+
+  // Keyboard shortcuts (mail-client style)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't capture when typing in inputs/textareas or with modifier keys
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT" ||
+        target.isContentEditable ||
+        e.metaKey ||
+        e.ctrlKey ||
+        e.altKey
+      ) {
+        return;
+      }
+
+      const itemCount = workItemsToRender.length;
+      if (itemCount === 0) return;
+
+      const isMineTab = tab === "mine";
+
+      switch (e.key) {
+        case "j": {
+          e.preventDefault();
+          setSelectedIndex((prev) => Math.min(prev + 1, itemCount - 1));
+          break;
+        }
+        case "k": {
+          e.preventDefault();
+          setSelectedIndex((prev) => Math.max(prev - 1, 0));
+          break;
+        }
+        case "a": {
+          if (!isMineTab || selectedIndex < 0 || selectedIndex >= itemCount) return;
+          e.preventDefault();
+          const item = workItemsToRender[selectedIndex];
+          const key = getWorkItemKey(item);
+          if (item.kind === "issue") {
+            if (!archivingIssueIds.has(item.issue.id)) {
+              archiveIssueMutation.mutate(item.issue.id);
+            }
+          } else {
+            if (!archivingNonIssueIds.has(key)) {
+              handleArchiveNonIssue(key);
+            }
+          }
+          break;
+        }
+        case "U": {
+          if (selectedIndex < 0 || selectedIndex >= itemCount) return;
+          e.preventDefault();
+          const item = workItemsToRender[selectedIndex];
+          if (item.kind === "issue") {
+            markUnreadMutation.mutate(item.issue.id);
+          } else {
+            const key = getWorkItemKey(item);
+            markItemUnread(key);
+          }
+          break;
+        }
+        case "r": {
+          if (selectedIndex < 0 || selectedIndex >= itemCount) return;
+          e.preventDefault();
+          const item = workItemsToRender[selectedIndex];
+          if (item.kind === "issue") {
+            if (item.issue.isUnreadForMe && !fadingOutIssues.has(item.issue.id)) {
+              markReadMutation.mutate(item.issue.id);
+            }
+          } else {
+            const key = getWorkItemKey(item);
+            if (!readItems.has(key)) {
+              handleMarkNonIssueRead(key);
+            }
+          }
+          break;
+        }
+        case "Enter": {
+          if (selectedIndex < 0 || selectedIndex >= itemCount) return;
+          e.preventDefault();
+          const item = workItemsToRender[selectedIndex];
+          if (item.kind === "issue") {
+            const pathId = item.issue.identifier ?? item.issue.id;
+            navigate(`/issues/${pathId}`, { state: issueLinkState });
+          } else if (item.kind === "approval") {
+            navigate(`/approvals/${item.approval.id}`);
+          } else if (item.kind === "failed_run") {
+            navigate(`/agents/${item.run.agentId}/runs/${item.run.id}`);
+          }
+          break;
+        }
+        default:
+          return;
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    workItemsToRender, selectedIndex, tab, navigate, issueLinkState,
+    getWorkItemKey, archivingIssueIds, archivingNonIssueIds,
+    fadingOutIssues, readItems,
+    archiveIssueMutation, markReadMutation, markUnreadMutation,
+    handleArchiveNonIssue, handleMarkNonIssueRead, markItemUnread,
+  ]);
+
+  // Scroll selected item into view
+  useEffect(() => {
+    if (selectedIndex < 0 || !listRef.current) return;
+    const rows = listRef.current.querySelectorAll("[data-inbox-item]");
+    const row = rows[selectedIndex];
+    if (row) row.scrollIntoView({ block: "nearest" });
+  }, [selectedIndex]);
 
   if (!selectedCompanyId) {
     return <EmptyState icon={InboxIcon} message="Select a company to view inbox." />;
@@ -1050,8 +1188,18 @@ export function Inbox() {
         <>
           {showSeparatorBefore("work_items") && <Separator />}
           <div>
-            <div className="overflow-hidden rounded-xl border border-border bg-card">
+            <div ref={listRef} className="overflow-hidden rounded-xl border border-border bg-card">
               {workItemsToRender.flatMap((item, index) => {
+                const wrapItem = (key: string, isSelected: boolean, child: ReactNode) => (
+                  <div
+                    key={`sel-${key}`}
+                    data-inbox-item
+                    className={isSelected ? "ring-2 ring-inset ring-primary/40 rounded-sm" : ""}
+                    onClick={() => setSelectedIndex(index)}
+                  >
+                    {child}
+                  </div>
+                );
                 const todayCutoff = Date.now() - 24 * 60 * 60 * 1000;
                 const showTodayDivider =
                   index > 0 &&
@@ -1070,6 +1218,7 @@ export function Inbox() {
                   );
                 }
                 const isMineTab = tab === "mine";
+                const isSelected = selectedIndex === index;
 
                 if (item.kind === "approval") {
                   const approvalKey = `approval:${item.approval.id}`;
@@ -1093,7 +1242,7 @@ export function Inbox() {
                       }
                     />
                   );
-                  elements.push(isMineTab ? (
+                  elements.push(wrapItem(approvalKey, isSelected, isMineTab ? (
                     <SwipeToArchive
                       key={approvalKey}
                       disabled={isArchiving}
@@ -1101,7 +1250,7 @@ export function Inbox() {
                     >
                       {row}
                     </SwipeToArchive>
-                  ) : row);
+                  ) : row));
                   return elements;
                 }
 
@@ -1129,7 +1278,7 @@ export function Inbox() {
                       }
                     />
                   );
-                  elements.push(isMineTab ? (
+                  elements.push(wrapItem(runKey, isSelected, isMineTab ? (
                     <SwipeToArchive
                       key={runKey}
                       disabled={isArchiving}
@@ -1137,7 +1286,7 @@ export function Inbox() {
                     >
                       {row}
                     </SwipeToArchive>
-                  ) : row);
+                  ) : row));
                   return elements;
                 }
 
@@ -1162,7 +1311,7 @@ export function Inbox() {
                       }
                     />
                   );
-                  elements.push(isMineTab ? (
+                  elements.push(wrapItem(joinKey, isSelected, isMineTab ? (
                     <SwipeToArchive
                       key={joinKey}
                       disabled={isArchiving}
@@ -1170,7 +1319,7 @@ export function Inbox() {
                     >
                       {row}
                     </SwipeToArchive>
-                  ) : row);
+                  ) : row));
                   return elements;
                 }
 
@@ -1232,7 +1381,7 @@ export function Inbox() {
                   />
                 );
 
-                elements.push(isMineTab ? (
+                elements.push(wrapItem(`issue:${issue.id}`, isSelected, isMineTab ? (
                   <SwipeToArchive
                     key={`issue:${issue.id}`}
                     disabled={isArchiving || archiveIssueMutation.isPending}
@@ -1240,7 +1389,7 @@ export function Inbox() {
                   >
                     {row}
                   </SwipeToArchive>
-                ) : row);
+                ) : row));
                 return elements;
               })}
             </div>
