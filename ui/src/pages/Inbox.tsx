@@ -1113,6 +1113,45 @@ export function Inbox() {
               ]}
             />
           </Tabs>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+          {tab === "all" && (
+            <>
+              <Select
+                value={allCategoryFilter}
+                onValueChange={(value) => setAllCategoryFilter(value as InboxCategoryFilter)}
+              >
+                <SelectTrigger className="h-8 w-[170px] text-xs">
+                  <SelectValue placeholder="Category" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="everything">All categories</SelectItem>
+                  <SelectItem value="issues_i_touched">My recent issues</SelectItem>
+                  <SelectItem value="join_requests">Join requests</SelectItem>
+                  <SelectItem value="approvals">Approvals</SelectItem>
+                  <SelectItem value="failed_runs">Failed runs</SelectItem>
+                  <SelectItem value="alerts">Alerts</SelectItem>
+                </SelectContent>
+              </Select>
+
+              {showApprovalsCategory && (
+                <Select
+                  value={allApprovalFilter}
+                  onValueChange={(value) => setAllApprovalFilter(value as InboxApprovalFilter)}
+                >
+                  <SelectTrigger className="h-8 w-[170px] text-xs">
+                    <SelectValue placeholder="Approval status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All approval statuses</SelectItem>
+                    <SelectItem value="actionable">Needs action</SelectItem>
+                    <SelectItem value="resolved">Resolved</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            </>
+          )}
 
           {canMarkAllRead && (
             <Button
@@ -1127,43 +1166,6 @@ export function Inbox() {
             </Button>
           )}
         </div>
-
-        {tab === "all" && (
-          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-            <Select
-              value={allCategoryFilter}
-              onValueChange={(value) => setAllCategoryFilter(value as InboxCategoryFilter)}
-            >
-              <SelectTrigger className="h-8 w-[170px] text-xs">
-                <SelectValue placeholder="Category" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="everything">All categories</SelectItem>
-                <SelectItem value="issues_i_touched">My recent issues</SelectItem>
-                <SelectItem value="join_requests">Join requests</SelectItem>
-                <SelectItem value="approvals">Approvals</SelectItem>
-                <SelectItem value="failed_runs">Failed runs</SelectItem>
-                <SelectItem value="alerts">Alerts</SelectItem>
-              </SelectContent>
-            </Select>
-
-            {showApprovalsCategory && (
-              <Select
-                value={allApprovalFilter}
-                onValueChange={(value) => setAllApprovalFilter(value as InboxApprovalFilter)}
-              >
-                <SelectTrigger className="h-8 w-[170px] text-xs">
-                  <SelectValue placeholder="Approval status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All approval statuses</SelectItem>
-                  <SelectItem value="actionable">Needs action</SelectItem>
-                  <SelectItem value="resolved">Resolved</SelectItem>
-                </SelectContent>
-              </Select>
-            )}
-          </div>
-        )}
       </div>
 
       {approvalsError && <p className="text-sm text-destructive">{approvalsError.message}</p>}
