@@ -21,8 +21,11 @@ const PAPERCLIP_NAME = "paperclip";
 interface CliOptions {
   cacheFile: string;
   end: Date;
+  excludeOwners: string[];
+  exportFormat: "csv" | "json";
   includePrivate: boolean;
   json: boolean;
+  output: string | null;
   query: string;
   refreshSearch: boolean;
   refreshStats: boolean;
@@ -130,6 +133,9 @@ interface Summary {
     searchField: CliOptions["searchField"];
     start: string;
   };
+  filters: {
+    excludedOwners: string[];
+  };
   repos: {
     count: number;
     sample: string[];
@@ -159,7 +165,13 @@ async function main() {
   cache.updatedAt = new Date().toISOString();
   await saveCache(options.cacheFile, cache);
 
-  const summary = buildSummary(cache, options, sortedShas, fetchedThisRun);
+  const filteredShas = sortFilteredShas(cache, filterShas(cache, sortedShas, options));
+  const summary = buildSummary(cache, options, filteredShas, fetchedThisRun);
+
+  if (options.output) {
+    await writeExport(options.output, options.exportFormat, cache, filteredShas, summary);
+  }
+
   if (options.json) {
     console.log(JSON.stringify(summary, null, 2));
     return;
@@ -172,8 +184,11 @@ function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
     cacheFile: DEFAULT_CACHE_FILE,
     end: new Date(),
+    excludeOwners: [],
+    exportFormat: "csv",
     includePrivate: false,
     json: false,
+    output: null,
     query: DEFAULT_QUERY,
     refreshSearch: false,
     refreshStats: false,
@@ -193,11 +208,25 @@ function parseArgs(argv: string[]): CliOptions {
       case "--end":
         options.end = parseDateArg(requireValue(argv, ++index, arg), arg);
         break;
+      case "--exclude-owner":
+        options.excludeOwners.push(requireValue(argv, ++index, arg).toLowerCase());
+        break;
+      case "--export-format": {
+        const value = requireValue(argv, ++index, arg);
+        if (value !== "csv" && value !== "json") {
+          throw new Error(`Invalid --export-format value: ${value}`);
+        }
+        options.exportFormat = value;
+        break;
+      }
       case "--include-private":
         options.includePrivate = true;
         break;
       case "--json":
         options.json = true;
+        break;
+      case "--output":
+        options.output = requireValue(argv, ++index, arg);
         break;
       case "--query":
         options.query = requireValue(argv, ++index, arg);
@@ -288,10 +317,13 @@ Options:
   --query <search>           Commit search string (default: ${DEFAULT_QUERY})
   --search-field <field>     author-date | committer-date (default: ${DEFAULT_SEARCH_FIELD})
   --include-private          Include repos visible to the current token
+  --exclude-owner <owner>    Exclude repositories owned by this GitHub owner/org (repeatable)
   --cache-file <path>        Cache path (default: ${DEFAULT_CACHE_FILE})
   --skip-stats               Skip additions/deletions enrichment
   --stats-fetch-limit <n>    Max uncached commit stats to fetch this run (default: ${DEFAULT_STATS_FETCH_LIMIT})
   --stats-concurrency <n>    Parallel commit stat requests (default: ${DEFAULT_STATS_CONCURRENCY})
+  --output <path>            Write the full filtered result set to a file
+  --export-format <format>   csv | json for --output exports (default: csv)
   --refresh-search           Ignore cached search windows
   --refresh-stats            Re-fetch cached commit stats
   --json                     Print JSON summary
@@ -443,6 +475,39 @@ function buildSearchQuery(options: CliOptions, start: Date, end: Date): string {
   return `${options.query} ${qualifiers.join(" ")}`.trim();
 }
 
+function filterShas(cache: CacheFile, shas: string[], options: CliOptions): string[] {
+  if (options.excludeOwners.length === 0) {
+    return shas;
+  }
+
+  const excludedOwners = new Set(options.excludeOwners);
+  return shas.filter((sha) => {
+    const commit = cache.commits[sha];
+    if (!commit) {
+      return false;
+    }
+    return !excludedOwners.has(getRepoOwner(commit.repositoryFullName));
+  });
+}
+
+function sortFilteredShas(cache: CacheFile, shas: string[]): string[] {
+  return [...shas].sort((leftSha, rightSha) => {
+    const left = cache.commits[leftSha];
+    const right = cache.commits[rightSha];
+    const leftTime = left?.committedAt ? Date.parse(left.committedAt) : 0;
+    const rightTime = right?.committedAt ? Date.parse(right.committedAt) : 0;
+    if (rightTime !== leftTime) {
+      return rightTime - leftTime;
+    }
+
+    const repoCompare = (left?.repositoryFullName ?? "").localeCompare(right?.repositoryFullName ?? "");
+    if (repoCompare !== 0) {
+      return repoCompare;
+    }
+    return leftSha.localeCompare(rightSha);
+  });
+}
+
 function formatQueryDate(value: Date): string {
   return value.toISOString().replace(".000Z", "Z");
 }
@@ -519,6 +584,10 @@ function normalizeContributor(input: {
 function normalizeOptional(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
+}
+
+function getRepoOwner(repositoryFullName: string): string {
+  return repositoryFullName.split("/", 1)[0]?.toLowerCase() ?? "";
 }
 
 async function enrichCommitStats(
@@ -617,6 +686,9 @@ function buildSummary(cache: CacheFile, options: CliOptions, shas: string[], fet
       searchField: options.searchField,
       start: options.start.toISOString(),
     },
+    filters: {
+      excludedOwners: [...options.excludeOwners].sort(),
+    },
     repos: {
       count: repoNames.size,
       sample: repoSample,
@@ -635,6 +707,9 @@ function printSummary(summary: Summary) {
   console.log("Paperclip commit metrics");
   console.log(`Query: ${summary.detectedQuery}`);
   console.log(`Range: ${summary.range.start} -> ${summary.range.end} (${summary.range.searchField})`);
+  if (summary.filters.excludedOwners.length > 0) {
+    console.log(`Excluded owners: ${summary.filters.excludedOwners.join(", ")}`);
+  }
   console.log(`Commits: ${summary.totals.commits}`);
   console.log(`Distinct repos: ${summary.repos.count}`);
   console.log(`Distinct contributors: ${summary.contributors.count}`);
@@ -658,6 +733,91 @@ function printSummary(summary: Summary) {
         .join(", ")}`,
     );
   }
+}
+
+async function writeExport(
+  outputPath: string,
+  format: CliOptions["exportFormat"],
+  cache: CacheFile,
+  shas: string[],
+  summary: Summary,
+): Promise<void> {
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+  if (format === "json") {
+    const report = {
+      summary,
+      commits: shas.map((sha) => buildExportRow(cache, sha)),
+    };
+    await fs.writeFile(outputPath, JSON.stringify(report, null, 2), "utf8");
+    return;
+  }
+
+  const header = [
+    "committedAt",
+    "repository",
+    "repositoryUrl",
+    "sha",
+    "commitUrl",
+    "authorLogin",
+    "authorName",
+    "authorEmail",
+    "contributors",
+    "additions",
+    "deletions",
+    "totalChanges",
+  ];
+  const rows = [header.join(",")];
+  for (const sha of shas) {
+    const row = buildExportRow(cache, sha);
+    rows.push(
+      [
+        row.committedAt,
+        row.repository,
+        row.repositoryUrl,
+        row.sha,
+        row.commitUrl,
+        row.authorLogin,
+        row.authorName,
+        row.authorEmail,
+        row.contributors,
+        String(row.additions),
+        String(row.deletions),
+        String(row.totalChanges),
+      ]
+        .map(escapeCsv)
+        .join(","),
+    );
+  }
+  await fs.writeFile(outputPath, `${rows.join("\n")}\n`, "utf8");
+}
+
+function buildExportRow(cache: CacheFile, sha: string) {
+  const commit = cache.commits[sha];
+  if (!commit) {
+    throw new Error(`Missing cached commit for sha ${sha}`);
+  }
+  const stats = cache.stats[sha];
+  return {
+    additions: stats?.additions ?? 0,
+    authorEmail: commit.authorEmail ?? "",
+    authorLogin: commit.authorLogin ?? "",
+    authorName: commit.authorName ?? "",
+    commitUrl: commit.htmlUrl,
+    committedAt: commit.committedAt ?? "",
+    contributors: commit.contributors.map((contributor) => contributor.login ?? contributor.displayName).join(" | "),
+    deletions: stats?.deletions ?? 0,
+    repository: commit.repositoryFullName,
+    repositoryUrl: commit.repositoryUrl,
+    sha: commit.sha,
+    totalChanges: stats?.total ?? 0,
+  };
+}
+
+function escapeCsv(value: string): string {
+  if (value.includes(",") || value.includes("\"") || value.includes("\n")) {
+    return `"${value.replaceAll("\"", "\"\"")}"`;
+  }
+  return value;
 }
 
 function makeWindowKey(start: Date, end: Date): string {
