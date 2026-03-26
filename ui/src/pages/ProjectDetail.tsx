@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { Link, useParams, useNavigate, useLocation, Navigate } from "@/lib/router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { PROJECT_COLORS, isUuidLike, type BudgetPolicySummary, type ExecutionWorkspace, type Issue, type Project } from "@paperclipai/shared";
+import { PROJECT_COLORS, isUuidLike, type BudgetPolicySummary } from "@paperclipai/shared";
 import { budgetsApi } from "../api/budgets";
 import { executionWorkspacesApi } from "../api/execution-workspaces";
 import { instanceSettingsApi } from "../api/instanceSettings";
@@ -226,8 +226,8 @@ function ProjectWorkspacesContent({
             key={summary.key}
             className="border-b border-border px-4 py-3 last:border-b-0"
           >
-            <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0 flex-1">
+            <div className="grid gap-4 md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)_auto] md:items-start">
+              <div className="min-w-0">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   {summary.executionWorkspaceId ? (
                     <Link
@@ -254,8 +254,13 @@ function ProjectWorkspacesContent({
                     {summary.issues.length} linked {summary.issues.length === 1 ? "issue" : "issues"}
                   </span>
                 </div>
+              </div>
 
-                <div className="mt-3 flex flex-wrap gap-2">
+              <div className="min-w-0">
+                <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                  Issues
+                </div>
+                <div className="flex flex-wrap gap-2">
                   {visibleIssues.map((issue) => (
                     <Link
                       key={issue.id}
@@ -276,7 +281,7 @@ function ProjectWorkspacesContent({
                 </div>
               </div>
 
-              <div className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+              <div className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground md:justify-self-end">
                 <Clock3 className="h-3.5 w-3.5" />
                 {timeAgo(summary.lastUpdatedAt)}
               </div>
