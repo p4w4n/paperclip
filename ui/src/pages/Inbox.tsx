@@ -1197,7 +1197,7 @@ export function Inbox() {
                   <div
                     key={`sel-${key}`}
                     data-inbox-item
-                    className={isSelected ? "ring-2 ring-inset ring-primary/40 rounded-sm" : ""}
+                    className={isSelected ? "bg-accent" : ""}
                     onClick={() => setSelectedIndex(index)}
                   >
                     {child}
