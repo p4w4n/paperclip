@@ -22,6 +22,7 @@ import {
   realizeExecutionWorkspace,
   releaseRuntimeServicesForRun,
   resetRuntimeServicesForTests,
+  sanitizeRuntimeServiceBaseEnv,
   stopRuntimeServicesForExecutionWorkspace,
   type RealizedExecutionWorkspace,
 } from "../services/workspace-runtime.ts";
@@ -152,6 +153,27 @@ afterEach(async () => {
   delete process.env.PAPERCLIP_WORKTREES_DIR;
   delete process.env.DATABASE_URL;
   await resetRuntimeServicesForTests();
+});
+
+describe("sanitizeRuntimeServiceBaseEnv", () => {
+  it("removes inherited Paperclip and pnpm auth flags before spawning runtime services", () => {
+    const sanitized = sanitizeRuntimeServiceBaseEnv({
+      PATH: process.env.PATH,
+      DATABASE_URL: "postgres://example.test/paperclip",
+      PAPERCLIP_HOME: "/tmp/paperclip-home",
+      PAPERCLIP_INSTANCE_ID: "runtime-instance",
+      npm_config_tailscale_auth: "true",
+      npm_config_authenticated_private: "true",
+      HOST: "0.0.0.0",
+    });
+
+    expect(sanitized.PAPERCLIP_HOME).toBeUndefined();
+    expect(sanitized.PAPERCLIP_INSTANCE_ID).toBeUndefined();
+    expect(sanitized.DATABASE_URL).toBeUndefined();
+    expect(sanitized.npm_config_tailscale_auth).toBeUndefined();
+    expect(sanitized.npm_config_authenticated_private).toBeUndefined();
+    expect(sanitized.HOST).toBe("0.0.0.0");
+  });
 });
 
 describe("realizeExecutionWorkspace", () => {
