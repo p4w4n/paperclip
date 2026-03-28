@@ -24,7 +24,7 @@ import { IssuesList } from "../components/IssuesList";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { PageTabBar } from "../components/PageTabBar";
 import { buildProjectWorkspaceSummaries } from "../lib/project-workspaces-tab";
-import { projectRouteRef } from "../lib/utils";
+import { projectRouteRef, projectWorkspaceUrl } from "../lib/utils";
 import { timeAgo } from "../lib/timeAgo";
 import { Tabs } from "@/components/ui/tabs";
 import { PluginLauncherOutlet } from "@/plugins/launchers";
@@ -208,8 +208,10 @@ function ProjectIssuesList({ projectId, companyId }: { projectId: string; compan
 }
 
 function ProjectWorkspacesContent({
+  projectRef,
   summaries,
 }: {
+  projectRef: string;
   summaries: ReturnType<typeof buildProjectWorkspaceSummaries>;
 }) {
   if (summaries.length === 0) {
@@ -275,9 +277,21 @@ function ProjectWorkspacesContent({
                 </div>
               </div>
 
-              <div className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground md:justify-self-end">
-                <Clock3 className="h-3.5 w-3.5" />
-                {timeAgo(summary.lastUpdatedAt)}
+              <div className="flex shrink-0 flex-col items-start gap-2 md:items-end">
+                <Link
+                  to={
+                    summary.kind === "project_workspace"
+                      ? projectWorkspaceUrl({ id: projectRef, urlKey: projectRef }, summary.workspaceId)
+                      : `/execution-workspaces/${summary.workspaceId}`
+                  }
+                  className="text-xs font-medium text-foreground hover:underline"
+                >
+                  {summary.kind === "project_workspace" ? "Configure workspace" : "View workspace"}
+                </Link>
+                <div className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                  <Clock3 className="h-3.5 w-3.5" />
+                  {timeAgo(summary.lastUpdatedAt)}
+                </div>
               </div>
             </div>
           </div>
@@ -735,7 +749,7 @@ export function ProjectDetail() {
           workspaceTabError ? (
             <p className="text-sm text-destructive">{workspaceTabError.message}</p>
           ) : (
-            <ProjectWorkspacesContent summaries={workspaceSummaries} />
+            <ProjectWorkspacesContent projectRef={canonicalProjectRef} summaries={workspaceSummaries} />
           )
         ) : (
           <p className="text-sm text-muted-foreground">Loading workspaces...</p>
