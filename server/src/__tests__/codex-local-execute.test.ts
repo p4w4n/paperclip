@@ -13,6 +13,7 @@ const payload = {
   argv: process.argv.slice(2),
   prompt: fs.readFileSync(0, "utf8"),
   codexHome: process.env.CODEX_HOME || null,
+  paperclipWakePayloadJson: process.env.PAPERCLIP_WAKE_PAYLOAD_JSON || null,
   paperclipEnvKeys: Object.keys(process.env)
     .filter((key) => key.startsWith("PAPERCLIP_"))
     .sort(),
@@ -32,6 +33,7 @@ type CapturePayload = {
   argv: string[];
   prompt: string;
   codexHome: string | null;
+  paperclipWakePayloadJson: string | null;
   paperclipEnvKeys: string[];
 };
 
@@ -255,6 +257,109 @@ describe("codex execute", () => {
       else process.env.HOME = previousHome;
       if (previousPath === undefined) delete process.env.PATH;
       else process.env.PATH = previousPath;
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("injects structured Paperclip wake payloads into env and prompt", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-codex-execute-wake-"));
+    const workspace = path.join(root, "workspace");
+    const commandPath = path.join(root, "codex");
+    const capturePath = path.join(root, "capture.json");
+    await fs.mkdir(workspace, { recursive: true });
+    await writeFakeCodexCommand(commandPath);
+
+    const previousHome = process.env.HOME;
+    process.env.HOME = root;
+
+    try {
+      const result = await execute({
+        runId: "run-wake",
+        agent: {
+          id: "agent-1",
+          companyId: "company-1",
+          name: "Codex Coder",
+          adapterType: "codex_local",
+          adapterConfig: {},
+        },
+        runtime: {
+          sessionId: null,
+          sessionParams: null,
+          sessionDisplayId: null,
+          taskKey: null,
+        },
+        config: {
+          command: commandPath,
+          cwd: workspace,
+          env: {
+            PAPERCLIP_TEST_CAPTURE_PATH: capturePath,
+          },
+          promptTemplate: "Follow the paperclip heartbeat.",
+        },
+        context: {
+          issueId: "issue-1",
+          taskId: "issue-1",
+          wakeReason: "issue_commented",
+          wakeCommentId: "comment-2",
+          paperclipWake: {
+            reason: "issue_commented",
+            issue: {
+              id: "issue-1",
+              identifier: "PAP-874",
+              title: "chat-speed issues",
+              status: "in_progress",
+              priority: "medium",
+            },
+            commentIds: ["comment-1", "comment-2"],
+            latestCommentId: "comment-2",
+            comments: [
+              {
+                id: "comment-1",
+                issueId: "issue-1",
+                body: "First comment",
+                bodyTruncated: false,
+                createdAt: "2026-03-28T14:35:00.000Z",
+                author: { type: "user", id: "user-1" },
+              },
+              {
+                id: "comment-2",
+                issueId: "issue-1",
+                body: "Second comment",
+                bodyTruncated: false,
+                createdAt: "2026-03-28T14:35:10.000Z",
+                author: { type: "user", id: "user-1" },
+              },
+            ],
+            commentWindow: {
+              requestedCount: 2,
+              includedCount: 2,
+              missingCount: 0,
+            },
+            truncated: false,
+            fallbackFetchNeeded: false,
+          },
+        },
+        authToken: "run-jwt-token",
+        onLog: async () => {},
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.errorMessage).toBeNull();
+
+      const capture = JSON.parse(await fs.readFile(capturePath, "utf8")) as CapturePayload;
+      expect(capture.paperclipEnvKeys).toContain("PAPERCLIP_WAKE_PAYLOAD_JSON");
+      expect(capture.paperclipWakePayloadJson).not.toBeNull();
+      expect(JSON.parse(capture.paperclipWakePayloadJson ?? "{}")).toMatchObject({
+        reason: "issue_commented",
+        latestCommentId: "comment-2",
+        commentIds: ["comment-1", "comment-2"],
+      });
+      expect(capture.prompt).toContain("## Paperclip Wake Payload");
+      expect(capture.prompt).toContain("First comment");
+      expect(capture.prompt).toContain("Second comment");
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
       await fs.rm(root, { recursive: true, force: true });
     }
   });
