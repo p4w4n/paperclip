@@ -102,6 +102,16 @@ export function isMineInboxTab(tab: InboxTab): boolean {
   return tab === "mine";
 }
 
+export function resolveInboxSelectionIndex(
+  previousIndex: number,
+  itemCount: number,
+  canSelectItems: boolean,
+): number {
+  if (itemCount === 0) return -1;
+  if (previousIndex < 0) return canSelectItems ? 0 : -1;
+  return Math.min(previousIndex, itemCount - 1);
+}
+
 export function getLatestFailedRunsByAgent(runs: HeartbeatRun[]): HeartbeatRun[] {
   const sorted = [...runs].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),

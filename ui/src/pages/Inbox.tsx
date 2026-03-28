@@ -50,6 +50,7 @@ import {
   getLatestFailedRunsByAgent,
   getRecentTouchedIssues,
   isMineInboxTab,
+  resolveInboxSelectionIndex,
   InboxApprovalFilter,
   saveLastInboxTab,
   shouldShowInboxSection,
@@ -928,12 +929,10 @@ export function Inbox() {
     return `join:${item.joinRequest.id}`;
   }, []);
 
-  // Reset selection when the list changes
+  // Keep Mine anchored to a real row so keyboard navigation always lands on an item.
   useEffect(() => {
-    setSelectedIndex((prev) =>
-      prev >= workItemsToRender.length ? workItemsToRender.length - 1 : prev,
-    );
-  }, [workItemsToRender.length]);
+    setSelectedIndex((prev) => resolveInboxSelectionIndex(prev, workItemsToRender.length, canArchiveFromTab));
+  }, [canArchiveFromTab, workItemsToRender.length]);
 
   // Use refs for keyboard handler to avoid stale closures
   const kbStateRef = useRef({
@@ -1233,15 +1232,9 @@ export function Inbox() {
                   <div
                     key={`sel-${key}`}
                     data-inbox-item
-                    className={cn(
-                      "relative",
-                      isSelected && "bg-primary/[0.06] [&>*]:bg-transparent",
-                    )}
+                    className="relative"
                     onClick={() => setSelectedIndex(index)}
                   >
-                    {isSelected && (
-                      <div className="absolute inset-y-0 left-0 w-[3px] bg-primary rounded-r-sm" />
-                    )}
                     {child}
                   </div>
                 );
@@ -1289,6 +1282,7 @@ export function Inbox() {
                   elements.push(wrapItem(approvalKey, isSelected, canArchiveFromTab ? (
                     <SwipeToArchive
                       key={approvalKey}
+                      selected={isSelected}
                       disabled={isArchiving}
                       onArchive={() => handleArchiveNonIssue(approvalKey)}
                     >
@@ -1325,6 +1319,7 @@ export function Inbox() {
                   elements.push(wrapItem(runKey, isSelected, canArchiveFromTab ? (
                     <SwipeToArchive
                       key={runKey}
+                      selected={isSelected}
                       disabled={isArchiving}
                       onArchive={() => handleArchiveNonIssue(runKey)}
                     >
@@ -1358,6 +1353,7 @@ export function Inbox() {
                   elements.push(wrapItem(joinKey, isSelected, canArchiveFromTab ? (
                     <SwipeToArchive
                       key={joinKey}
+                      selected={isSelected}
                       disabled={isArchiving}
                       onArchive={() => handleArchiveNonIssue(joinKey)}
                     >
@@ -1428,6 +1424,7 @@ export function Inbox() {
                 elements.push(wrapItem(`issue:${issue.id}`, isSelected, canArchiveFromTab ? (
                   <SwipeToArchive
                     key={`issue:${issue.id}`}
+                    selected={isSelected}
                     disabled={isArchiving || archiveIssueMutation.isPending}
                     onArchive={() => archiveIssueMutation.mutate(issue.id)}
                   >

@@ -122,4 +122,25 @@ describe("SwipeToArchive", () => {
       root.unmount();
     });
   });
+
+  it("renders the selected inbox treatment on the swipe surface", () => {
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <SwipeToArchive onArchive={() => {}} selected>
+          <button type="button">Open issue</button>
+        </SwipeToArchive>,
+      );
+    });
+
+    const surface = container.querySelector("[data-inbox-row-surface]") as HTMLDivElement | null;
+    expect(surface).not.toBeNull();
+    expect(surface?.style.backgroundColor).toBe("hsl(var(--primary) / 0.06)");
+    expect(surface?.style.boxShadow).toBe("inset 3px 0 0 hsl(var(--primary))");
+
+    act(() => {
+      root.unmount();
+    });
+  });
 });

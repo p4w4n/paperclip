@@ -11,6 +11,7 @@ import {
   isMineInboxTab,
   loadLastInboxTab,
   RECENT_ISSUES_LIMIT,
+  resolveInboxSelectionIndex,
   saveLastInboxTab,
   shouldShowInboxSection,
 } from "./inbox";
@@ -407,5 +408,12 @@ describe("inbox helpers", () => {
     expect(isMineInboxTab("recent")).toBe(false);
     expect(isMineInboxTab("unread")).toBe(false);
     expect(isMineInboxTab("all")).toBe(false);
+  });
+
+  it("anchors Mine selection to the first available inbox row", () => {
+    expect(resolveInboxSelectionIndex(-1, 3, true)).toBe(0);
+    expect(resolveInboxSelectionIndex(-1, 3, false)).toBe(-1);
+    expect(resolveInboxSelectionIndex(5, 3, true)).toBe(2);
+    expect(resolveInboxSelectionIndex(1, 0, true)).toBe(-1);
   });
 });

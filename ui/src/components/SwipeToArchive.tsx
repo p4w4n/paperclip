@@ -6,6 +6,7 @@ interface SwipeToArchiveProps {
   children: ReactNode;
   onArchive: () => void;
   disabled?: boolean;
+  selected?: boolean;
   className?: string;
 }
 
@@ -17,6 +18,7 @@ export function SwipeToArchive({
   children,
   onArchive,
   disabled = false,
+  selected = false,
   className,
 }: SwipeToArchiveProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -148,10 +150,13 @@ export function SwipeToArchive({
         </span>
       </div>
       <div
+        data-inbox-row-surface
         className="relative bg-card will-change-transform"
         style={{
           transform: `translate3d(${offsetX}px, 0, 0)`,
           transition: isDragging ? "none" : "transform 180ms ease-out",
+          backgroundColor: selected ? "hsl(var(--primary) / 0.06)" : undefined,
+          boxShadow: selected ? "inset 3px 0 0 hsl(var(--primary))" : undefined,
         }}
       >
         {children}
