@@ -1233,9 +1233,15 @@ export function Inbox() {
                   <div
                     key={`sel-${key}`}
                     data-inbox-item
-                    className={isSelected ? "bg-primary/10 outline outline-2 -outline-offset-2 outline-primary/30" : ""}
+                    className={cn(
+                      "relative",
+                      isSelected && "bg-primary/[0.06] [&>*]:bg-transparent",
+                    )}
                     onClick={() => setSelectedIndex(index)}
                   >
+                    {isSelected && (
+                      <div className="absolute inset-y-0 left-0 w-[3px] bg-primary rounded-r-sm" />
+                    )}
                     {child}
                   </div>
                 );
