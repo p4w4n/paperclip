@@ -186,6 +186,7 @@ export type {
   ProjectGoalRef,
   ProjectWorkspace,
   ExecutionWorkspace,
+  ExecutionWorkspaceConfig,
   WorkspaceRuntimeService,
   WorkspaceOperation,
   WorkspaceOperationPhase,

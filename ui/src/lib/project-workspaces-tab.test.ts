@@ -87,7 +87,9 @@ function createExecutionWorkspace(overrides: Partial<ExecutionWorkspace>): Execu
     closedAt: overrides.closedAt ?? null,
     cleanupEligibleAt: overrides.cleanupEligibleAt ?? null,
     cleanupReason: overrides.cleanupReason ?? null,
+    config: overrides.config ?? null,
     metadata: overrides.metadata ?? null,
+    runtimeServices: overrides.runtimeServices ?? [],
     createdAt: overrides.createdAt ?? new Date("2026-03-26T09:00:00Z"),
     updatedAt: overrides.updatedAt ?? new Date("2026-03-26T09:30:00Z"),
   };

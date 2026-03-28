@@ -4,7 +4,7 @@ import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import type { BillingType } from "@paperclipai/shared";
+import type { BillingType, ExecutionWorkspaceConfig } from "@paperclipai/shared";
 import {
   agents,
   agentRuntimeState,
@@ -40,7 +40,7 @@ import {
   sanitizeRuntimeServiceBaseEnv,
 } from "./workspace-runtime.js";
 import { issueService } from "./issues.js";
-import { executionWorkspaceService } from "./execution-workspaces.js";
+import { executionWorkspaceService, mergeExecutionWorkspaceConfig } from "./execution-workspaces.js";
 import { workspaceOperationService } from "./workspace-operations.js";
 import {
   buildExecutionWorkspaceAdapterConfig,
@@ -75,6 +75,57 @@ const SESSIONED_LOCAL_ADAPTERS = new Set([
   "opencode_local",
   "pi_local",
 ]);
+
+function applyPersistedExecutionWorkspaceConfig(input: {
+  config: Record<string, unknown>;
+  workspaceConfig: ExecutionWorkspaceConfig | null;
+  mode: ReturnType<typeof resolveExecutionWorkspaceMode>;
+}) {
+  if (!input.workspaceConfig) return input.config;
+
+  const nextConfig = { ...input.config };
+
+  if (input.mode !== "agent_default") {
+    if (input.workspaceConfig.workspaceRuntime === null) {
+      delete nextConfig.workspaceRuntime;
+    } else {
+      nextConfig.workspaceRuntime = { ...input.workspaceConfig.workspaceRuntime };
+    }
+  }
+
+  if (input.mode === "isolated_workspace") {
+    const nextStrategy = parseObject(nextConfig.workspaceStrategy);
+    if (input.workspaceConfig.provisionCommand === null) delete nextStrategy.provisionCommand;
+    else nextStrategy.provisionCommand = input.workspaceConfig.provisionCommand;
+    if (input.workspaceConfig.teardownCommand === null) delete nextStrategy.teardownCommand;
+    else nextStrategy.teardownCommand = input.workspaceConfig.teardownCommand;
+    nextConfig.workspaceStrategy = nextStrategy;
+  }
+
+  return nextConfig;
+}
+
+function buildExecutionWorkspaceConfigSnapshot(config: Record<string, unknown>): Partial<ExecutionWorkspaceConfig> | null {
+  const strategy = parseObject(config.workspaceStrategy);
+  const snapshot: Partial<ExecutionWorkspaceConfig> = {};
+
+  if ("workspaceStrategy" in config) {
+    snapshot.provisionCommand = typeof strategy.provisionCommand === "string" ? strategy.provisionCommand : null;
+    snapshot.teardownCommand = typeof strategy.teardownCommand === "string" ? strategy.teardownCommand : null;
+  }
+
+  if ("workspaceRuntime" in config) {
+    const workspaceRuntime = parseObject(config.workspaceRuntime);
+    snapshot.workspaceRuntime = Object.keys(workspaceRuntime).length > 0 ? workspaceRuntime : null;
+  }
+
+  const hasSnapshot = Object.values(snapshot).some((value) => {
+    if (value === null) return false;
+    if (typeof value === "object") return Object.keys(value).length > 0;
+    return true;
+  });
+  return hasSnapshot ? snapshot : null;
+}
 
 function deriveRepoNameFromRepoUrl(repoUrl: string | null): string | null {
   const trimmed = repoUrl?.trim() ?? "";
@@ -2048,18 +2099,6 @@ export function heartbeatService(db: Db) {
       mode: executionWorkspaceMode,
       legacyUseProjectWorkspace: issueAssigneeOverrides?.useProjectWorkspace ?? null,
     });
-    const mergedConfig = issueAssigneeOverrides?.adapterConfig
-      ? { ...workspaceManagedConfig, ...issueAssigneeOverrides.adapterConfig }
-      : workspaceManagedConfig;
-    const { config: resolvedConfig, secretKeys } = await secretsSvc.resolveAdapterConfigForRuntime(
-      agent.companyId,
-      mergedConfig,
-    );
-    const runtimeSkillEntries = await companySkills.listRuntimeSkillEntries(agent.companyId);
-    const runtimeConfig = {
-      ...resolvedConfig,
-      paperclipRuntimeSkills: runtimeSkillEntries,
-    };
     const issueRef = issueContext
       ? {
           id: issueContext.id,
@@ -2073,6 +2112,24 @@ export function heartbeatService(db: Db) {
       : null;
     const existingExecutionWorkspace =
       issueRef?.executionWorkspaceId ? await executionWorkspacesSvc.getById(issueRef.executionWorkspaceId) : null;
+    const persistedWorkspaceManagedConfig = applyPersistedExecutionWorkspaceConfig({
+      config: workspaceManagedConfig,
+      workspaceConfig: existingExecutionWorkspace?.config ?? null,
+      mode: executionWorkspaceMode,
+    });
+    const mergedConfig = issueAssigneeOverrides?.adapterConfig
+      ? { ...persistedWorkspaceManagedConfig, ...issueAssigneeOverrides.adapterConfig }
+      : persistedWorkspaceManagedConfig;
+    const { config: resolvedConfig, secretKeys } = await secretsSvc.resolveAdapterConfigForRuntime(
+      agent.companyId,
+      mergedConfig,
+    );
+    const runtimeSkillEntries = await companySkills.listRuntimeSkillEntries(agent.companyId);
+    const runtimeConfig = {
+      ...resolvedConfig,
+      paperclipRuntimeSkills: runtimeSkillEntries,
+    };
+    const configSnapshot = buildExecutionWorkspaceConfigSnapshot(resolvedConfig);
     const workspaceOperationRecorder = workspaceOperationsSvc.createRecorder({
       companyId: agent.companyId,
       heartbeatRunId: run.id,
@@ -2103,6 +2160,14 @@ export function heartbeatService(db: Db) {
       existingExecutionWorkspace &&
       existingExecutionWorkspace.status !== "archived";
     let persistedExecutionWorkspace = null;
+    const nextExecutionWorkspaceMetadataBase = {
+      ...(existingExecutionWorkspace?.metadata ?? {}),
+      source: executionWorkspace.source,
+      createdByRuntime: executionWorkspace.created,
+    } as Record<string, unknown>;
+    const nextExecutionWorkspaceMetadata = configSnapshot
+      ? mergeExecutionWorkspaceConfig(nextExecutionWorkspaceMetadataBase, configSnapshot)
+      : nextExecutionWorkspaceMetadataBase;
     try {
       persistedExecutionWorkspace = shouldReuseExisting && existingExecutionWorkspace
         ? await executionWorkspacesSvc.update(existingExecutionWorkspace.id, {
@@ -2114,11 +2179,7 @@ export function heartbeatService(db: Db) {
             providerRef: executionWorkspace.worktreePath,
             status: "active",
             lastUsedAt: new Date(),
-            metadata: {
-              ...(existingExecutionWorkspace.metadata ?? {}),
-              source: executionWorkspace.source,
-              createdByRuntime: executionWorkspace.created,
-            },
+            metadata: nextExecutionWorkspaceMetadata,
           })
         : resolvedProjectId
           ? await executionWorkspacesSvc.create({
@@ -2145,10 +2206,7 @@ export function heartbeatService(db: Db) {
               providerRef: executionWorkspace.worktreePath,
               lastUsedAt: new Date(),
               openedAt: new Date(),
-              metadata: {
-                source: executionWorkspace.source,
-                createdByRuntime: executionWorkspace.created,
-              },
+              metadata: nextExecutionWorkspaceMetadata,
             })
           : null;
     } catch (error) {
@@ -2175,7 +2233,8 @@ export function heartbeatService(db: Db) {
               cwd: resolvedWorkspace.cwd,
               cleanupCommand: null,
             },
-            teardownCommand: projectExecutionWorkspacePolicy?.workspaceStrategy?.teardownCommand ?? null,
+            cleanupCommand: configSnapshot?.cleanupCommand ?? null,
+            teardownCommand: configSnapshot?.teardownCommand ?? projectExecutionWorkspacePolicy?.workspaceStrategy?.teardownCommand ?? null,
             recorder: workspaceOperationRecorder,
           });
         } catch (cleanupError) {

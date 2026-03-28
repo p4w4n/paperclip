@@ -1,11 +1,126 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import { executionWorkspaces } from "@paperclipai/db";
-import type { ExecutionWorkspace } from "@paperclipai/shared";
+import { executionWorkspaces, workspaceRuntimeServices } from "@paperclipai/db";
+import type { ExecutionWorkspace, ExecutionWorkspaceConfig, WorkspaceRuntimeService } from "@paperclipai/shared";
 
 type ExecutionWorkspaceRow = typeof executionWorkspaces.$inferSelect;
+type WorkspaceRuntimeServiceRow = typeof workspaceRuntimeServices.$inferSelect;
 
-function toExecutionWorkspace(row: ExecutionWorkspaceRow): ExecutionWorkspace {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readNullableString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function cloneRecord(value: unknown): Record<string, unknown> | null {
+  if (!isRecord(value)) return null;
+  return { ...value };
+}
+
+export function readExecutionWorkspaceConfig(metadata: Record<string, unknown> | null | undefined): ExecutionWorkspaceConfig | null {
+  const raw = isRecord(metadata?.config) ? metadata.config : null;
+  if (!raw) return null;
+
+  const config: ExecutionWorkspaceConfig = {
+    provisionCommand: readNullableString(raw.provisionCommand),
+    teardownCommand: readNullableString(raw.teardownCommand),
+    cleanupCommand: readNullableString(raw.cleanupCommand),
+    workspaceRuntime: cloneRecord(raw.workspaceRuntime),
+  };
+
+  const hasConfig = Object.values(config).some((value) => {
+    if (value === null) return false;
+    if (typeof value === "object") return Object.keys(value).length > 0;
+    return true;
+  });
+
+  return hasConfig ? config : null;
+}
+
+export function mergeExecutionWorkspaceConfig(
+  metadata: Record<string, unknown> | null | undefined,
+  patch: Partial<ExecutionWorkspaceConfig> | null,
+): Record<string, unknown> | null {
+  const nextMetadata = isRecord(metadata) ? { ...metadata } : {};
+  const current = readExecutionWorkspaceConfig(metadata) ?? {
+    provisionCommand: null,
+    teardownCommand: null,
+    cleanupCommand: null,
+    workspaceRuntime: null,
+  };
+
+  if (patch === null) {
+    delete nextMetadata.config;
+    return Object.keys(nextMetadata).length > 0 ? nextMetadata : null;
+  }
+
+  const nextConfig: ExecutionWorkspaceConfig = {
+    provisionCommand: patch.provisionCommand !== undefined ? readNullableString(patch.provisionCommand) : current.provisionCommand,
+    teardownCommand: patch.teardownCommand !== undefined ? readNullableString(patch.teardownCommand) : current.teardownCommand,
+    cleanupCommand: patch.cleanupCommand !== undefined ? readNullableString(patch.cleanupCommand) : current.cleanupCommand,
+    workspaceRuntime: patch.workspaceRuntime !== undefined ? cloneRecord(patch.workspaceRuntime) : current.workspaceRuntime,
+  };
+
+  const hasConfig = Object.values(nextConfig).some((value) => {
+    if (value === null) return false;
+    if (typeof value === "object") return Object.keys(value).length > 0;
+    return true;
+  });
+
+  if (hasConfig) {
+    nextMetadata.config = {
+      provisionCommand: nextConfig.provisionCommand,
+      teardownCommand: nextConfig.teardownCommand,
+      cleanupCommand: nextConfig.cleanupCommand,
+      workspaceRuntime: nextConfig.workspaceRuntime,
+    };
+  } else {
+    delete nextMetadata.config;
+  }
+
+  return Object.keys(nextMetadata).length > 0 ? nextMetadata : null;
+}
+
+function toRuntimeService(row: WorkspaceRuntimeServiceRow): WorkspaceRuntimeService {
+  return {
+    id: row.id,
+    companyId: row.companyId,
+    projectId: row.projectId ?? null,
+    projectWorkspaceId: row.projectWorkspaceId ?? null,
+    executionWorkspaceId: row.executionWorkspaceId ?? null,
+    issueId: row.issueId ?? null,
+    scopeType: row.scopeType as WorkspaceRuntimeService["scopeType"],
+    scopeId: row.scopeId ?? null,
+    serviceName: row.serviceName,
+    status: row.status as WorkspaceRuntimeService["status"],
+    lifecycle: row.lifecycle as WorkspaceRuntimeService["lifecycle"],
+    reuseKey: row.reuseKey ?? null,
+    command: row.command ?? null,
+    cwd: row.cwd ?? null,
+    port: row.port ?? null,
+    url: row.url ?? null,
+    provider: row.provider as WorkspaceRuntimeService["provider"],
+    providerRef: row.providerRef ?? null,
+    ownerAgentId: row.ownerAgentId ?? null,
+    startedByRunId: row.startedByRunId ?? null,
+    lastUsedAt: row.lastUsedAt,
+    startedAt: row.startedAt,
+    stoppedAt: row.stoppedAt ?? null,
+    stopPolicy: (row.stopPolicy as Record<string, unknown> | null) ?? null,
+    healthStatus: row.healthStatus as WorkspaceRuntimeService["healthStatus"],
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function toExecutionWorkspace(
+  row: ExecutionWorkspaceRow,
+  runtimeServices: WorkspaceRuntimeService[] = [],
+): ExecutionWorkspace {
   return {
     id: row.id,
     companyId: row.companyId,
@@ -28,7 +143,9 @@ function toExecutionWorkspace(row: ExecutionWorkspaceRow): ExecutionWorkspace {
     closedAt: row.closedAt ?? null,
     cleanupEligibleAt: row.cleanupEligibleAt ?? null,
     cleanupReason: row.cleanupReason ?? null,
+    config: readExecutionWorkspaceConfig((row.metadata as Record<string, unknown> | null) ?? null),
     metadata: (row.metadata as Record<string, unknown> | null) ?? null,
+    runtimeServices,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -63,7 +180,7 @@ export function executionWorkspaceService(db: Db) {
         .from(executionWorkspaces)
         .where(and(...conditions))
         .orderBy(desc(executionWorkspaces.lastUsedAt), desc(executionWorkspaces.createdAt));
-      return rows.map(toExecutionWorkspace);
+      return rows.map((row) => toExecutionWorkspace(row));
     },
 
     getById: async (id: string) => {
@@ -72,7 +189,13 @@ export function executionWorkspaceService(db: Db) {
         .from(executionWorkspaces)
         .where(eq(executionWorkspaces.id, id))
         .then((rows) => rows[0] ?? null);
-      return row ? toExecutionWorkspace(row) : null;
+      if (!row) return null;
+      const runtimeServiceRows = await db
+        .select()
+        .from(workspaceRuntimeServices)
+        .where(eq(workspaceRuntimeServices.executionWorkspaceId, row.id))
+        .orderBy(desc(workspaceRuntimeServices.updatedAt), desc(workspaceRuntimeServices.createdAt));
+      return toExecutionWorkspace(row, runtimeServiceRows.map(toRuntimeService));
     },
 
     create: async (data: typeof executionWorkspaces.$inferInsert) => {

@@ -40,6 +40,13 @@ export interface ExecutionWorkspaceStrategy {
   teardownCommand?: string | null;
 }
 
+export interface ExecutionWorkspaceConfig {
+  provisionCommand: string | null;
+  teardownCommand: string | null;
+  cleanupCommand: string | null;
+  workspaceRuntime: Record<string, unknown> | null;
+}
+
 export interface ProjectExecutionWorkspacePolicy {
   enabled: boolean;
   defaultMode?: ProjectExecutionWorkspaceDefaultMode;
@@ -81,7 +88,9 @@ export interface ExecutionWorkspace {
   closedAt: Date | null;
   cleanupEligibleAt: Date | null;
   cleanupReason: string | null;
+  config: ExecutionWorkspaceConfig | null;
   metadata: Record<string, unknown> | null;
+  runtimeServices?: WorkspaceRuntimeService[];
   createdAt: Date;
   updatedAt: Date;
 }

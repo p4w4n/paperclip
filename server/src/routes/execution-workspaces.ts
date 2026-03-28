@@ -5,6 +5,7 @@ import { issues, projects, projectWorkspaces } from "@paperclipai/db";
 import { updateExecutionWorkspaceSchema } from "@paperclipai/shared";
 import { validate } from "../middleware/validate.js";
 import { executionWorkspaceService, logActivity, workspaceOperationService } from "../services/index.js";
+import { mergeExecutionWorkspaceConfig, readExecutionWorkspaceConfig } from "../services/execution-workspaces.js";
 import { parseProjectExecutionWorkspacePolicy } from "../services/execution-workspace-policy.js";
 import {
   cleanupExecutionWorkspaceArtifacts,
@@ -52,11 +53,31 @@ export function executionWorkspaceRoutes(db: Db) {
     }
     assertCompanyAccess(req, existing.companyId);
     const patch: Record<string, unknown> = {
-      ...req.body,
-      ...(req.body.cleanupEligibleAt ? { cleanupEligibleAt: new Date(req.body.cleanupEligibleAt) } : {}),
+      ...(req.body.name === undefined ? {} : { name: req.body.name }),
+      ...(req.body.cwd === undefined ? {} : { cwd: req.body.cwd }),
+      ...(req.body.repoUrl === undefined ? {} : { repoUrl: req.body.repoUrl }),
+      ...(req.body.baseRef === undefined ? {} : { baseRef: req.body.baseRef }),
+      ...(req.body.branchName === undefined ? {} : { branchName: req.body.branchName }),
+      ...(req.body.providerRef === undefined ? {} : { providerRef: req.body.providerRef }),
+      ...(req.body.status === undefined ? {} : { status: req.body.status }),
+      ...(req.body.cleanupReason === undefined ? {} : { cleanupReason: req.body.cleanupReason }),
+      ...(req.body.cleanupEligibleAt !== undefined
+        ? { cleanupEligibleAt: req.body.cleanupEligibleAt ? new Date(req.body.cleanupEligibleAt) : null }
+        : {}),
     };
+    if (req.body.metadata !== undefined || req.body.config !== undefined) {
+      const requestedMetadata = req.body.metadata === undefined
+        ? (existing.metadata as Record<string, unknown> | null)
+        : (req.body.metadata as Record<string, unknown> | null);
+      patch.metadata = req.body.config === undefined
+        ? requestedMetadata
+        : mergeExecutionWorkspaceConfig(requestedMetadata, req.body.config ?? null);
+    }
     let workspace = existing;
     let cleanupWarnings: string[] = [];
+    const configForCleanup = readExecutionWorkspaceConfig(
+      ((patch.metadata as Record<string, unknown> | null | undefined) ?? (existing.metadata as Record<string, unknown> | null)) ?? null,
+    );
 
     if (req.body.status === "archived" && existing.status !== "archived") {
       const linkedIssues = await db
@@ -101,7 +122,7 @@ export function executionWorkspaceRoutes(db: Db) {
                 cleanupCommand: projectWorkspaces.cleanupCommand,
               })
               .from(projectWorkspaces)
-              .where(
+            .where(
                 and(
                   eq(projectWorkspaces.id, existing.projectWorkspaceId),
                   eq(projectWorkspaces.companyId, existing.companyId),
@@ -121,7 +142,8 @@ export function executionWorkspaceRoutes(db: Db) {
         const cleanupResult = await cleanupExecutionWorkspaceArtifacts({
           workspace: existing,
           projectWorkspace,
-          teardownCommand: projectPolicy?.workspaceStrategy?.teardownCommand ?? null,
+          teardownCommand: configForCleanup?.teardownCommand ?? projectPolicy?.workspaceStrategy?.teardownCommand ?? null,
+          cleanupCommand: configForCleanup?.cleanupCommand ?? null,
           recorder: workspaceOperationsSvc.createRecorder({
             companyId: existing.companyId,
             executionWorkspaceId: existing.id,

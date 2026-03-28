@@ -151,6 +151,7 @@ export {
 } from "./work-product.js";
 
 export {
+  executionWorkspaceConfigSchema,
   updateExecutionWorkspaceSchema,
   executionWorkspaceStatusSchema,
   type UpdateExecutionWorkspace,
