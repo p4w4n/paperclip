@@ -335,6 +335,44 @@ disable_seeded_routines() {
 
 disable_seeded_routines
 
+if [[ -f "$worktree_cwd/package.json" && -f "$worktree_cwd/pnpm-lock.yaml" ]]; then
+  needs_install=0
+
+  while IFS= read -r relative_path; do
+    [[ -n "$relative_path" ]] || continue
+    target_path="$worktree_cwd/$relative_path"
+
+    if [[ -L "$target_path" ]]; then
+      rm "$target_path"
+      needs_install=1
+      continue
+    fi
+
+    if [[ ! -e "$target_path" ]]; then
+      needs_install=1
+    fi
+  done < <(
+    cd "$base_cwd" &&
+      find . \
+        -mindepth 1 \
+        -maxdepth 3 \
+        -type d \
+        -name node_modules \
+        ! -path './.git/*' \
+        ! -path './.paperclip/*' \
+        | sed 's#^\./##'
+  )
+
+  if [[ "$needs_install" -eq 1 ]]; then
+    (
+      cd "$worktree_cwd"
+      pnpm install --frozen-lockfile
+    )
+  fi
+
+  exit 0
+fi
+
 while IFS= read -r relative_path; do
   [[ -n "$relative_path" ]] || continue
   source_path="$base_cwd/$relative_path"
