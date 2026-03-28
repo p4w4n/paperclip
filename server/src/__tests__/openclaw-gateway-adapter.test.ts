@@ -497,6 +497,9 @@ describe("openclaw gateway adapter execute", () => {
       expect(String(payload?.message ?? "")).toContain(
         "Treat this wake payload as the highest-priority change for the current heartbeat.",
       );
+      expect(String(payload?.message ?? "")).toContain(
+        "Do not switch to another issue until you have handled this wake.",
+      );
       expect(String(payload?.message ?? "")).toContain("First comment");
       expect(String(payload?.message ?? "")).toContain("\"commentIds\":[\"comment-1\",\"comment-2\"]");
       expect(payload?.paperclip).toMatchObject({

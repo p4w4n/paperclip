@@ -302,10 +302,11 @@ export function renderPaperclipWakePrompt(
   const resumedSession = options.resumedSession === true;
 
   const lines = resumedSession
-    ? [
+      ? [
         "## Paperclip Resume Delta",
         "",
         "You are resuming an existing Paperclip session.",
+        "This heartbeat is scoped to the issue below. Do not switch to another issue until you have handled this wake.",
         "Focus on the new wake delta below and continue the current task without restating the full heartbeat boilerplate.",
         "Fetch the API thread only when `fallbackFetchNeeded` is true or you need broader history than this batch.",
         "",
@@ -319,6 +320,7 @@ export function renderPaperclipWakePrompt(
         "## Paperclip Wake Payload",
         "",
         "Treat this wake payload as the highest-priority change for the current heartbeat.",
+        "This heartbeat is scoped to the issue below. Do not switch to another issue until you have handled this wake.",
         "Before generic repo exploration or boilerplate heartbeat updates, acknowledge the latest comment and explain how it changes your next action.",
         "Use this inline wake data first before refetching the issue thread.",
         "Only fetch the API thread when `fallbackFetchNeeded` is true or you need broader history than this batch.",
