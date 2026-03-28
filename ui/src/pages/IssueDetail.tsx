@@ -291,7 +291,6 @@ export function IssueDetail() {
     ),
     [activeRun, liveRuns],
   );
-  const hasRunningIssueRun = Boolean(runningIssueRun);
   const sourceBreadcrumb = useMemo(
     () => readIssueDetailBreadcrumb(location.state, location.search) ?? { label: "Issues", href: "/issues" },
     [location.state, location.search],
@@ -1246,17 +1245,16 @@ export function IssueDetail() {
             currentAssigneeValue={actualAssigneeValue}
             suggestedAssigneeValue={suggestedAssigneeValue}
             mentions={mentionOptions}
-            interruptAvailable={hasRunningIssueRun}
             onInterruptQueued={async (runId) => {
               await interruptQueuedComment.mutateAsync(runId);
             }}
             interruptingQueuedRunId={interruptQueuedComment.isPending ? runningIssueRun?.id ?? null : null}
-            onAdd={async (body, reopen, reassignment, interrupt) => {
+            onAdd={async (body, reopen, reassignment) => {
               if (reassignment) {
-                await addCommentAndReassign.mutateAsync({ body, reopen, reassignment, interrupt });
+                await addCommentAndReassign.mutateAsync({ body, reopen, reassignment });
                 return;
               }
-              await addComment.mutateAsync({ body, reopen, interrupt });
+              await addComment.mutateAsync({ body, reopen });
             }}
             imageUploadHandler={async (file) => {
               const attachment = await uploadAttachment.mutateAsync(file);

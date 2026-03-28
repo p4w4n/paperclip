@@ -40,12 +40,7 @@ interface CommentThreadProps {
   linkedRuns?: LinkedRunItem[];
   companyId?: string | null;
   projectId?: string | null;
-  onAdd: (
-    body: string,
-    reopen?: boolean,
-    reassignment?: CommentReassignment,
-    interrupt?: boolean,
-  ) => Promise<void>;
+  onAdd: (body: string, reopen?: boolean, reassignment?: CommentReassignment) => Promise<void>;
   issueStatus?: string;
   agentMap?: Map<string, Agent>;
   imageUploadHandler?: (file: File) => Promise<string>;
@@ -58,7 +53,6 @@ interface CommentThreadProps {
   currentAssigneeValue?: string;
   suggestedAssigneeValue?: string;
   mentions?: MentionOption[];
-  interruptAvailable?: boolean;
   onInterruptQueued?: (runId: string) => Promise<void>;
   interruptingQueuedRunId?: string | null;
 }
@@ -329,13 +323,11 @@ export function CommentThread({
   currentAssigneeValue = "",
   suggestedAssigneeValue,
   mentions: providedMentions,
-  interruptAvailable = false,
   onInterruptQueued,
   interruptingQueuedRunId = null,
 }: CommentThreadProps) {
   const [body, setBody] = useState("");
   const [reopen, setReopen] = useState(true);
-  const [interrupt, setInterrupt] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [attaching, setAttaching] = useState(false);
   const effectiveSuggestedAssigneeValue = suggestedAssigneeValue ?? currentAssigneeValue;
@@ -405,14 +397,6 @@ export function CommentThread({
     setReassignTarget(effectiveSuggestedAssigneeValue);
   }, [effectiveSuggestedAssigneeValue]);
 
-  const interruptVisible = interruptAvailable && body.trim().length > 0;
-
-  useEffect(() => {
-    if (!interruptVisible && interrupt) {
-      setInterrupt(false);
-    }
-  }, [interruptVisible, interrupt]);
-
   // Scroll to comment when URL hash matches #comment-{id}
   useEffect(() => {
     const hash = location.hash;
@@ -439,11 +423,10 @@ export function CommentThread({
 
     setSubmitting(true);
     try {
-      await onAdd(trimmed, reopen ? true : undefined, reassignment ?? undefined, interrupt ? true : undefined);
+      await onAdd(trimmed, reopen ? true : undefined, reassignment ?? undefined);
       setBody("");
       if (draftKey) clearDraft(draftKey);
       setReopen(true);
-      setInterrupt(false);
       setReassignTarget(effectiveSuggestedAssigneeValue);
     } catch {
       // Parent mutation handlers surface the failure and keep the draft intact.
@@ -564,17 +547,6 @@ export function CommentThread({
             />
             Re-open
           </label>
-          {interruptVisible && (
-            <label className="flex items-center gap-1.5 text-xs text-red-700 dark:text-red-300 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={interrupt}
-                onChange={(e) => setInterrupt(e.target.checked)}
-                className="rounded border-red-300 accent-red-600"
-              />
-              Interrupt
-            </label>
-          )}
           {enableReassign && reassignOptions.length > 0 && (
             <InlineEntitySelector
               value={reassignTarget}
