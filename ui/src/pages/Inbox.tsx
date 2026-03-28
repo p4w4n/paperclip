@@ -935,7 +935,46 @@ export function Inbox() {
     );
   }, [workItemsToRender.length]);
 
-  // Keyboard shortcuts (mail-client style)
+  // Use refs for keyboard handler to avoid stale closures
+  const kbStateRef = useRef({
+    workItems: workItemsToRender,
+    selectedIndex,
+    canArchive: canArchiveFromTab,
+    archivingIssueIds,
+    archivingNonIssueIds,
+    fadingOutIssues,
+    readItems,
+  });
+  kbStateRef.current = {
+    workItems: workItemsToRender,
+    selectedIndex,
+    canArchive: canArchiveFromTab,
+    archivingIssueIds,
+    archivingNonIssueIds,
+    fadingOutIssues,
+    readItems,
+  };
+
+  const kbActionsRef = useRef({
+    archiveIssue: (id: string) => archiveIssueMutation.mutate(id),
+    archiveNonIssue: handleArchiveNonIssue,
+    markRead: (id: string) => markReadMutation.mutate(id),
+    markUnreadIssue: (id: string) => markUnreadMutation.mutate(id),
+    markNonIssueRead: handleMarkNonIssueRead,
+    markNonIssueUnread: markItemUnread,
+    navigate,
+  });
+  kbActionsRef.current = {
+    archiveIssue: (id: string) => archiveIssueMutation.mutate(id),
+    archiveNonIssue: handleArchiveNonIssue,
+    markRead: (id: string) => markReadMutation.mutate(id),
+    markUnreadIssue: (id: string) => markUnreadMutation.mutate(id),
+    markNonIssueRead: handleMarkNonIssueRead,
+    markNonIssueUnread: markItemUnread,
+    navigate,
+  };
+
+  // Keyboard shortcuts (mail-client style) — single stable listener using refs
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't capture when typing in inputs/textareas or with modifier keys
@@ -952,10 +991,13 @@ export function Inbox() {
         return;
       }
 
-      // Keyboard shortcuts are only active on the "mine" tab
-      if (!canArchiveFromTab) return;
+      const st = kbStateRef.current;
+      const act = kbActionsRef.current;
 
-      const itemCount = workItemsToRender.length;
+      // Keyboard shortcuts are only active on the "mine" tab
+      if (!st.canArchive) return;
+
+      const itemCount = st.workItems.length;
       if (itemCount === 0) return;
 
       switch (e.key) {
@@ -971,60 +1013,59 @@ export function Inbox() {
         }
         case "a":
         case "y": {
-          if (selectedIndex < 0 || selectedIndex >= itemCount) return;
+          if (st.selectedIndex < 0 || st.selectedIndex >= itemCount) return;
           e.preventDefault();
-          const item = workItemsToRender[selectedIndex];
-          const key = getWorkItemKey(item);
+          const item = st.workItems[st.selectedIndex];
           if (item.kind === "issue") {
-            if (!archivingIssueIds.has(item.issue.id)) {
-              archiveIssueMutation.mutate(item.issue.id);
+            if (!st.archivingIssueIds.has(item.issue.id)) {
+              act.archiveIssue(item.issue.id);
             }
           } else {
-            if (!archivingNonIssueIds.has(key)) {
-              handleArchiveNonIssue(key);
+            const key = getWorkItemKey(item);
+            if (!st.archivingNonIssueIds.has(key)) {
+              act.archiveNonIssue(key);
             }
           }
           break;
         }
         case "U": {
-          if (selectedIndex < 0 || selectedIndex >= itemCount) return;
+          if (st.selectedIndex < 0 || st.selectedIndex >= itemCount) return;
           e.preventDefault();
-          const item = workItemsToRender[selectedIndex];
+          const item = st.workItems[st.selectedIndex];
           if (item.kind === "issue") {
-            markUnreadMutation.mutate(item.issue.id);
+            act.markUnreadIssue(item.issue.id);
           } else {
-            const key = getWorkItemKey(item);
-            markItemUnread(key);
+            act.markNonIssueUnread(getWorkItemKey(item));
           }
           break;
         }
         case "r": {
-          if (selectedIndex < 0 || selectedIndex >= itemCount) return;
+          if (st.selectedIndex < 0 || st.selectedIndex >= itemCount) return;
           e.preventDefault();
-          const item = workItemsToRender[selectedIndex];
+          const item = st.workItems[st.selectedIndex];
           if (item.kind === "issue") {
-            if (item.issue.isUnreadForMe && !fadingOutIssues.has(item.issue.id)) {
-              markReadMutation.mutate(item.issue.id);
+            if (item.issue.isUnreadForMe && !st.fadingOutIssues.has(item.issue.id)) {
+              act.markRead(item.issue.id);
             }
           } else {
             const key = getWorkItemKey(item);
-            if (!readItems.has(key)) {
-              handleMarkNonIssueRead(key);
+            if (!st.readItems.has(key)) {
+              act.markNonIssueRead(key);
             }
           }
           break;
         }
         case "Enter": {
-          if (selectedIndex < 0 || selectedIndex >= itemCount) return;
+          if (st.selectedIndex < 0 || st.selectedIndex >= itemCount) return;
           e.preventDefault();
-          const item = workItemsToRender[selectedIndex];
+          const item = st.workItems[st.selectedIndex];
           if (item.kind === "issue") {
             const pathId = item.issue.identifier ?? item.issue.id;
-            navigate(createIssueDetailPath(pathId, issueLinkState), { state: issueLinkState });
+            act.navigate(createIssueDetailPath(pathId, issueLinkState), { state: issueLinkState });
           } else if (item.kind === "approval") {
-            navigate(`/approvals/${item.approval.id}`);
+            act.navigate(`/approvals/${item.approval.id}`);
           } else if (item.kind === "failed_run") {
-            navigate(`/agents/${item.run.agentId}/runs/${item.run.id}`);
+            act.navigate(`/agents/${item.run.agentId}/runs/${item.run.id}`);
           }
           break;
         }
@@ -1034,13 +1075,7 @@ export function Inbox() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [
-    workItemsToRender, selectedIndex, canArchiveFromTab, navigate, issueLinkState,
-    getWorkItemKey, archivingIssueIds, archivingNonIssueIds,
-    fadingOutIssues, readItems,
-    archiveIssueMutation, markReadMutation, markUnreadMutation,
-    handleArchiveNonIssue, handleMarkNonIssueRead, markItemUnread,
-  ]);
+  }, [getWorkItemKey, issueLinkState]);
 
   // Scroll selected item into view
   useEffect(() => {
@@ -1198,7 +1233,7 @@ export function Inbox() {
                   <div
                     key={`sel-${key}`}
                     data-inbox-item
-                    className={isSelected ? "bg-accent" : ""}
+                    className={isSelected ? "bg-primary/10 outline outline-2 -outline-offset-2 outline-primary/30" : ""}
                     onClick={() => setSelectedIndex(index)}
                   >
                     {child}
