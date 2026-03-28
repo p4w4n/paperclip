@@ -15,6 +15,14 @@ import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { assigneeValueFromSelection, suggestedCommentAssigneeValue } from "../lib/assignees";
 import { queryKeys } from "../lib/queryKeys";
 import { createIssueDetailPath, readIssueDetailBreadcrumb } from "../lib/issueDetailBreadcrumb";
+import {
+  applyOptimisticIssueCommentUpdate,
+  createOptimisticIssueComment,
+  mergeIssueComments,
+  upsertIssueComment,
+  type IssueCommentReassignment,
+  type OptimisticIssueComment,
+} from "../lib/optimistic-issue-comments";
 import { useProjectOrder } from "../hooks/useProjectOrder";
 import { relativeTime, cn, formatTokens, visibleRunCostUsd } from "../lib/utils";
 import { InlineEditor } from "../components/InlineEditor";
@@ -55,12 +63,9 @@ import {
   Trash2,
 } from "lucide-react";
 import type { ActivityEvent } from "@paperclipai/shared";
-import type { Agent, IssueAttachment } from "@paperclipai/shared";
+import type { Agent, Issue, IssueAttachment, IssueComment } from "@paperclipai/shared";
 
-type CommentReassignment = {
-  assigneeAgentId: string | null;
-  assigneeUserId: string | null;
-};
+type CommentReassignment = IssueCommentReassignment;
 
 const ACTION_LABELS: Record<string, string> = {
   "issue.created": "created the issue",
@@ -213,6 +218,7 @@ export function IssueDetail() {
   });
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [attachmentDragActive, setAttachmentDragActive] = useState(false);
+  const [optimisticComments, setOptimisticComments] = useState<OptimisticIssueComment[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const lastMarkedReadIssueIdRef = useRef<string | null>(null);
 
@@ -386,8 +392,18 @@ export function IssueDetail() {
   );
 
   const suggestedAssigneeValue = useMemo(
-    () => suggestedCommentAssigneeValue(issue ?? {}, comments, currentUserId),
-    [issue, comments, currentUserId],
+    () =>
+      suggestedCommentAssigneeValue(
+        issue ?? {},
+        mergeIssueComments(comments ?? [], optimisticComments),
+        currentUserId,
+      ),
+    [issue, comments, optimisticComments, currentUserId],
+  );
+
+  const threadComments = useMemo(
+    () => mergeIssueComments(comments ?? [], optimisticComments),
+    [comments, optimisticComments],
   );
 
   const commentsWithRunMeta = useMemo(() => {
@@ -406,11 +422,11 @@ export function IssueDetail() {
         runAgentId: evt.agentId ?? agentIdByRunId.get(evt.runId) ?? null,
       });
     }
-    return (comments ?? []).map((comment) => {
+    return threadComments.map((comment) => {
       const meta = runMetaByCommentId.get(comment.id);
       return meta ? { ...comment, ...meta } : comment;
     });
-  }, [activity, comments, linkedRuns]);
+  }, [activity, threadComments, linkedRuns]);
 
   const issueCostSummary = useMemo(() => {
     let input = 0;
@@ -491,7 +507,62 @@ export function IssueDetail() {
   const addComment = useMutation({
     mutationFn: ({ body, reopen }: { body: string; reopen?: boolean }) =>
       issuesApi.addComment(issueId!, body, reopen),
-    onSuccess: () => {
+    onMutate: async ({ body, reopen }) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.issues.comments(issueId!) });
+      await queryClient.cancelQueries({ queryKey: queryKeys.issues.detail(issueId!) });
+
+      const previousIssue = queryClient.getQueryData<Issue>(queryKeys.issues.detail(issueId!));
+      const optimisticComment = issue
+        ? createOptimisticIssueComment({
+            companyId: issue.companyId,
+            issueId: issue.id,
+            body,
+            authorUserId: currentUserId,
+          })
+        : null;
+
+      if (optimisticComment) {
+        setOptimisticComments((current) => [...current, optimisticComment]);
+      }
+      if (previousIssue) {
+        queryClient.setQueryData(
+          queryKeys.issues.detail(issueId!),
+          applyOptimisticIssueCommentUpdate(previousIssue, { reopen }),
+        );
+      }
+
+      return {
+        optimisticCommentId: optimisticComment?.clientId ?? null,
+        previousIssue,
+      };
+    },
+    onSuccess: (comment, _variables, context) => {
+      if (context?.optimisticCommentId) {
+        setOptimisticComments((current) =>
+          current.filter((entry) => entry.clientId !== context.optimisticCommentId),
+        );
+      }
+      queryClient.setQueryData<IssueComment[]>(
+        queryKeys.issues.comments(issueId!),
+        (current) => upsertIssueComment(current, comment),
+      );
+    },
+    onError: (err, _variables, context) => {
+      if (context?.optimisticCommentId) {
+        setOptimisticComments((current) =>
+          current.filter((entry) => entry.clientId !== context.optimisticCommentId),
+        );
+      }
+      if (context?.previousIssue) {
+        queryClient.setQueryData(queryKeys.issues.detail(issueId!), context.previousIssue);
+      }
+      pushToast({
+        title: "Comment failed",
+        body: err instanceof Error ? err.message : "Unable to post comment",
+        tone: "error",
+      });
+    },
+    onSettled: () => {
       invalidateIssue();
       queryClient.invalidateQueries({ queryKey: queryKeys.issues.comments(issueId!) });
     },
@@ -513,7 +584,67 @@ export function IssueDetail() {
         assigneeUserId: reassignment.assigneeUserId,
         ...(reopen ? { status: "todo" } : {}),
       }),
-    onSuccess: () => {
+    onMutate: async ({ body, reopen, reassignment }) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.issues.comments(issueId!) });
+      await queryClient.cancelQueries({ queryKey: queryKeys.issues.detail(issueId!) });
+
+      const previousIssue = queryClient.getQueryData<Issue>(queryKeys.issues.detail(issueId!));
+      const optimisticComment = issue
+        ? createOptimisticIssueComment({
+            companyId: issue.companyId,
+            issueId: issue.id,
+            body,
+            authorUserId: currentUserId,
+          })
+        : null;
+
+      if (optimisticComment) {
+        setOptimisticComments((current) => [...current, optimisticComment]);
+      }
+      if (previousIssue) {
+        queryClient.setQueryData(
+          queryKeys.issues.detail(issueId!),
+          applyOptimisticIssueCommentUpdate(previousIssue, { reopen, reassignment }),
+        );
+      }
+
+      return {
+        optimisticCommentId: optimisticComment?.clientId ?? null,
+        previousIssue,
+      };
+    },
+    onSuccess: (result, _variables, context) => {
+      if (context?.optimisticCommentId) {
+        setOptimisticComments((current) =>
+          current.filter((entry) => entry.clientId !== context.optimisticCommentId),
+        );
+      }
+
+      const { comment, ...nextIssue } = result;
+      queryClient.setQueryData(queryKeys.issues.detail(issueId!), nextIssue);
+      if (comment) {
+        queryClient.setQueryData<IssueComment[]>(
+          queryKeys.issues.comments(issueId!),
+          (current) => upsertIssueComment(current, comment),
+        );
+      }
+    },
+    onError: (err, _variables, context) => {
+      if (context?.optimisticCommentId) {
+        setOptimisticComments((current) =>
+          current.filter((entry) => entry.clientId !== context.optimisticCommentId),
+        );
+      }
+      if (context?.previousIssue) {
+        queryClient.setQueryData(queryKeys.issues.detail(issueId!), context.previousIssue);
+      }
+      pushToast({
+        title: "Comment failed",
+        body: err instanceof Error ? err.message : "Unable to post comment",
+        tone: "error",
+      });
+    },
+    onSettled: () => {
       invalidateIssue();
       queryClient.invalidateQueries({ queryKey: queryKeys.issues.comments(issueId!) });
     },

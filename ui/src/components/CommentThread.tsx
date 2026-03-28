@@ -15,6 +15,8 @@ import { PluginSlotOutlet } from "@/plugins/slots";
 interface CommentWithRunMeta extends IssueComment {
   runId?: string | null;
   runAgentId?: string | null;
+  clientId?: string;
+  clientStatus?: "pending";
 }
 
 interface LinkedRunItem {
@@ -169,11 +171,14 @@ const TimelineList = memo(function TimelineList({
 
         const comment = item.comment;
         const isHighlighted = highlightCommentId === comment.id;
+        const isPending = comment.clientStatus === "pending";
         return (
           <div
             key={comment.id}
             id={`comment-${comment.id}`}
-            className={`border p-3 overflow-hidden min-w-0 rounded-sm transition-colors duration-1000 ${isHighlighted ? "border-primary/50 bg-primary/5" : "border-border"}`}
+            className={`border p-3 overflow-hidden min-w-0 rounded-sm transition-colors duration-1000 ${
+              isHighlighted ? "border-primary/50 bg-primary/5" : "border-border"
+            } ${isPending ? "opacity-80" : ""}`}
           >
             <div className="flex items-center justify-between mb-1">
               {comment.authorAgentId ? (
@@ -187,7 +192,7 @@ const TimelineList = memo(function TimelineList({
                 <Identity name="You" size="sm" />
               )}
               <span className="flex items-center gap-1.5">
-                {companyId ? (
+                {companyId && !isPending ? (
                   <PluginSlotOutlet
                     slotTypes={["commentContextMenuItem"]}
                     entityType="comment"
@@ -203,17 +208,21 @@ const TimelineList = memo(function TimelineList({
                     missingBehavior="placeholder"
                   />
                 ) : null}
-                <a
-                  href={`#comment-${comment.id}`}
-                  className="text-xs text-muted-foreground hover:text-foreground hover:underline transition-colors"
-                >
-                  {formatDateTime(comment.createdAt)}
-                </a>
+                {isPending ? (
+                  <span className="text-xs text-muted-foreground">Sending...</span>
+                ) : (
+                  <a
+                    href={`#comment-${comment.id}`}
+                    className="text-xs text-muted-foreground hover:text-foreground hover:underline transition-colors"
+                  >
+                    {formatDateTime(comment.createdAt)}
+                  </a>
+                )}
                 <CopyMarkdownButton text={comment.body} />
               </span>
             </div>
             <MarkdownBody className="text-sm">{comment.body}</MarkdownBody>
-            {companyId ? (
+            {companyId && !isPending ? (
               <div className="mt-2 space-y-2">
                 <PluginSlotOutlet
                   slotTypes={["commentAnnotation"]}
@@ -231,7 +240,7 @@ const TimelineList = memo(function TimelineList({
                 />
               </div>
             ) : null}
-            {comment.runId && (
+            {comment.runId && !isPending && (
               <div className="mt-2 pt-2 border-t border-border/60">
                 {comment.runAgentId ? (
                   <Link
@@ -373,6 +382,8 @@ export function CommentThread({
       if (draftKey) clearDraft(draftKey);
       setReopen(true);
       setReassignTarget(effectiveSuggestedAssigneeValue);
+    } catch {
+      // Parent mutation handlers surface the failure and keep the draft intact.
     } finally {
       setSubmitting(false);
     }
