@@ -295,7 +295,7 @@ describeEmbeddedPostgres("executionWorkspaceService.getCloseReadiness", () => {
       workspaceId: executionWorkspaceId,
       state: "ready_with_warnings",
       isSharedWorkspace: false,
-      isProjectPrimaryWorkspace: true,
+      isProjectPrimaryWorkspace: false,
       isDestructiveCloseAllowed: true,
       git: {
         workspacePath: worktreePath,

@@ -439,7 +439,15 @@ export function executionWorkspaceService(db: Db) {
       const warnings = [...gitWarnings];
       const blockingReasons: string[] = [];
       const isSharedWorkspace = executionWorkspace.mode === "shared_workspace";
-      const isProjectPrimaryWorkspace = workspace.projectWorkspaceId != null && workspace.projectWorkspaceId === primaryProjectWorkspace?.id;
+      const workspacePath = readNullableString(executionWorkspace.providerRef) ?? readNullableString(executionWorkspace.cwd);
+      const resolvedWorkspacePath = workspacePath ? path.resolve(workspacePath) : null;
+      const resolvedPrimaryWorkspacePath = projectWorkspace?.cwd ? path.resolve(projectWorkspace.cwd) : null;
+      const isProjectPrimaryWorkspace =
+        workspace.projectWorkspaceId != null
+        && workspace.projectWorkspaceId === primaryProjectWorkspace?.id
+        && resolvedWorkspacePath != null
+        && resolvedPrimaryWorkspacePath != null
+        && resolvedWorkspacePath === resolvedPrimaryWorkspacePath;
 
       const linkedIssueSummaries = linkedIssues.map((issue) => ({
         ...issue,
@@ -546,7 +554,6 @@ export function executionWorkspaceService(db: Db) {
         });
       }
 
-      const workspacePath = readNullableString(executionWorkspace.providerRef) ?? readNullableString(executionWorkspace.cwd);
       if (executionWorkspace.providerType === "git_worktree" && workspacePath) {
         plannedActions.push({
           kind: "git_worktree_remove",

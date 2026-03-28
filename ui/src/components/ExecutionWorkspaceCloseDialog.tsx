@@ -75,6 +75,8 @@ export function ExecutionWorkspaceCloseDialog({
   });
 
   const readiness = readinessQuery.data ?? null;
+  const blockingIssues = readiness?.linkedIssues.filter((issue) => !issue.isTerminal) ?? [];
+  const otherLinkedIssues = readiness?.linkedIssues.filter((issue) => issue.isTerminal) ?? [];
   const confirmDisabled =
     currentStatus === "archived" ||
     closeWorkspace.isPending ||
@@ -86,10 +88,10 @@ export function ExecutionWorkspaceCloseDialog({
     <Dialog open={open} onOpenChange={(nextOpen) => {
       if (!closeWorkspace.isPending) onOpenChange(nextOpen);
     }}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{actionLabel}</DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="break-words">
             Archive <span className="font-medium text-foreground">{workspaceName}</span> and clean up any owned workspace
             artifacts. Paperclip keeps the workspace record and issue history, but removes it from active workspace views.
           </DialogDescription>
@@ -116,19 +118,39 @@ export function ExecutionWorkspaceCloseDialog({
               </div>
               <div className="mt-1 text-xs opacity-80">
                 {readiness.isSharedWorkspace
-                  ? "This workspace is attached to shared project infrastructure."
-                  : readiness.isProjectPrimaryWorkspace
-                    ? "This workspace is based on the project's primary workspace."
-                    : "This workspace is disposable and can be archived."}
+                  ? "This is the shared project workspace session, so destructive close is blocked."
+                  : readiness.git?.workspacePath && readiness.git.repoRoot && readiness.git.workspacePath !== readiness.git.repoRoot
+                    ? "This execution workspace has its own checkout path and can be archived independently."
+                    : readiness.isProjectPrimaryWorkspace
+                      ? "This execution workspace currently points at the project's primary workspace path."
+                      : "This workspace is disposable and can be archived."}
               </div>
             </div>
+
+            {blockingIssues.length > 0 ? (
+              <section className="space-y-2">
+                <h3 className="text-sm font-medium">Blocking issues</h3>
+                <div className="space-y-2">
+                  {blockingIssues.map((issue) => (
+                    <div key={issue.id} className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm">
+                      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                        <Link to={issueUrl(issue)} className="min-w-0 break-words font-medium hover:underline">
+                          {issue.identifier ?? issue.id} · {issue.title}
+                        </Link>
+                        <span className="text-xs text-muted-foreground">{issue.status}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
 
             {readiness.blockingReasons.length > 0 ? (
               <section className="space-y-2">
                 <h3 className="text-sm font-medium">Blocking reasons</h3>
                 <ul className="space-y-2 text-sm text-muted-foreground">
                   {readiness.blockingReasons.map((reason) => (
-                    <li key={reason} className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-destructive">
+                    <li key={reason} className="break-words rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-destructive">
                       {reason}
                     </li>
                   ))}
@@ -141,7 +163,7 @@ export function ExecutionWorkspaceCloseDialog({
                 <h3 className="text-sm font-medium">Warnings</h3>
                 <ul className="space-y-2 text-sm text-muted-foreground">
                   {readiness.warnings.map((warning) => (
-                    <li key={warning} className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
+                    <li key={warning} className="break-words rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
                       {warning}
                     </li>
                   ))}
@@ -185,14 +207,14 @@ export function ExecutionWorkspaceCloseDialog({
               </section>
             ) : null}
 
-            {readiness.linkedIssues.length > 0 ? (
+            {otherLinkedIssues.length > 0 ? (
               <section className="space-y-2">
-                <h3 className="text-sm font-medium">Linked issues</h3>
+                <h3 className="text-sm font-medium">Other linked issues</h3>
                 <div className="space-y-2">
-                  {readiness.linkedIssues.map((issue) => (
+                  {otherLinkedIssues.map((issue) => (
                     <div key={issue.id} className="rounded-xl border border-border bg-muted/20 px-4 py-3 text-sm">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <Link to={issueUrl(issue)} className="font-medium hover:underline">
+                      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                        <Link to={issueUrl(issue)} className="min-w-0 break-words font-medium hover:underline">
                           {issue.identifier ?? issue.id} · {issue.title}
                         </Link>
                         <span className="text-xs text-muted-foreground">{issue.status}</span>
@@ -209,11 +231,11 @@ export function ExecutionWorkspaceCloseDialog({
                 <div className="space-y-2">
                   {readiness.runtimeServices.map((service) => (
                     <div key={service.id} className="rounded-xl border border-border bg-muted/20 px-4 py-3 text-sm">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
                         <span className="font-medium">{service.serviceName}</span>
                         <span className="text-xs text-muted-foreground">{service.status} · {service.lifecycle}</span>
                       </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
+                      <div className="mt-1 break-words text-xs text-muted-foreground">
                         {service.url ?? service.command ?? service.cwd ?? "No additional details"}
                       </div>
                     </div>
@@ -228,9 +250,9 @@ export function ExecutionWorkspaceCloseDialog({
                 {readiness.plannedActions.map((action, index) => (
                   <div key={`${action.kind}-${index}`} className="rounded-xl border border-border bg-muted/20 px-4 py-3 text-sm">
                     <div className="font-medium">{action.label}</div>
-                    <div className="mt-1 text-muted-foreground">{action.description}</div>
+                    <div className="mt-1 break-words text-muted-foreground">{action.description}</div>
                     {action.command ? (
-                      <pre className="mt-2 overflow-x-auto rounded-lg bg-background px-3 py-2 font-mono text-xs text-foreground">
+                      <pre className="mt-2 whitespace-pre-wrap break-all rounded-lg bg-background px-3 py-2 font-mono text-xs text-foreground">
                         {action.command}
                       </pre>
                     ) : null}
@@ -253,11 +275,11 @@ export function ExecutionWorkspaceCloseDialog({
             ) : null}
 
             {readiness.git?.repoRoot ? (
-              <div className="text-xs text-muted-foreground">
-                Repo root: <span className="font-mono">{readiness.git.repoRoot}</span>
+              <div className="break-words text-xs text-muted-foreground">
+                Repo root: <span className="font-mono break-all">{readiness.git.repoRoot}</span>
                 {readiness.git.workspacePath ? (
                   <>
-                    {" · "}Workspace path: <span className="font-mono">{readiness.git.workspacePath}</span>
+                    {" · "}Workspace path: <span className="font-mono break-all">{readiness.git.workspacePath}</span>
                   </>
                 ) : null}
               </div>
