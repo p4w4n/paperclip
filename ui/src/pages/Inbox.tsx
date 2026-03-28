@@ -100,6 +100,67 @@ function readIssueIdFromRun(run: HeartbeatRun): string | null {
 
 
 type NonIssueUnreadState = "visible" | "fading" | "hidden" | null;
+const selectedInboxAccentClass = "!text-muted-foreground !border-muted-foreground";
+
+function getSelectedUnreadButtonClass(selected: boolean): string {
+  return selected ? "hover:bg-muted/80" : "hover:bg-blue-500/20";
+}
+
+function getSelectedUnreadDotClass(selected: boolean): string {
+  return selected ? "bg-muted-foreground/70" : "bg-blue-600 dark:bg-blue-400";
+}
+
+export function InboxIssueMetaLeading({
+  issue,
+  selected,
+  isLive,
+}: {
+  issue: Issue;
+  selected: boolean;
+  isLive: boolean;
+}) {
+  return (
+    <>
+      <span className="hidden shrink-0 sm:inline-flex">
+        <StatusIcon
+          status={issue.status}
+          className={selected ? selectedInboxAccentClass : undefined}
+        />
+      </span>
+      <span className="shrink-0 font-mono text-xs text-muted-foreground">
+        {issue.identifier ?? issue.id.slice(0, 8)}
+      </span>
+      {isLive && (
+        <span
+          className={cn(
+            "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 sm:gap-1.5 sm:px-2",
+            selected ? "bg-muted" : "bg-blue-500/10",
+          )}
+        >
+          <span className="relative flex h-2 w-2">
+            {!selected ? (
+              <span className="absolute inline-flex h-full w-full animate-pulse rounded-full bg-blue-400 opacity-75" />
+            ) : null}
+            <span
+              className={cn(
+                "relative inline-flex h-2 w-2 rounded-full",
+                selected ? "bg-muted-foreground/70" : "bg-blue-500",
+              )}
+            />
+          </span>
+          <span
+            className={cn(
+              "hidden text-[11px] font-medium sm:inline",
+              selected ? "text-muted-foreground" : "text-blue-600 dark:text-blue-400",
+            )}
+          >
+            Live
+          </span>
+        </span>
+      )}
+    </>
+  );
+}
 
 export function FailedRunInboxRow({
   run,
@@ -148,11 +209,15 @@ export function FailedRunInboxRow({
               <button
                 type="button"
                 onClick={onMarkRead}
-                className="inline-flex h-4 w-4 items-center justify-center rounded-full transition-colors hover:bg-blue-500/20"
+                className={cn(
+                  "inline-flex h-4 w-4 items-center justify-center rounded-full transition-colors",
+                  getSelectedUnreadButtonClass(selected),
+                )}
                 aria-label="Mark as read"
               >
                 <span className={cn(
-                  "block h-2 w-2 rounded-full bg-blue-600 transition-opacity duration-300 dark:bg-blue-400",
+                  "block h-2 w-2 rounded-full transition-opacity duration-300",
+                  getSelectedUnreadDotClass(selected),
                   unreadState === "fading" ? "opacity-0" : "opacity-100",
                 )} />
               </button>
@@ -300,11 +365,15 @@ function ApprovalInboxRow({
               <button
                 type="button"
                 onClick={onMarkRead}
-                className="inline-flex h-4 w-4 items-center justify-center rounded-full transition-colors hover:bg-blue-500/20"
+                className={cn(
+                  "inline-flex h-4 w-4 items-center justify-center rounded-full transition-colors",
+                  getSelectedUnreadButtonClass(selected),
+                )}
                 aria-label="Mark as read"
               >
                 <span className={cn(
-                  "block h-2 w-2 rounded-full bg-blue-600 transition-opacity duration-300 dark:bg-blue-400",
+                  "block h-2 w-2 rounded-full transition-opacity duration-300",
+                  getSelectedUnreadDotClass(selected),
                   unreadState === "fading" ? "opacity-0" : "opacity-100",
                 )} />
               </button>
@@ -402,6 +471,7 @@ function JoinRequestInboxRow({
   onMarkRead,
   onArchive,
   archiveDisabled,
+  selected = false,
   className,
 }: {
   joinRequest: JoinRequest;
@@ -412,6 +482,7 @@ function JoinRequestInboxRow({
   onMarkRead?: () => void;
   onArchive?: () => void;
   archiveDisabled?: boolean;
+  selected?: boolean;
   className?: string;
 }) {
   const label =
@@ -433,11 +504,15 @@ function JoinRequestInboxRow({
               <button
                 type="button"
                 onClick={onMarkRead}
-                className="inline-flex h-4 w-4 items-center justify-center rounded-full transition-colors hover:bg-blue-500/20"
+                className={cn(
+                  "inline-flex h-4 w-4 items-center justify-center rounded-full transition-colors",
+                  getSelectedUnreadButtonClass(selected),
+                )}
                 aria-label="Mark as read"
               >
                 <span className={cn(
-                  "block h-2 w-2 rounded-full bg-blue-600 transition-opacity duration-300 dark:bg-blue-400",
+                  "block h-2 w-2 rounded-full transition-opacity duration-300",
+                  getSelectedUnreadDotClass(selected),
                   unreadState === "fading" ? "opacity-0" : "opacity-100",
                 )} />
               </button>
@@ -1351,6 +1426,7 @@ export function Inbox() {
                     <JoinRequestInboxRow
                       key={joinKey}
                       joinRequest={item.joinRequest}
+                      selected={isSelected}
                       onApprove={() => approveJoinMutation.mutate(item.joinRequest)}
                       onReject={() => rejectJoinMutation.mutate(item.joinRequest)}
                       isPending={approveJoinMutation.isPending || rejectJoinMutation.isPending}
@@ -1393,27 +1469,13 @@ export function Inbox() {
                         ? "pointer-events-none -translate-x-4 scale-[0.98] opacity-0 transition-all duration-200 ease-out"
                         : "transition-all duration-200 ease-out"
                     }
-                    desktopMetaLeading={(
-                      <>
-                        <span className="hidden shrink-0 sm:inline-flex">
-                          <StatusIcon status={issue.status} />
-                        </span>
-                        <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                          {issue.identifier ?? issue.id.slice(0, 8)}
-                        </span>
-                        {liveIssueIds.has(issue.id) && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-1.5 py-0.5 sm:gap-1.5 sm:px-2">
-                            <span className="relative flex h-2 w-2">
-                              <span className="absolute inline-flex h-full w-full animate-pulse rounded-full bg-blue-400 opacity-75" />
-                              <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-500" />
-                            </span>
-                            <span className="hidden text-[11px] font-medium text-blue-600 dark:text-blue-400 sm:inline">
-                              Live
-                            </span>
-                          </span>
-                        )}
-                      </>
-                    )}
+                    desktopMetaLeading={
+                      <InboxIssueMetaLeading
+                        issue={issue}
+                        selected={isSelected}
+                        isLive={liveIssueIds.has(issue.id)}
+                      />
+                    }
                     mobileMeta={
                       issue.lastExternalCommentAt
                         ? `commented ${timeAgo(issue.lastExternalCommentAt)}`

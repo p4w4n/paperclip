@@ -45,6 +45,7 @@ export function IssueRow({
   const identifier = issue.identifier ?? issue.id.slice(0, 8);
   const showUnreadSlot = unreadState !== null;
   const showUnreadDot = unreadState === "visible" || unreadState === "fading";
+  const selectedStatusClass = selected ? "!text-muted-foreground !border-muted-foreground" : undefined;
 
   return (
     <Link
@@ -58,7 +59,7 @@ export function IssueRow({
       )}
     >
       <span className="shrink-0 pt-px sm:hidden">
-        {mobileLeading ?? <StatusIcon status={issue.status} />}
+        {mobileLeading ?? <StatusIcon status={issue.status} className={selectedStatusClass} />}
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-1 sm:contents">
         <span className="line-clamp-2 text-sm sm:order-2 sm:min-w-0 sm:flex-1 sm:truncate sm:line-clamp-none">
@@ -71,7 +72,7 @@ export function IssueRow({
           {desktopMetaLeading ?? (
             <>
               <span className="hidden shrink-0 sm:inline-flex">
-                <StatusIcon status={issue.status} />
+                <StatusIcon status={issue.status} className={selectedStatusClass} />
               </span>
               <span className="shrink-0 font-mono text-xs text-muted-foreground">
                 {identifier}
@@ -113,12 +114,16 @@ export function IssueRow({
                   onMarkRead?.();
                 }
               }}
-              className="inline-flex h-4 w-4 items-center justify-center rounded-full transition-colors hover:bg-blue-500/20"
+              className={cn(
+                "inline-flex h-4 w-4 items-center justify-center rounded-full transition-colors",
+                selected ? "hover:bg-muted/80" : "hover:bg-blue-500/20",
+              )}
               aria-label="Mark as read"
             >
               <span
                 className={cn(
-                  "block h-2 w-2 rounded-full bg-blue-600 transition-opacity duration-300 dark:bg-blue-400",
+                  "block h-2 w-2 rounded-full transition-opacity duration-300",
+                  selected ? "bg-muted-foreground/70" : "bg-blue-600 dark:bg-blue-400",
                   unreadState === "fading" ? "opacity-0" : "opacity-100",
                 )}
               />
