@@ -20,6 +20,7 @@ function createProjectWorkspace(overrides: Partial<ProjectWorkspace>): ProjectWo
     remoteWorkspaceRef: overrides.remoteWorkspaceRef ?? null,
     sharedWorkspaceKey: overrides.sharedWorkspaceKey ?? null,
     metadata: overrides.metadata ?? null,
+    runtimeConfig: overrides.runtimeConfig ?? null,
     isPrimary: overrides.isPrimary ?? false,
     runtimeServices: overrides.runtimeServices ?? [],
     createdAt: overrides.createdAt ?? new Date("2026-03-20T00:00:00Z"),
@@ -151,7 +152,7 @@ describe("buildProjectWorkspaceSummaries", () => {
       ],
     });
 
-    expect(summaries).toHaveLength(2);
+    expect(summaries).toHaveLength(3);
     expect(summaries[0]).toMatchObject({
       key: "execution:exec-1",
       kind: "execution_workspace",
@@ -172,6 +173,7 @@ describe("buildProjectWorkspaceSummaries", () => {
       "issue-feature-newer",
       "issue-feature-older",
     ]);
+    expect(summaries[2]?.key).toBe("project:workspace-default");
   });
 
   it("does not duplicate non-primary workspace issues when an execution workspace owns them", () => {
@@ -194,8 +196,9 @@ describe("buildProjectWorkspaceSummaries", () => {
       ],
     });
 
-    expect(summaries).toHaveLength(1);
+    expect(summaries).toHaveLength(2);
     expect(summaries[0]?.key).toBe("execution:exec-2");
+    expect(summaries[1]?.key).toBe("project:workspace-default");
   });
 
   it("excludes issues that only use the default shared workspace", () => {
@@ -222,6 +225,7 @@ describe("buildProjectWorkspaceSummaries", () => {
       ],
     });
 
-    expect(summaries).toHaveLength(0);
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]?.key).toBe("project:workspace-default");
   });
 });

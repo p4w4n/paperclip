@@ -13,6 +13,7 @@ export const executionWorkspaceConfigSchema = z.object({
   teardownCommand: z.string().optional().nullable(),
   cleanupCommand: z.string().optional().nullable(),
   workspaceRuntime: z.record(z.unknown()).optional().nullable(),
+  desiredState: z.enum(["running", "stopped"]).optional().nullable(),
 }).strict();
 
 export const executionWorkspaceCloseReadinessStateSchema = z.enum([

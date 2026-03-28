@@ -31,7 +31,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs } from "@/components/ui/tabs";
 import { PluginLauncherOutlet } from "@/plugins/launchers";
 import { PluginSlotMount, PluginSlotOutlet, usePluginSlots } from "@/plugins/slots";
-import { Clock3, Copy, GitBranch } from "lucide-react";
+import { Clock3, Copy, GitBranch, Loader2 } from "lucide-react";
 
 /* ── Top-level tab types ── */
 
@@ -221,11 +221,32 @@ function ProjectWorkspacesContent({
   summaries: ReturnType<typeof buildProjectWorkspaceSummaries>;
 }) {
   const queryClient = useQueryClient();
+  const [runtimeActionKey, setRuntimeActionKey] = useState<string | null>(null);
   const [closingWorkspace, setClosingWorkspace] = useState<{
     id: string;
     name: string;
     status: ExecutionWorkspace["status"];
   } | null>(null);
+  const controlWorkspaceRuntime = useMutation({
+    mutationFn: async (input: {
+      key: string;
+      kind: "project_workspace" | "execution_workspace";
+      workspaceId: string;
+      action: "start" | "stop" | "restart";
+    }) => {
+      setRuntimeActionKey(`${input.key}:${input.action}`);
+      if (input.kind === "project_workspace") {
+        return await projectsApi.controlWorkspaceRuntimeServices(projectId, input.workspaceId, input.action, companyId);
+      }
+      return await executionWorkspacesApi.controlRuntimeServices(input.workspaceId, input.action);
+    },
+    onSettled: () => {
+      setRuntimeActionKey(null);
+      queryClient.invalidateQueries({ queryKey: queryKeys.executionWorkspaces.list(companyId, { projectId }) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.projects.detail(projectId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.issues.listByProject(companyId, projectId) });
+    },
+  });
 
   if (summaries.length === 0) {
     return <p className="text-sm text-muted-foreground">No non-default workspace activity yet.</p>;
@@ -261,12 +282,25 @@ function ProjectWorkspacesContent({
                 <GitBranch className="h-3.5 w-3.5" />
                 <span className="font-mono">{summary.branchName ?? "No branch info"}</span>
               </span>
+              <span className="rounded-full border border-border px-2 py-0.5 text-[11px]">
+                {summary.runningServiceCount}/{summary.serviceCount} services running
+              </span>
               {summary.executionWorkspaceStatus ? (
                 <span className="rounded-full border border-border px-2 py-0.5 text-[11px]">
                   {summary.executionWorkspaceStatus}
                 </span>
               ) : null}
             </div>
+            {summary.primaryServiceUrl ? (
+              <a
+                href={summary.primaryServiceUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground hover:underline"
+              >
+                {summary.primaryServiceUrl}
+              </a>
+            ) : null}
 
             {summary.cwd ? (
               <div className="mt-2 flex min-w-0 items-start gap-2 text-xs text-muted-foreground">
@@ -312,6 +346,43 @@ function ProjectWorkspacesContent({
             >
               {summary.kind === "project_workspace" ? "Configure workspace" : "View workspace"}
             </Link>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={
+                  controlWorkspaceRuntime.isPending
+                  || !summary.hasRuntimeConfig
+                  || runtimeActionKey !== null && runtimeActionKey !== `${summary.key}:start`
+                }
+                onClick={() =>
+                  controlWorkspaceRuntime.mutate({
+                    key: summary.key,
+                    kind: summary.kind,
+                    workspaceId: summary.workspaceId,
+                    action: "start",
+                  })
+                }
+              >
+                {runtimeActionKey === `${summary.key}:start` ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                Start
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={controlWorkspaceRuntime.isPending || summary.serviceCount === 0}
+                onClick={() =>
+                  controlWorkspaceRuntime.mutate({
+                    key: summary.key,
+                    kind: summary.kind,
+                    workspaceId: summary.workspaceId,
+                    action: "stop",
+                  })
+                }
+              >
+                Stop
+              </Button>
+            </div>
             {summary.kind === "execution_workspace" && summary.executionWorkspaceId && summary.executionWorkspaceStatus ? (
               <Button
                 variant="outline"

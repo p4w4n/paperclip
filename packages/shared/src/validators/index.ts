@@ -109,6 +109,7 @@ export {
   createProjectWorkspaceSchema,
   updateProjectWorkspaceSchema,
   projectExecutionWorkspacePolicySchema,
+  projectWorkspaceRuntimeConfigSchema,
   type CreateProject,
   type UpdateProject,
   type CreateProjectWorkspace,

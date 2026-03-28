@@ -187,6 +187,7 @@ export function readExecutionWorkspaceConfig(metadata: Record<string, unknown> |
     teardownCommand: readNullableString(raw.teardownCommand),
     cleanupCommand: readNullableString(raw.cleanupCommand),
     workspaceRuntime: cloneRecord(raw.workspaceRuntime),
+    desiredState: raw.desiredState === "running" || raw.desiredState === "stopped" ? raw.desiredState : null,
   };
 
   const hasConfig = Object.values(config).some((value) => {
@@ -208,6 +209,7 @@ export function mergeExecutionWorkspaceConfig(
     teardownCommand: null,
     cleanupCommand: null,
     workspaceRuntime: null,
+    desiredState: null,
   };
 
   if (patch === null) {
@@ -220,6 +222,12 @@ export function mergeExecutionWorkspaceConfig(
     teardownCommand: patch.teardownCommand !== undefined ? readNullableString(patch.teardownCommand) : current.teardownCommand,
     cleanupCommand: patch.cleanupCommand !== undefined ? readNullableString(patch.cleanupCommand) : current.cleanupCommand,
     workspaceRuntime: patch.workspaceRuntime !== undefined ? cloneRecord(patch.workspaceRuntime) : current.workspaceRuntime,
+    desiredState:
+      patch.desiredState !== undefined
+        ? patch.desiredState === "running" || patch.desiredState === "stopped"
+          ? patch.desiredState
+          : null
+        : current.desiredState,
   };
 
   const hasConfig = Object.values(nextConfig).some((value) => {
@@ -234,6 +242,7 @@ export function mergeExecutionWorkspaceConfig(
       teardownCommand: nextConfig.teardownCommand,
       cleanupCommand: nextConfig.cleanupCommand,
       workspaceRuntime: nextConfig.workspaceRuntime,
+      desiredState: nextConfig.desiredState,
     };
   } else {
     delete nextMetadata.config;

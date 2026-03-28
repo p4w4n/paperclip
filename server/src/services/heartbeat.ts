@@ -51,6 +51,7 @@ import {
   resolveExecutionWorkspaceMode,
 } from "./execution-workspace-policy.js";
 import { instanceSettingsService } from "./instance-settings.js";
+import { readProjectWorkspaceRuntimeConfig } from "./project-workspace-runtime-config.js";
 import { redactCurrentUserText, redactCurrentUserValue } from "../log-redaction.js";
 import {
   hasSessionCompactionThresholds,
@@ -79,21 +80,22 @@ const SESSIONED_LOCAL_ADAPTERS = new Set([
 function applyPersistedExecutionWorkspaceConfig(input: {
   config: Record<string, unknown>;
   workspaceConfig: ExecutionWorkspaceConfig | null;
+  projectWorkspaceRuntime: Record<string, unknown> | null;
   mode: ReturnType<typeof resolveExecutionWorkspaceMode>;
 }) {
-  if (!input.workspaceConfig) return input.config;
-
   const nextConfig = { ...input.config };
 
   if (input.mode !== "agent_default") {
-    if (input.workspaceConfig.workspaceRuntime === null) {
+    if (input.workspaceConfig?.workspaceRuntime === null) {
       delete nextConfig.workspaceRuntime;
-    } else {
+    } else if (input.workspaceConfig?.workspaceRuntime) {
       nextConfig.workspaceRuntime = { ...input.workspaceConfig.workspaceRuntime };
+    } else if (input.projectWorkspaceRuntime) {
+      nextConfig.workspaceRuntime = { ...input.projectWorkspaceRuntime };
     }
   }
 
-  if (input.mode === "isolated_workspace") {
+  if (input.workspaceConfig && input.mode === "isolated_workspace") {
     const nextStrategy = parseObject(nextConfig.workspaceStrategy);
     if (input.workspaceConfig.provisionCommand === null) delete nextStrategy.provisionCommand;
     else nextStrategy.provisionCommand = input.workspaceConfig.provisionCommand;
@@ -2112,14 +2114,32 @@ export function heartbeatService(db: Db) {
       : null;
     const existingExecutionWorkspace =
       issueRef?.executionWorkspaceId ? await executionWorkspacesSvc.getById(issueRef.executionWorkspaceId) : null;
+    const resolvedProjectWorkspace =
+      resolvedWorkspace.workspaceId
+        ? await db
+            .select({ metadata: projectWorkspaces.metadata })
+            .from(projectWorkspaces)
+            .where(
+              and(
+                eq(projectWorkspaces.id, resolvedWorkspace.workspaceId),
+                eq(projectWorkspaces.companyId, agent.companyId),
+              ),
+            )
+            .then((rows) => rows[0] ?? null)
+        : null;
+    const projectWorkspaceRuntimeConfig = readProjectWorkspaceRuntimeConfig(
+      (resolvedProjectWorkspace?.metadata as Record<string, unknown> | null) ?? null,
+    );
     const persistedWorkspaceManagedConfig = applyPersistedExecutionWorkspaceConfig({
       config: workspaceManagedConfig,
       workspaceConfig: existingExecutionWorkspace?.config ?? null,
+      projectWorkspaceRuntime: projectWorkspaceRuntimeConfig?.workspaceRuntime ?? null,
       mode: executionWorkspaceMode,
     });
     const mergedConfig = issueAssigneeOverrides?.adapterConfig
       ? { ...persistedWorkspaceManagedConfig, ...issueAssigneeOverrides.adapterConfig }
       : persistedWorkspaceManagedConfig;
+    const configSnapshot = buildExecutionWorkspaceConfigSnapshot(mergedConfig);
     const { config: resolvedConfig, secretKeys } = await secretsSvc.resolveAdapterConfigForRuntime(
       agent.companyId,
       mergedConfig,
@@ -2129,7 +2149,6 @@ export function heartbeatService(db: Db) {
       ...resolvedConfig,
       paperclipRuntimeSkills: runtimeSkillEntries,
     };
-    const configSnapshot = buildExecutionWorkspaceConfigSnapshot(resolvedConfig);
     const workspaceOperationRecorder = workspaceOperationsSvc.createRecorder({
       companyId: agent.companyId,
       heartbeatRunId: run.id,

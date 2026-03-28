@@ -7,8 +7,10 @@ import { validate } from "../middleware/validate.js";
 import { executionWorkspaceService, logActivity, workspaceOperationService } from "../services/index.js";
 import { mergeExecutionWorkspaceConfig, readExecutionWorkspaceConfig } from "../services/execution-workspaces.js";
 import { parseProjectExecutionWorkspacePolicy } from "../services/execution-workspace-policy.js";
+import { readProjectWorkspaceRuntimeConfig } from "../services/project-workspace-runtime-config.js";
 import {
   cleanupExecutionWorkspaceArtifacts,
+  startRuntimeServicesForWorkspaceControl,
   stopRuntimeServicesForExecutionWorkspace,
 } from "../services/workspace-runtime.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
@@ -56,6 +58,186 @@ export function executionWorkspaceRoutes(db: Db) {
       return;
     }
     res.json(readiness);
+  });
+
+  router.get("/execution-workspaces/:id/workspace-operations", async (req, res) => {
+    const id = req.params.id as string;
+    const workspace = await svc.getById(id);
+    if (!workspace) {
+      res.status(404).json({ error: "Execution workspace not found" });
+      return;
+    }
+    assertCompanyAccess(req, workspace.companyId);
+    const operations = await workspaceOperationsSvc.listForExecutionWorkspace(id);
+    res.json(operations);
+  });
+
+  router.post("/execution-workspaces/:id/runtime-services/:action", async (req, res) => {
+    const id = req.params.id as string;
+    const action = String(req.params.action ?? "").trim().toLowerCase();
+    if (action !== "start" && action !== "stop" && action !== "restart") {
+      res.status(404).json({ error: "Runtime service action not found" });
+      return;
+    }
+
+    const existing = await svc.getById(id);
+    if (!existing) {
+      res.status(404).json({ error: "Execution workspace not found" });
+      return;
+    }
+    assertCompanyAccess(req, existing.companyId);
+
+    const workspaceCwd = existing.cwd;
+    if (!workspaceCwd) {
+      res.status(422).json({ error: "Execution workspace needs a local path before Paperclip can manage local runtime services" });
+      return;
+    }
+
+    const projectWorkspace = existing.projectWorkspaceId
+      ? await db
+          .select({
+            id: projectWorkspaces.id,
+            cwd: projectWorkspaces.cwd,
+            repoUrl: projectWorkspaces.repoUrl,
+            repoRef: projectWorkspaces.repoRef,
+            defaultRef: projectWorkspaces.defaultRef,
+            metadata: projectWorkspaces.metadata,
+          })
+          .from(projectWorkspaces)
+          .where(
+            and(
+              eq(projectWorkspaces.id, existing.projectWorkspaceId),
+              eq(projectWorkspaces.companyId, existing.companyId),
+            ),
+          )
+          .then((rows) => rows[0] ?? null)
+      : null;
+    const projectWorkspaceRuntime = readProjectWorkspaceRuntimeConfig(
+      (projectWorkspace?.metadata as Record<string, unknown> | null) ?? null,
+    )?.workspaceRuntime ?? null;
+    const effectiveRuntimeConfig = existing.config?.workspaceRuntime ?? projectWorkspaceRuntime ?? null;
+
+    if ((action === "start" || action === "restart") && !effectiveRuntimeConfig) {
+      res.status(422).json({ error: "Execution workspace has no runtime service configuration or inherited project workspace default" });
+      return;
+    }
+
+    const actor = getActorInfo(req);
+    const recorder = workspaceOperationsSvc.createRecorder({
+      companyId: existing.companyId,
+      executionWorkspaceId: existing.id,
+    });
+    let runtimeServiceCount = existing.runtimeServices?.length ?? 0;
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+
+    const operation = await recorder.recordOperation({
+      phase: action === "stop" ? "workspace_teardown" : "workspace_provision",
+      command: `workspace runtime ${action}`,
+      cwd: existing.cwd,
+      metadata: {
+        action,
+        executionWorkspaceId: existing.id,
+      },
+      run: async () => {
+        const onLog = async (stream: "stdout" | "stderr", chunk: string) => {
+          if (stream === "stdout") stdout.push(chunk);
+          else stderr.push(chunk);
+        };
+
+        if (action === "stop" || action === "restart") {
+          await stopRuntimeServicesForExecutionWorkspace({
+            db,
+            executionWorkspaceId: existing.id,
+            workspaceCwd,
+          });
+        }
+
+        if (action === "start" || action === "restart") {
+          const startedServices = await startRuntimeServicesForWorkspaceControl({
+            db,
+            actor: {
+              id: actor.agentId ?? null,
+              name: actor.actorType === "user" ? "Board" : "Agent",
+              companyId: existing.companyId,
+            },
+            issue: existing.sourceIssueId
+              ? {
+                  id: existing.sourceIssueId,
+                  identifier: null,
+                  title: existing.name,
+                }
+              : null,
+            workspace: {
+              baseCwd: workspaceCwd,
+              source: existing.mode === "shared_workspace" ? "project_primary" : "task_session",
+              projectId: existing.projectId,
+              workspaceId: existing.projectWorkspaceId,
+              repoUrl: existing.repoUrl,
+              repoRef: existing.baseRef,
+              strategy: existing.strategyType === "git_worktree" ? "git_worktree" : "project_primary",
+              cwd: workspaceCwd,
+              branchName: existing.branchName,
+              worktreePath: existing.strategyType === "git_worktree" ? workspaceCwd : null,
+              warnings: [],
+              created: false,
+            },
+            executionWorkspaceId: existing.id,
+            config: { workspaceRuntime: effectiveRuntimeConfig },
+            adapterEnv: {},
+            onLog,
+          });
+          runtimeServiceCount = startedServices.length;
+        } else {
+          runtimeServiceCount = 0;
+        }
+
+        const metadata = mergeExecutionWorkspaceConfig(existing.metadata as Record<string, unknown> | null, {
+          desiredState: action === "stop" ? "stopped" : "running",
+        });
+        await svc.update(existing.id, { metadata });
+
+        return {
+          status: "succeeded",
+          stdout: stdout.join(""),
+          stderr: stderr.join(""),
+          system:
+            action === "stop"
+              ? "Stopped execution workspace runtime services.\n"
+              : action === "restart"
+                ? "Restarted execution workspace runtime services.\n"
+                : "Started execution workspace runtime services.\n",
+          metadata: {
+            runtimeServiceCount,
+          },
+        };
+      },
+    });
+
+    const workspace = await svc.getById(id);
+    if (!workspace) {
+      res.status(404).json({ error: "Execution workspace not found" });
+      return;
+    }
+
+    await logActivity(db, {
+      companyId: existing.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: `execution_workspace.runtime_${action}`,
+      entityType: "execution_workspace",
+      entityId: existing.id,
+      details: {
+        runtimeServiceCount,
+      },
+    });
+
+    res.json({
+      workspace,
+      operation,
+    });
   });
 
   router.patch("/execution-workspaces/:id", validate(updateExecutionWorkspaceSchema), async (req, res) => {

@@ -45,6 +45,8 @@ export type ExecutionWorkspaceCloseActionKind =
   | "git_branch_delete"
   | "remove_local_directory";
 
+export type WorkspaceRuntimeDesiredState = "running" | "stopped";
+
 export interface ExecutionWorkspaceStrategy {
   type: ExecutionWorkspaceStrategyType;
   baseRef?: string | null;
@@ -59,6 +61,12 @@ export interface ExecutionWorkspaceConfig {
   teardownCommand: string | null;
   cleanupCommand: string | null;
   workspaceRuntime: Record<string, unknown> | null;
+  desiredState: WorkspaceRuntimeDesiredState | null;
+}
+
+export interface ProjectWorkspaceRuntimeConfig {
+  workspaceRuntime: Record<string, unknown> | null;
+  desiredState: WorkspaceRuntimeDesiredState | null;
 }
 
 export interface ExecutionWorkspaceCloseAction {
