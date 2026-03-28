@@ -494,6 +494,9 @@ describe("openclaw gateway adapter execute", () => {
       expect(String(payload?.message ?? "")).toContain("PAPERCLIP_RUN_ID=run-123");
       expect(String(payload?.message ?? "")).toContain("PAPERCLIP_TASK_ID=task-123");
       expect(String(payload?.message ?? "")).toContain("## Paperclip Wake Payload");
+      expect(String(payload?.message ?? "")).toContain(
+        "Treat this wake payload as the highest-priority change for the current heartbeat.",
+      );
       expect(String(payload?.message ?? "")).toContain("First comment");
       expect(String(payload?.message ?? "")).toContain("\"commentIds\":[\"comment-1\",\"comment-2\"]");
       expect(payload?.paperclip).toMatchObject({

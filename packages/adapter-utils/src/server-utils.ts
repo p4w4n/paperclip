@@ -300,6 +300,8 @@ export function renderPaperclipWakePrompt(value: unknown): string {
   const lines = [
     "## Paperclip Wake Payload",
     "",
+    "Treat this wake payload as the highest-priority change for the current heartbeat.",
+    "Before generic repo exploration or boilerplate heartbeat updates, acknowledge the latest comment and explain how it changes your next action.",
     "Use this inline wake data first before refetching the issue thread.",
     "Only fetch the API thread when `fallbackFetchNeeded` is true or you need broader history than this batch.",
     "",
