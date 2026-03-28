@@ -101,7 +101,7 @@ function readIssueIdFromRun(run: HeartbeatRun): string | null {
 
 type NonIssueUnreadState = "visible" | "fading" | "hidden" | null;
 
-function FailedRunInboxRow({
+export function FailedRunInboxRow({
   run,
   issueById,
   agentName: linkedAgentName,
@@ -113,6 +113,7 @@ function FailedRunInboxRow({
   onMarkRead,
   onArchive,
   archiveDisabled,
+  selected = false,
   className,
 }: {
   run: HeartbeatRun;
@@ -126,6 +127,7 @@ function FailedRunInboxRow({
   onMarkRead?: () => void;
   onArchive?: () => void;
   archiveDisabled?: boolean;
+  selected?: boolean;
   className?: string;
 }) {
   const issueId = readIssueIdFromRun(run);
@@ -171,7 +173,10 @@ function FailedRunInboxRow({
         ) : null}
         <Link
           to={`/agents/${run.agentId}/runs/${run.id}`}
-          className="flex min-w-0 flex-1 items-start gap-2 no-underline text-inherit transition-colors hover:bg-accent/50"
+          className={cn(
+            "flex min-w-0 flex-1 items-start gap-2 no-underline text-inherit transition-colors",
+            selected ? "hover:bg-transparent" : "hover:bg-accent/50",
+          )}
         >
           {!showUnreadSlot && <span className="hidden h-2 w-2 shrink-0 sm:inline-flex" aria-hidden="true" />}
           <span className="hidden h-3.5 w-3.5 shrink-0 sm:inline-flex" aria-hidden="true" />
@@ -260,6 +265,7 @@ function ApprovalInboxRow({
   onMarkRead,
   onArchive,
   archiveDisabled,
+  selected = false,
   className,
 }: {
   approval: Approval;
@@ -271,6 +277,7 @@ function ApprovalInboxRow({
   onMarkRead?: () => void;
   onArchive?: () => void;
   archiveDisabled?: boolean;
+  selected?: boolean;
   className?: string;
 }) {
   const Icon = typeIcon[approval.type] ?? defaultTypeIcon;
@@ -318,7 +325,10 @@ function ApprovalInboxRow({
         ) : null}
         <Link
           to={`/approvals/${approval.id}`}
-          className="flex min-w-0 flex-1 items-start gap-2 no-underline text-inherit transition-colors hover:bg-accent/50"
+          className={cn(
+            "flex min-w-0 flex-1 items-start gap-2 no-underline text-inherit transition-colors",
+            selected ? "hover:bg-transparent" : "hover:bg-accent/50",
+          )}
         >
           {!showUnreadSlot && <span className="hidden h-2 w-2 shrink-0 sm:inline-flex" aria-hidden="true" />}
           <span className="hidden h-3.5 w-3.5 shrink-0 sm:inline-flex" aria-hidden="true" />
@@ -1267,6 +1277,7 @@ export function Inbox() {
                     <ApprovalInboxRow
                       key={approvalKey}
                       approval={item.approval}
+                      selected={isSelected}
                       requesterName={agentName(item.approval.requestedByAgentId)}
                       onApprove={() => approveMutation.mutate(item.approval.id)}
                       onReject={() => rejectMutation.mutate(item.approval.id)}
@@ -1302,6 +1313,7 @@ export function Inbox() {
                     <FailedRunInboxRow
                       key={runKey}
                       run={item.run}
+                      selected={isSelected}
                       issueById={issueById}
                       agentName={agentName(item.run.agentId)}
                       issueLinkState={issueLinkState}
