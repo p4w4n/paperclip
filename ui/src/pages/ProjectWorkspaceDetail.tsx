@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ProjectWorkspace } from "@paperclipai/shared";
+import { isUuidLike, type ProjectWorkspace } from "@paperclipai/shared";
 import { ArrowLeft, Check, ExternalLink, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -186,10 +186,11 @@ export function ProjectWorkspaceDetail() {
   }, [companies, companyPrefix]);
 
   const lookupCompanyId = routeCompanyId ?? selectedCompanyId ?? undefined;
+  const canFetchProject = routeProjectRef.length > 0 && (isUuidLike(routeProjectRef) || Boolean(lookupCompanyId));
   const projectQuery = useQuery({
     queryKey: [...queryKeys.projects.detail(routeProjectRef), lookupCompanyId ?? null],
     queryFn: () => projectsApi.get(routeProjectRef, lookupCompanyId),
-    enabled: routeProjectRef.length > 0,
+    enabled: canFetchProject,
   });
 
   const project = projectQuery.data ?? null;
