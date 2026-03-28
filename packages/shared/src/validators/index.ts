@@ -154,6 +154,12 @@ export {
   executionWorkspaceConfigSchema,
   updateExecutionWorkspaceSchema,
   executionWorkspaceStatusSchema,
+  executionWorkspaceCloseActionKindSchema,
+  executionWorkspaceCloseActionSchema,
+  executionWorkspaceCloseGitReadinessSchema,
+  executionWorkspaceCloseLinkedIssueSchema,
+  executionWorkspaceCloseReadinessSchema,
+  executionWorkspaceCloseReadinessStateSchema,
   type UpdateExecutionWorkspace,
 } from "./execution-workspace.js";
 

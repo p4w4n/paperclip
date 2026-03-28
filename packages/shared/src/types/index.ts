@@ -51,6 +51,12 @@ export type { Project, ProjectCodebase, ProjectCodebaseOrigin, ProjectGoalRef, P
 export type {
   ExecutionWorkspace,
   ExecutionWorkspaceConfig,
+  ExecutionWorkspaceCloseAction,
+  ExecutionWorkspaceCloseActionKind,
+  ExecutionWorkspaceCloseGitReadiness,
+  ExecutionWorkspaceCloseLinkedIssue,
+  ExecutionWorkspaceCloseReadiness,
+  ExecutionWorkspaceCloseReadinessState,
   WorkspaceRuntimeService,
   ExecutionWorkspaceStrategyType,
   ExecutionWorkspaceMode,

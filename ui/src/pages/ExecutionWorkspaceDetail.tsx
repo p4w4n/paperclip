@@ -6,6 +6,7 @@ import { ArrowLeft, Check, Copy, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { CopyText } from "../components/CopyText";
+import { ExecutionWorkspaceCloseDialog } from "../components/ExecutionWorkspaceCloseDialog";
 import { executionWorkspacesApi } from "../api/execution-workspaces";
 import { issuesApi } from "../api/issues";
 import { projectsApi } from "../api/projects";
@@ -211,6 +212,7 @@ export function ExecutionWorkspaceDetail() {
   const { setBreadcrumbs } = useBreadcrumbs();
   const { selectedCompanyId, setSelectedCompanyId } = useCompany();
   const [form, setForm] = useState<WorkspaceFormState | null>(null);
+  const [closeDialogOpen, setCloseDialogOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const workspaceQuery = useQuery({
@@ -278,6 +280,7 @@ export function ExecutionWorkspaceDetail() {
     mutationFn: (patch: Record<string, unknown>) => executionWorkspacesApi.update(workspace!.id, patch),
     onSuccess: (nextWorkspace) => {
       queryClient.setQueryData(queryKeys.executionWorkspaces.detail(nextWorkspace.id), nextWorkspace);
+      queryClient.invalidateQueries({ queryKey: queryKeys.executionWorkspaces.closeReadiness(nextWorkspace.id) });
       if (project) {
         queryClient.invalidateQueries({ queryKey: queryKeys.projects.detail(project.id) });
         queryClient.invalidateQueries({ queryKey: queryKeys.projects.detail(project.urlKey) });
@@ -322,8 +325,9 @@ export function ExecutionWorkspaceDetail() {
   };
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
-      <div className="flex flex-wrap items-center gap-3">
+    <>
+      <div className="mx-auto max-w-5xl space-y-6">
+        <div className="flex flex-wrap items-center gap-3">
         <Button variant="ghost" size="sm" asChild>
           <Link to={project ? `/projects/${projectRef}/workspaces` : "/projects"}>
             <ArrowLeft className="mr-1 h-4 w-4" />
@@ -337,9 +341,9 @@ export function ExecutionWorkspaceDetail() {
         </StatusPill>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.95fr)]">
-        <div className="space-y-6">
-          <div className="rounded-2xl border border-border bg-card p-5">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.95fr)]">
+          <div className="space-y-6">
+            <div className="rounded-2xl border border-border bg-card p-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="space-y-2">
                 <div className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
@@ -351,6 +355,15 @@ export function ExecutionWorkspaceDetail() {
                   attached to the execution workspace so future runs can keep local paths, repo refs, provisioning, teardown,
                   and runtime-service behavior in sync with the actual workspace being reused.
                 </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setCloseDialogOpen(true)}
+                  disabled={workspace.status === "archived"}
+                >
+                  {workspace.status === "cleanup_failed" ? "Retry close" : "Close workspace"}
+                </Button>
               </div>
             </div>
 
@@ -474,7 +487,7 @@ export function ExecutionWorkspaceDetail() {
         </div>
 
         <div className="space-y-6">
-          <div className="rounded-2xl border border-border bg-card p-5">
+            <div className="rounded-2xl border border-border bg-card p-5">
             <div className="space-y-1">
               <div className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">Linked objects</div>
               <h2 className="text-lg font-semibold">Workspace context</h2>
@@ -519,7 +532,7 @@ export function ExecutionWorkspaceDetail() {
             </DetailRow>
           </div>
 
-          <div className="rounded-2xl border border-border bg-card p-5">
+            <div className="rounded-2xl border border-border bg-card p-5">
             <div className="space-y-1">
               <div className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">Paths and refs</div>
               <h2 className="text-lg font-semibold">Concrete location</h2>
@@ -563,7 +576,7 @@ export function ExecutionWorkspaceDetail() {
             </DetailRow>
           </div>
 
-          <div className="rounded-2xl border border-border bg-card p-5">
+            <div className="rounded-2xl border border-border bg-card p-5">
             <div className="space-y-1">
               <div className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">Runtime services</div>
               <h2 className="text-lg font-semibold">Attached services</h2>
@@ -597,8 +610,27 @@ export function ExecutionWorkspaceDetail() {
               <p className="text-sm text-muted-foreground">No runtime services are attached to this execution workspace.</p>
             )}
           </div>
+          </div>
         </div>
       </div>
-    </div>
+      <ExecutionWorkspaceCloseDialog
+        workspaceId={workspace.id}
+        workspaceName={workspace.name}
+        currentStatus={workspace.status}
+        open={closeDialogOpen}
+        onOpenChange={setCloseDialogOpen}
+        onClosed={(nextWorkspace) => {
+          queryClient.setQueryData(queryKeys.executionWorkspaces.detail(nextWorkspace.id), nextWorkspace);
+          queryClient.invalidateQueries({ queryKey: queryKeys.executionWorkspaces.closeReadiness(nextWorkspace.id) });
+          if (project) {
+            queryClient.invalidateQueries({ queryKey: queryKeys.projects.detail(project.id) });
+            queryClient.invalidateQueries({ queryKey: queryKeys.executionWorkspaces.list(project.companyId, { projectId: project.id }) });
+          }
+          if (sourceIssue) {
+            queryClient.invalidateQueries({ queryKey: queryKeys.issues.detail(sourceIssue.id) });
+          }
+        }}
+      />
+    </>
   );
 }

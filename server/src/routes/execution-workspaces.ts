@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { Router } from "express";
 import type { Db } from "@paperclipai/db";
-import { issues, projects, projectWorkspaces } from "@paperclipai/db";
+import { projects, projectWorkspaces } from "@paperclipai/db";
 import { updateExecutionWorkspaceSchema } from "@paperclipai/shared";
 import { validate } from "../middleware/validate.js";
 import { executionWorkspaceService, logActivity, workspaceOperationService } from "../services/index.js";
@@ -12,8 +12,6 @@ import {
   stopRuntimeServicesForExecutionWorkspace,
 } from "../services/workspace-runtime.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
-
-const TERMINAL_ISSUE_STATUSES = new Set(["done", "cancelled"]);
 
 export function executionWorkspaceRoutes(db: Db) {
   const router = Router();
@@ -42,6 +40,22 @@ export function executionWorkspaceRoutes(db: Db) {
     }
     assertCompanyAccess(req, workspace.companyId);
     res.json(workspace);
+  });
+
+  router.get("/execution-workspaces/:id/close-readiness", async (req, res) => {
+    const id = req.params.id as string;
+    const workspace = await svc.getById(id);
+    if (!workspace) {
+      res.status(404).json({ error: "Execution workspace not found" });
+      return;
+    }
+    assertCompanyAccess(req, workspace.companyId);
+    const readiness = await svc.getCloseReadiness(id);
+    if (!readiness) {
+      res.status(404).json({ error: "Execution workspace not found" });
+      return;
+    }
+    res.json(readiness);
   });
 
   router.patch("/execution-workspaces/:id", validate(updateExecutionWorkspaceSchema), async (req, res) => {
@@ -80,18 +94,16 @@ export function executionWorkspaceRoutes(db: Db) {
     );
 
     if (req.body.status === "archived" && existing.status !== "archived") {
-      const linkedIssues = await db
-        .select({
-          id: issues.id,
-          status: issues.status,
-        })
-        .from(issues)
-        .where(and(eq(issues.companyId, existing.companyId), eq(issues.executionWorkspaceId, existing.id)));
-      const activeLinkedIssues = linkedIssues.filter((issue) => !TERMINAL_ISSUE_STATUSES.has(issue.status));
+      const readiness = await svc.getCloseReadiness(existing.id);
+      if (!readiness) {
+        res.status(404).json({ error: "Execution workspace not found" });
+        return;
+      }
 
-      if (activeLinkedIssues.length > 0) {
+      if (readiness.state === "blocked") {
         res.status(409).json({
-          error: `Cannot archive execution workspace while ${activeLinkedIssues.length} linked issue(s) are still open`,
+          error: readiness.blockingReasons[0] ?? "Execution workspace cannot be closed right now",
+          closeReadiness: readiness,
         });
         return;
       }

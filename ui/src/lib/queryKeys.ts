@@ -61,6 +61,7 @@ export const queryKeys = {
     list: (companyId: string, filters?: Record<string, string | boolean | undefined>) =>
       ["execution-workspaces", companyId, filters ?? {}] as const,
     detail: (id: string) => ["execution-workspaces", "detail", id] as const,
+    closeReadiness: (id: string) => ["execution-workspaces", "close-readiness", id] as const,
   },
   projects: {
     list: (companyId: string) => ["projects", companyId] as const,

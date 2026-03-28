@@ -12,6 +12,7 @@ export interface ProjectWorkspaceSummary {
   lastUpdatedAt: Date;
   projectWorkspaceId: string | null;
   executionWorkspaceId: string | null;
+  executionWorkspaceStatus: ExecutionWorkspace["status"] | null;
   issues: Issue[];
 }
 
@@ -65,6 +66,7 @@ export function buildProjectWorkspaceSummaries(input: {
     if (issue.executionWorkspaceId) {
       const executionWorkspace = executionWorkspacesById.get(issue.executionWorkspaceId);
       if (!executionWorkspace) continue;
+      if (executionWorkspace.status === "archived") continue;
       if (isDefaultSharedExecutionWorkspace({
         executionWorkspace,
         issue,
@@ -91,6 +93,7 @@ export function buildProjectWorkspaceSummaries(input: {
         ),
         projectWorkspaceId: executionWorkspace.projectWorkspaceId ?? issue.projectWorkspaceId ?? null,
         executionWorkspaceId: executionWorkspace.id,
+        executionWorkspaceStatus: executionWorkspace.status,
         issues: nextIssues,
       });
       continue;
@@ -115,6 +118,7 @@ export function buildProjectWorkspaceSummaries(input: {
       lastUpdatedAt: maxDate(existing?.lastUpdatedAt, projectWorkspace.updatedAt, issue.updatedAt),
       projectWorkspaceId: projectWorkspace.id,
       executionWorkspaceId: null,
+      executionWorkspaceStatus: null,
       issues: nextIssues,
     });
   }

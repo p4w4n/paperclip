@@ -31,6 +31,20 @@ export type ExecutionWorkspaceStatus =
   | "archived"
   | "cleanup_failed";
 
+export type ExecutionWorkspaceCloseReadinessState =
+  | "ready"
+  | "ready_with_warnings"
+  | "blocked";
+
+export type ExecutionWorkspaceCloseActionKind =
+  | "archive_record"
+  | "stop_runtime_services"
+  | "cleanup_command"
+  | "teardown_command"
+  | "git_worktree_remove"
+  | "git_branch_delete"
+  | "remove_local_directory";
+
 export interface ExecutionWorkspaceStrategy {
   type: ExecutionWorkspaceStrategyType;
   baseRef?: string | null;
@@ -45,6 +59,50 @@ export interface ExecutionWorkspaceConfig {
   teardownCommand: string | null;
   cleanupCommand: string | null;
   workspaceRuntime: Record<string, unknown> | null;
+}
+
+export interface ExecutionWorkspaceCloseAction {
+  kind: ExecutionWorkspaceCloseActionKind;
+  label: string;
+  description: string;
+  command: string | null;
+}
+
+export interface ExecutionWorkspaceCloseLinkedIssue {
+  id: string;
+  identifier: string | null;
+  title: string;
+  status: string;
+  isTerminal: boolean;
+}
+
+export interface ExecutionWorkspaceCloseGitReadiness {
+  repoRoot: string | null;
+  workspacePath: string | null;
+  branchName: string | null;
+  baseRef: string | null;
+  hasDirtyTrackedFiles: boolean;
+  hasUntrackedFiles: boolean;
+  dirtyEntryCount: number;
+  untrackedEntryCount: number;
+  aheadCount: number | null;
+  behindCount: number | null;
+  isMergedIntoBase: boolean | null;
+  createdByRuntime: boolean;
+}
+
+export interface ExecutionWorkspaceCloseReadiness {
+  workspaceId: string;
+  state: ExecutionWorkspaceCloseReadinessState;
+  blockingReasons: string[];
+  warnings: string[];
+  linkedIssues: ExecutionWorkspaceCloseLinkedIssue[];
+  plannedActions: ExecutionWorkspaceCloseAction[];
+  isDestructiveCloseAllowed: boolean;
+  isSharedWorkspace: boolean;
+  isProjectPrimaryWorkspace: boolean;
+  git: ExecutionWorkspaceCloseGitReadiness | null;
+  runtimeServices: WorkspaceRuntimeService[];
 }
 
 export interface ProjectExecutionWorkspacePolicy {

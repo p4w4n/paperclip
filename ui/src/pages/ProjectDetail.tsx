@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { Link, useParams, useNavigate, useLocation, Navigate } from "@/lib/router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { PROJECT_COLORS, isUuidLike, type BudgetPolicySummary } from "@paperclipai/shared";
+import { PROJECT_COLORS, isUuidLike, type BudgetPolicySummary, type ExecutionWorkspace } from "@paperclipai/shared";
 import { budgetsApi } from "../api/budgets";
 import { executionWorkspacesApi } from "../api/execution-workspaces";
 import { instanceSettingsApi } from "../api/instanceSettings";
@@ -20,12 +20,14 @@ import { CopyText } from "../components/CopyText";
 import { InlineEditor } from "../components/InlineEditor";
 import { StatusBadge } from "../components/StatusBadge";
 import { BudgetPolicyCard } from "../components/BudgetPolicyCard";
+import { ExecutionWorkspaceCloseDialog } from "../components/ExecutionWorkspaceCloseDialog";
 import { IssuesList } from "../components/IssuesList";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { PageTabBar } from "../components/PageTabBar";
 import { buildProjectWorkspaceSummaries } from "../lib/project-workspaces-tab";
 import { projectRouteRef, projectWorkspaceUrl } from "../lib/utils";
 import { timeAgo } from "../lib/timeAgo";
+import { Button } from "@/components/ui/button";
 import { Tabs } from "@/components/ui/tabs";
 import { PluginLauncherOutlet } from "@/plugins/launchers";
 import { PluginSlotMount, PluginSlotOutlet, usePluginSlots } from "@/plugins/slots";
@@ -208,101 +210,166 @@ function ProjectIssuesList({ projectId, companyId }: { projectId: string; compan
 }
 
 function ProjectWorkspacesContent({
+  companyId,
+  projectId,
   projectRef,
   summaries,
 }: {
+  companyId: string;
+  projectId: string;
   projectRef: string;
   summaries: ReturnType<typeof buildProjectWorkspaceSummaries>;
 }) {
+  const queryClient = useQueryClient();
+  const [closingWorkspace, setClosingWorkspace] = useState<{
+    id: string;
+    name: string;
+    status: ExecutionWorkspace["status"];
+  } | null>(null);
+
   if (summaries.length === 0) {
     return <p className="text-sm text-muted-foreground">No non-default workspace activity yet.</p>;
   }
 
-  return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card">
-      {summaries.map((summary) => {
-        const visibleIssues = summary.issues.slice(0, 3);
-        const hiddenIssueCount = Math.max(summary.issues.length - visibleIssues.length, 0);
-        const workspaceHref =
-          summary.kind === "project_workspace"
-            ? projectWorkspaceUrl({ id: projectRef, urlKey: projectRef }, summary.workspaceId)
-            : `/execution-workspaces/${summary.workspaceId}`;
+  const activeSummaries = summaries.filter((summary) => summary.executionWorkspaceStatus !== "cleanup_failed");
+  const cleanupFailedSummaries = summaries.filter((summary) => summary.executionWorkspaceStatus === "cleanup_failed");
 
-        return (
-          <div
-            key={summary.key}
-            className="border-b border-border px-4 py-3 last:border-b-0"
-          >
-            <div className="grid gap-4 md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)_auto] md:items-start">
-              <div className="min-w-0">
+  const renderSummaryRow = (summary: ReturnType<typeof buildProjectWorkspaceSummaries>[number]) => {
+    const visibleIssues = summary.issues.slice(0, 3);
+    const hiddenIssueCount = Math.max(summary.issues.length - visibleIssues.length, 0);
+    const workspaceHref =
+      summary.kind === "project_workspace"
+        ? projectWorkspaceUrl({ id: projectRef, urlKey: projectRef }, summary.workspaceId)
+        : `/execution-workspaces/${summary.workspaceId}`;
+
+    return (
+      <div
+        key={summary.key}
+        className="border-b border-border px-4 py-3 last:border-b-0"
+      >
+        <div className="grid gap-4 md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)_auto] md:items-start">
+          <div className="min-w-0">
+            <Link
+              to={workspaceHref}
+              className="block truncate text-sm font-medium hover:underline"
+            >
+              {summary.workspaceName}
+            </Link>
+
+            <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+              <span className="inline-flex items-center gap-1">
+                <GitBranch className="h-3.5 w-3.5" />
+                <span className="font-mono">{summary.branchName ?? "No branch info"}</span>
+              </span>
+              {summary.executionWorkspaceStatus ? (
+                <span className="rounded-full border border-border px-2 py-0.5 text-[11px]">
+                  {summary.executionWorkspaceStatus}
+                </span>
+              ) : null}
+            </div>
+
+            {summary.cwd ? (
+              <div className="mt-2 flex min-w-0 items-start gap-2 text-xs text-muted-foreground">
+                <span className="min-w-0 truncate font-mono leading-tight" title={summary.cwd}>
+                  {summary.cwd}
+                </span>
+                <CopyText text={summary.cwd} className="shrink-0" copiedLabel="Path copied">
+                  <Copy className="h-3.5 w-3.5" />
+                </CopyText>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="min-w-0">
+            <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+              Issues ({summary.issues.length})
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {visibleIssues.map((issue) => (
                 <Link
-                  to={workspaceHref}
-                  className="block truncate text-sm font-medium hover:underline"
+                  key={issue.id}
+                  to={`/issues/${issue.identifier ?? issue.id}`}
+                  className="inline-flex max-w-full items-center gap-2 rounded-md border border-border bg-background px-2.5 py-1.5 text-left text-xs leading-none transition-colors hover:bg-accent"
                 >
-                  {summary.workspaceName}
-                </Link>
-
-                <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                  <span className="inline-flex items-center gap-1">
-                    <GitBranch className="h-3.5 w-3.5" />
-                    <span className="font-mono">{summary.branchName ?? "No branch info"}</span>
+                  <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+                    {issue.identifier ?? issue.id.slice(0, 8)}
                   </span>
-                </div>
-
-                {summary.cwd ? (
-                  <div className="mt-2 flex min-w-0 items-start gap-2 text-xs text-muted-foreground">
-                    <span className="min-w-0 truncate font-mono leading-tight" title={summary.cwd}>
-                      {summary.cwd}
-                    </span>
-                    <CopyText text={summary.cwd} className="shrink-0" copiedLabel="Path copied">
-                      <Copy className="h-3.5 w-3.5" />
-                    </CopyText>
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="min-w-0">
-                <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                  Issues ({summary.issues.length})
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {visibleIssues.map((issue) => (
-                    <Link
-                      key={issue.id}
-                      to={`/issues/${issue.identifier ?? issue.id}`}
-                      className="inline-flex max-w-full items-center gap-2 rounded-md border border-border bg-background px-2.5 py-1.5 text-left text-xs leading-none transition-colors hover:bg-accent"
-                    >
-                      <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
-                        {issue.identifier ?? issue.id.slice(0, 8)}
-                      </span>
-                      <span className="truncate leading-tight">{issue.title}</span>
-                    </Link>
-                  ))}
-                  {hiddenIssueCount > 0 ? (
-                    <span className="inline-flex items-center rounded-md border border-dashed border-border px-2.5 py-1.5 text-xs text-muted-foreground">
-                      ... and {hiddenIssueCount} more
-                    </span>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="flex shrink-0 flex-col items-start gap-2 md:items-end">
-                <Link
-                  to={workspaceHref}
-                  className="text-xs font-medium text-foreground hover:underline"
-                >
-                  {summary.kind === "project_workspace" ? "Configure workspace" : "View workspace"}
+                  <span className="truncate leading-tight">{issue.title}</span>
                 </Link>
-                <div className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                  <Clock3 className="h-3.5 w-3.5" />
-                  {timeAgo(summary.lastUpdatedAt)}
-                </div>
-              </div>
+              ))}
+              {hiddenIssueCount > 0 ? (
+                <span className="inline-flex items-center rounded-md border border-dashed border-border px-2.5 py-1.5 text-xs text-muted-foreground">
+                  ... and {hiddenIssueCount} more
+                </span>
+              ) : null}
             </div>
           </div>
-        );
-      })}
-    </div>
+
+          <div className="flex shrink-0 flex-col items-start gap-2 md:items-end">
+            <Link
+              to={workspaceHref}
+              className="text-xs font-medium text-foreground hover:underline"
+            >
+              {summary.kind === "project_workspace" ? "Configure workspace" : "View workspace"}
+            </Link>
+            {summary.kind === "execution_workspace" && summary.executionWorkspaceId && summary.executionWorkspaceStatus ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setClosingWorkspace({
+                  id: summary.executionWorkspaceId!,
+                  name: summary.workspaceName,
+                  status: summary.executionWorkspaceStatus!,
+                })}
+              >
+                {summary.executionWorkspaceStatus === "cleanup_failed" ? "Retry close" : "Close workspace"}
+              </Button>
+            ) : null}
+            <div className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+              <Clock3 className="h-3.5 w-3.5" />
+              {timeAgo(summary.lastUpdatedAt)}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <>
+      <div className="space-y-4">
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
+          {activeSummaries.map(renderSummaryRow)}
+        </div>
+        {cleanupFailedSummaries.length > 0 ? (
+          <div className="space-y-2">
+            <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+              Cleanup attention needed
+            </div>
+            <div className="overflow-hidden rounded-xl border border-amber-500/20 bg-amber-500/5">
+              {cleanupFailedSummaries.map(renderSummaryRow)}
+            </div>
+          </div>
+        ) : null}
+      </div>
+      {closingWorkspace ? (
+        <ExecutionWorkspaceCloseDialog
+          workspaceId={closingWorkspace.id}
+          workspaceName={closingWorkspace.name}
+          currentStatus={closingWorkspace.status}
+          open
+          onOpenChange={(open) => {
+            if (!open) setClosingWorkspace(null);
+          }}
+          onClosed={() => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.executionWorkspaces.list(companyId, { projectId }) });
+            queryClient.invalidateQueries({ queryKey: queryKeys.projects.detail(projectId) });
+            queryClient.invalidateQueries({ queryKey: queryKeys.issues.listByProject(companyId, projectId) });
+            setClosingWorkspace(null);
+          }}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -754,7 +821,12 @@ export function ProjectDetail() {
           workspaceTabError ? (
             <p className="text-sm text-destructive">{workspaceTabError.message}</p>
           ) : (
-            <ProjectWorkspacesContent projectRef={canonicalProjectRef} summaries={workspaceSummaries} />
+            <ProjectWorkspacesContent
+              companyId={resolvedCompanyId!}
+              projectId={project.id}
+              projectRef={canonicalProjectRef}
+              summaries={workspaceSummaries}
+            />
           )
         ) : (
           <p className="text-sm text-muted-foreground">Loading workspaces...</p>
