@@ -47,6 +47,7 @@ import {
   ACTIONABLE_APPROVAL_STATUSES,
   getApprovalsForTab,
   getInboxWorkItems,
+  getInboxKeyboardSelectionIndex,
   getLatestFailedRunsByAgent,
   getRecentTouchedIssues,
   isMineInboxTab,
@@ -929,10 +930,10 @@ export function Inbox() {
     return `join:${item.joinRequest.id}`;
   }, []);
 
-  // Keep Mine anchored to a real row so keyboard navigation always lands on an item.
+  // Keep selection valid when the list shape changes, but do not auto-select on initial load.
   useEffect(() => {
-    setSelectedIndex((prev) => resolveInboxSelectionIndex(prev, workItemsToRender.length, canArchiveFromTab));
-  }, [canArchiveFromTab, workItemsToRender.length]);
+    setSelectedIndex((prev) => resolveInboxSelectionIndex(prev, workItemsToRender.length));
+  }, [workItemsToRender.length]);
 
   // Use refs for keyboard handler to avoid stale closures
   const kbStateRef = useRef({
@@ -976,13 +977,15 @@ export function Inbox() {
   // Keyboard shortcuts (mail-client style) — single stable listener using refs
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+
       // Don't capture when typing in inputs/textareas or with modifier keys
-      const target = e.target as HTMLElement;
+      const target = e.target;
       if (
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.tagName === "SELECT" ||
+        !(target instanceof HTMLElement) ||
+        target.closest("input, textarea, select, [contenteditable='true'], [role='textbox'], [role='combobox']") ||
         target.isContentEditable ||
+        document.querySelector("[role='dialog'], [aria-modal='true']") ||
         e.metaKey ||
         e.ctrlKey ||
         e.altKey
@@ -1002,12 +1005,12 @@ export function Inbox() {
       switch (e.key) {
         case "j": {
           e.preventDefault();
-          setSelectedIndex((prev) => Math.min(prev + 1, itemCount - 1));
+          setSelectedIndex((prev) => getInboxKeyboardSelectionIndex(prev, itemCount, "next"));
           break;
         }
         case "k": {
           e.preventDefault();
-          setSelectedIndex((prev) => Math.max(prev - 1, 0));
+          setSelectedIndex((prev) => getInboxKeyboardSelectionIndex(prev, itemCount, "previous"));
           break;
         }
         case "a":

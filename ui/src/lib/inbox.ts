@@ -105,11 +105,22 @@ export function isMineInboxTab(tab: InboxTab): boolean {
 export function resolveInboxSelectionIndex(
   previousIndex: number,
   itemCount: number,
-  canSelectItems: boolean,
 ): number {
   if (itemCount === 0) return -1;
-  if (previousIndex < 0) return canSelectItems ? 0 : -1;
+  if (previousIndex < 0) return -1;
   return Math.min(previousIndex, itemCount - 1);
+}
+
+export function getInboxKeyboardSelectionIndex(
+  previousIndex: number,
+  itemCount: number,
+  direction: "next" | "previous",
+): number {
+  if (itemCount === 0) return -1;
+  if (previousIndex < 0) return 0;
+  return direction === "next"
+    ? Math.min(previousIndex + 1, itemCount - 1)
+    : Math.max(previousIndex - 1, 0);
 }
 
 export function getLatestFailedRunsByAgent(runs: HeartbeatRun[]): HeartbeatRun[] {

@@ -155,8 +155,7 @@ export function SwipeToArchive({
         style={{
           transform: `translate3d(${offsetX}px, 0, 0)`,
           transition: isDragging ? "none" : "transform 180ms ease-out",
-          backgroundColor: selected ? "hsl(var(--primary) / 0.06)" : undefined,
-          boxShadow: selected ? "inset 3px 0 0 hsl(var(--primary))" : undefined,
+          backgroundColor: selected ? "hsl(var(--muted))" : undefined,
         }}
       >
         {children}
