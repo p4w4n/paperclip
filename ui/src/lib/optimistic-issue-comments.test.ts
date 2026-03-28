@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applyOptimisticIssueCommentUpdate,
   createOptimisticIssueComment,
+  isQueuedIssueComment,
   mergeIssueComments,
   upsertIssueComment,
 } from "./optimistic-issue-comments";
@@ -44,6 +45,20 @@ describe("optimistic issue comments", () => {
 
     nowSpy.mockRestore();
     mathSpy.mockRestore();
+  });
+
+  it("supports queued optimistic comments for active-run follow-ups", () => {
+    const comment = createOptimisticIssueComment({
+      companyId: "company-1",
+      issueId: "issue-1",
+      body: "Queue this",
+      authorUserId: "board-1",
+      clientStatus: "queued",
+      queueTargetRunId: "run-1",
+    });
+
+    expect(comment.clientStatus).toBe("queued");
+    expect(comment.queueTargetRunId).toBe("run-1");
   });
 
   it("merges optimistic comments into the server thread in chronological order", () => {
@@ -160,5 +175,41 @@ describe("optimistic issue comments", () => {
     expect(next?.status).toBe("todo");
     expect(next?.assigneeAgentId).toBeNull();
     expect(next?.assigneeUserId).toBe("board-2");
+  });
+
+  it("treats comments without a run id as queued when they arrive during an active run", () => {
+    expect(
+      isQueuedIssueComment({
+        comment: {
+          createdAt: new Date("2026-03-28T16:20:05.000Z"),
+        },
+        activeRunStartedAt: new Date("2026-03-28T16:20:00.000Z"),
+        runId: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not mark comments with an associated run as queued", () => {
+    expect(
+      isQueuedIssueComment({
+        comment: {
+          createdAt: new Date("2026-03-28T16:20:05.000Z"),
+        },
+        activeRunStartedAt: new Date("2026-03-28T16:20:00.000Z"),
+        runId: "run-1",
+      }),
+    ).toBe(false);
+  });
+
+  it("does not mark interrupt comments as queued", () => {
+    expect(
+      isQueuedIssueComment({
+        comment: {
+          createdAt: new Date("2026-03-28T16:20:05.000Z"),
+        },
+        activeRunStartedAt: new Date("2026-03-28T16:20:00.000Z"),
+        interruptedRunId: "run-1",
+      }),
+    ).toBe(false);
   });
 });

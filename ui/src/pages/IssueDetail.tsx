@@ -18,6 +18,7 @@ import { createIssueDetailPath, readIssueDetailBreadcrumb } from "../lib/issueDe
 import {
   applyOptimisticIssueCommentUpdate,
   createOptimisticIssueComment,
+  isQueuedIssueComment,
   mergeIssueComments,
   upsertIssueComment,
   type IssueCommentReassignment,
@@ -66,6 +67,13 @@ import type { ActivityEvent } from "@paperclipai/shared";
 import type { Agent, Issue, IssueAttachment, IssueComment } from "@paperclipai/shared";
 
 type CommentReassignment = IssueCommentReassignment;
+type IssueDetailComment = (IssueComment | OptimisticIssueComment) & {
+  runId?: string | null;
+  runAgentId?: string | null;
+  interruptedRunId?: string | null;
+  queueState?: "queued";
+  queueTargetRunId?: string | null;
+};
 
 const ACTION_LABELS: Record<string, string> = {
   "issue.created": "created the issue",
@@ -275,8 +283,15 @@ export function IssueDetail() {
   });
 
   const hasLiveRuns = (liveRuns ?? []).length > 0 || !!activeRun;
-  const hasRunningIssueRun =
-    activeRun?.status === "running" || (liveRuns ?? []).some((run) => run.status === "running");
+  const runningIssueRun = useMemo(
+    () => (
+      activeRun?.status === "running"
+        ? activeRun
+        : (liveRuns ?? []).find((run) => run.status === "running") ?? null
+    ),
+    [activeRun, liveRuns],
+  );
+  const hasRunningIssueRun = Boolean(runningIssueRun);
   const sourceBreadcrumb = useMemo(
     () => readIssueDetailBreadcrumb(location.state, location.search) ?? { label: "Issues", href: "/issues" },
     [location.state, location.search],
@@ -408,8 +423,9 @@ export function IssueDetail() {
     [comments, optimisticComments],
   );
 
-  const commentsWithRunMeta = useMemo(() => {
-    const runMetaByCommentId = new Map<string, { runId: string; runAgentId: string | null }>();
+  const commentsWithRunMeta = useMemo<IssueDetailComment[]>(() => {
+    const activeRunStartedAt = runningIssueRun?.startedAt ?? runningIssueRun?.createdAt ?? null;
+    const runMetaByCommentId = new Map<string, { runId: string; runAgentId: string | null; interruptedRunId: string | null }>();
     const agentIdByRunId = new Map<string, string>();
     for (const run of linkedRuns ?? []) {
       agentIdByRunId.set(run.runId, run.agentId);
@@ -419,16 +435,44 @@ export function IssueDetail() {
       const details = evt.details ?? {};
       const commentId = typeof details["commentId"] === "string" ? details["commentId"] : null;
       if (!commentId || runMetaByCommentId.has(commentId)) continue;
+      const interruptedRunId =
+        typeof details["interruptedRunId"] === "string" ? details["interruptedRunId"] : null;
       runMetaByCommentId.set(commentId, {
         runId: evt.runId,
         runAgentId: evt.agentId ?? agentIdByRunId.get(evt.runId) ?? null,
+        interruptedRunId,
       });
     }
     return threadComments.map((comment) => {
       const meta = runMetaByCommentId.get(comment.id);
-      return meta ? { ...comment, ...meta } : comment;
+      const nextComment: IssueDetailComment = meta ? { ...comment, ...meta } : { ...comment };
+      if (
+        isQueuedIssueComment({
+          comment: nextComment,
+          activeRunStartedAt,
+          runId: meta?.runId ?? nextComment.runId ?? null,
+          interruptedRunId: meta?.interruptedRunId ?? nextComment.interruptedRunId ?? null,
+        })
+      ) {
+        return {
+          ...nextComment,
+          queueState: "queued" as const,
+          queueTargetRunId: runningIssueRun?.id ?? nextComment.queueTargetRunId ?? null,
+        };
+      }
+      return nextComment;
     });
-  }, [activity, threadComments, linkedRuns]);
+  }, [activity, threadComments, linkedRuns, runningIssueRun]);
+
+  const queuedComments = useMemo(
+    () => commentsWithRunMeta.filter((comment) => comment.queueState === "queued"),
+    [commentsWithRunMeta],
+  );
+
+  const timelineComments = useMemo(
+    () => commentsWithRunMeta.filter((comment) => comment.queueState !== "queued"),
+    [commentsWithRunMeta],
+  );
 
   const issueCostSummary = useMemo(() => {
     let input = 0;
@@ -509,17 +553,20 @@ export function IssueDetail() {
   const addComment = useMutation({
     mutationFn: ({ body, reopen, interrupt }: { body: string; reopen?: boolean; interrupt?: boolean }) =>
       issuesApi.addComment(issueId!, body, reopen, interrupt),
-    onMutate: async ({ body, reopen }) => {
+    onMutate: async ({ body, reopen, interrupt }) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.issues.comments(issueId!) });
       await queryClient.cancelQueries({ queryKey: queryKeys.issues.detail(issueId!) });
 
       const previousIssue = queryClient.getQueryData<Issue>(queryKeys.issues.detail(issueId!));
+      const queuedComment = !interrupt && runningIssueRun;
       const optimisticComment = issue
         ? createOptimisticIssueComment({
             companyId: issue.companyId,
             issueId: issue.id,
             body,
             authorUserId: currentUserId,
+            clientStatus: queuedComment ? "queued" : "pending",
+            queueTargetRunId: queuedComment ? runningIssueRun.id : null,
           })
         : null;
 
@@ -589,17 +636,20 @@ export function IssueDetail() {
         ...(reopen ? { status: "todo" } : {}),
         ...(interrupt ? { interrupt } : {}),
       }),
-    onMutate: async ({ body, reopen, reassignment }) => {
+    onMutate: async ({ body, reopen, reassignment, interrupt }) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.issues.comments(issueId!) });
       await queryClient.cancelQueries({ queryKey: queryKeys.issues.detail(issueId!) });
 
       const previousIssue = queryClient.getQueryData<Issue>(queryKeys.issues.detail(issueId!));
+      const queuedComment = !interrupt && runningIssueRun;
       const optimisticComment = issue
         ? createOptimisticIssueComment({
             companyId: issue.companyId,
             issueId: issue.id,
             body,
             authorUserId: currentUserId,
+            clientStatus: queuedComment ? "queued" : "pending",
+            queueTargetRunId: queuedComment ? runningIssueRun.id : null,
           })
         : null;
 
@@ -652,6 +702,25 @@ export function IssueDetail() {
     onSettled: () => {
       invalidateIssue();
       queryClient.invalidateQueries({ queryKey: queryKeys.issues.comments(issueId!) });
+    },
+  });
+
+  const interruptQueuedComment = useMutation({
+    mutationFn: (runId: string) => heartbeatsApi.cancel(runId),
+    onSuccess: () => {
+      invalidateIssue();
+      pushToast({
+        title: "Interrupt requested",
+        body: "The active run is stopping so queued comments can continue next.",
+        tone: "success",
+      });
+    },
+    onError: (err) => {
+      pushToast({
+        title: "Interrupt failed",
+        body: err instanceof Error ? err.message : "Unable to interrupt the active run",
+        tone: "error",
+      });
     },
   });
 
@@ -1164,7 +1233,8 @@ export function IssueDetail() {
 
         <TabsContent value="comments">
           <CommentThread
-            comments={commentsWithRunMeta}
+            comments={timelineComments}
+            queuedComments={queuedComments}
             linkedRuns={timelineRuns}
             companyId={issue.companyId}
             projectId={issue.projectId}
@@ -1177,6 +1247,10 @@ export function IssueDetail() {
             suggestedAssigneeValue={suggestedAssigneeValue}
             mentions={mentionOptions}
             interruptAvailable={hasRunningIssueRun}
+            onInterruptQueued={async (runId) => {
+              await interruptQueuedComment.mutateAsync(runId);
+            }}
+            interruptingQueuedRunId={interruptQueuedComment.isPending ? runningIssueRun?.id ?? null : null}
             onAdd={async (body, reopen, reassignment, interrupt) => {
               if (reassignment) {
                 await addCommentAndReassign.mutateAsync({ body, reopen, reassignment, interrupt });

@@ -7,7 +7,8 @@ export interface IssueCommentReassignment {
 
 export interface OptimisticIssueComment extends IssueComment {
   clientId: string;
-  clientStatus: "pending";
+  clientStatus: "pending" | "queued";
+  queueTargetRunId?: string | null;
 }
 
 export type IssueTimelineComment = IssueComment | OptimisticIssueComment;
@@ -37,21 +38,37 @@ export function createOptimisticIssueComment(params: {
   issueId: string;
   body: string;
   authorUserId: string | null;
+  clientStatus?: OptimisticIssueComment["clientStatus"];
+  queueTargetRunId?: string | null;
 }): OptimisticIssueComment {
   const now = new Date();
   const clientId = createOptimisticCommentId();
   return {
     id: clientId,
     clientId,
-    clientStatus: "pending",
     companyId: params.companyId,
     issueId: params.issueId,
     authorAgentId: null,
     authorUserId: params.authorUserId,
     body: params.body,
+    clientStatus: params.clientStatus ?? "pending",
+    queueTargetRunId: params.queueTargetRunId ?? null,
     createdAt: now,
     updatedAt: now,
   };
+}
+
+export function isQueuedIssueComment(params: {
+  comment: Pick<IssueTimelineComment, "createdAt"> & Partial<Pick<OptimisticIssueComment, "clientStatus">>;
+  activeRunStartedAt?: Date | string | null;
+  runId?: string | null;
+  interruptedRunId?: string | null;
+}) {
+  if (params.runId) return false;
+  if (params.interruptedRunId) return false;
+  if (params.comment.clientStatus === "queued") return true;
+  if (!params.activeRunStartedAt) return false;
+  return toTimestamp(params.comment.createdAt) >= toTimestamp(params.activeRunStartedAt);
 }
 
 export function mergeIssueComments(
