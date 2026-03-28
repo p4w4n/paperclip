@@ -11,6 +11,7 @@ type UnreadState = "hidden" | "visible" | "fading";
 interface IssueRowProps {
   issue: Issue;
   issueLinkState?: unknown;
+  selected?: boolean;
   mobileLeading?: ReactNode;
   desktopMetaLeading?: ReactNode;
   desktopLeadingSpacer?: boolean;
@@ -27,6 +28,7 @@ interface IssueRowProps {
 export function IssueRow({
   issue,
   issueLinkState,
+  selected = false,
   mobileLeading,
   desktopMetaLeading,
   desktopLeadingSpacer = false,
@@ -48,8 +50,10 @@ export function IssueRow({
     <Link
       to={createIssueDetailPath(issuePathId, issueLinkState)}
       state={issueLinkState}
+      data-inbox-issue-link
       className={cn(
-        "group flex items-start gap-2 border-b border-border py-2.5 pl-2 pr-3 text-sm no-underline text-inherit transition-colors hover:bg-accent/50 last:border-b-0 sm:items-center sm:py-2 sm:pl-1",
+        "group flex items-start gap-2 border-b border-border py-2.5 pl-2 pr-3 text-sm no-underline text-inherit transition-colors last:border-b-0 sm:items-center sm:py-2 sm:pl-1",
+        selected ? "hover:bg-transparent" : "hover:bg-accent/50",
         className,
       )}
     >
