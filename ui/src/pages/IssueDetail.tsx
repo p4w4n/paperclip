@@ -275,6 +275,8 @@ export function IssueDetail() {
   });
 
   const hasLiveRuns = (liveRuns ?? []).length > 0 || !!activeRun;
+  const hasRunningIssueRun =
+    activeRun?.status === "running" || (liveRuns ?? []).some((run) => run.status === "running");
   const sourceBreadcrumb = useMemo(
     () => readIssueDetailBreadcrumb(location.state, location.search) ?? { label: "Issues", href: "/issues" },
     [location.state, location.search],
@@ -505,8 +507,8 @@ export function IssueDetail() {
   });
 
   const addComment = useMutation({
-    mutationFn: ({ body, reopen }: { body: string; reopen?: boolean }) =>
-      issuesApi.addComment(issueId!, body, reopen),
+    mutationFn: ({ body, reopen, interrupt }: { body: string; reopen?: boolean; interrupt?: boolean }) =>
+      issuesApi.addComment(issueId!, body, reopen, interrupt),
     onMutate: async ({ body, reopen }) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.issues.comments(issueId!) });
       await queryClient.cancelQueries({ queryKey: queryKeys.issues.detail(issueId!) });
@@ -572,10 +574,12 @@ export function IssueDetail() {
     mutationFn: ({
       body,
       reopen,
+      interrupt,
       reassignment,
     }: {
       body: string;
       reopen?: boolean;
+      interrupt?: boolean;
       reassignment: CommentReassignment;
     }) =>
       issuesApi.update(issueId!, {
@@ -583,6 +587,7 @@ export function IssueDetail() {
         assigneeAgentId: reassignment.assigneeAgentId,
         assigneeUserId: reassignment.assigneeUserId,
         ...(reopen ? { status: "todo" } : {}),
+        ...(interrupt ? { interrupt } : {}),
       }),
     onMutate: async ({ body, reopen, reassignment }) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.issues.comments(issueId!) });
@@ -1171,12 +1176,13 @@ export function IssueDetail() {
             currentAssigneeValue={actualAssigneeValue}
             suggestedAssigneeValue={suggestedAssigneeValue}
             mentions={mentionOptions}
-            onAdd={async (body, reopen, reassignment) => {
+            interruptAvailable={hasRunningIssueRun}
+            onAdd={async (body, reopen, reassignment, interrupt) => {
               if (reassignment) {
-                await addCommentAndReassign.mutateAsync({ body, reopen, reassignment });
+                await addCommentAndReassign.mutateAsync({ body, reopen, reassignment, interrupt });
                 return;
               }
-              await addComment.mutateAsync({ body, reopen });
+              await addComment.mutateAsync({ body, reopen, interrupt });
             }}
             imageUploadHandler={async (file) => {
               const attachment = await uploadAttachment.mutateAsync(file);
