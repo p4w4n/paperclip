@@ -223,6 +223,10 @@ function ProjectWorkspacesContent({
       {summaries.map((summary) => {
         const visibleIssues = summary.issues.slice(0, 3);
         const hiddenIssueCount = Math.max(summary.issues.length - visibleIssues.length, 0);
+        const workspaceHref =
+          summary.kind === "project_workspace"
+            ? projectWorkspaceUrl({ id: projectRef, urlKey: projectRef }, summary.workspaceId)
+            : `/execution-workspaces/${summary.workspaceId}`;
 
         return (
           <div
@@ -231,7 +235,12 @@ function ProjectWorkspacesContent({
           >
             <div className="grid gap-4 md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)_auto] md:items-start">
               <div className="min-w-0">
-                <div className="truncate text-sm font-medium">{summary.workspaceName}</div>
+                <Link
+                  to={workspaceHref}
+                  className="block truncate text-sm font-medium hover:underline"
+                >
+                  {summary.workspaceName}
+                </Link>
 
                 <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                   <span className="inline-flex items-center gap-1">
@@ -279,11 +288,7 @@ function ProjectWorkspacesContent({
 
               <div className="flex shrink-0 flex-col items-start gap-2 md:items-end">
                 <Link
-                  to={
-                    summary.kind === "project_workspace"
-                      ? projectWorkspaceUrl({ id: projectRef, urlKey: projectRef }, summary.workspaceId)
-                      : `/execution-workspaces/${summary.workspaceId}`
-                  }
+                  to={workspaceHref}
                   className="text-xs font-medium text-foreground hover:underline"
                 >
                   {summary.kind === "project_workspace" ? "Configure workspace" : "View workspace"}
