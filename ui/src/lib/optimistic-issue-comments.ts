@@ -16,6 +16,14 @@ function toTimestamp(value: Date | string) {
   return new Date(value).getTime();
 }
 
+function createOptimisticCommentId() {
+  const randomUuid = globalThis.crypto?.randomUUID?.();
+  if (randomUuid) {
+    return `optimistic-${randomUuid}`;
+  }
+  return `optimistic-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export function sortIssueComments<T extends { createdAt: Date | string; id: string }>(comments: T[]) {
   return [...comments].sort((a, b) => {
     const createdAtDiff = toTimestamp(a.createdAt) - toTimestamp(b.createdAt);
@@ -31,7 +39,7 @@ export function createOptimisticIssueComment(params: {
   authorUserId: string | null;
 }): OptimisticIssueComment {
   const now = new Date();
-  const clientId = `optimistic-${crypto.randomUUID()}`;
+  const clientId = createOptimisticCommentId();
   return {
     id: clientId,
     clientId,

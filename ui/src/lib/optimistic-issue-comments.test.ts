@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applyOptimisticIssueCommentUpdate,
   createOptimisticIssueComment,
@@ -7,6 +7,11 @@ import {
 } from "./optimistic-issue-comments";
 
 describe("optimistic issue comments", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
   it("creates a pending optimistic comment for the current user", () => {
     const comment = createOptimisticIssueComment({
       companyId: "company-1",
@@ -20,6 +25,25 @@ describe("optimistic issue comments", () => {
     expect(comment.clientStatus).toBe("pending");
     expect(comment.authorUserId).toBe("board-1");
     expect(comment.authorAgentId).toBeNull();
+  });
+
+  it("falls back when crypto.randomUUID is unavailable", () => {
+    vi.stubGlobal("crypto", {});
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_746_000_000_000);
+    const mathSpy = vi.spyOn(Math, "random").mockReturnValue(0.123456789);
+
+    const comment = createOptimisticIssueComment({
+      companyId: "company-1",
+      issueId: "issue-1",
+      body: "Working on it",
+      authorUserId: "board-1",
+    });
+
+    expect(comment.id).toBe("optimistic-1746000000000-4fzzzxjy");
+    expect(comment.clientId).toBe(comment.id);
+
+    nowSpy.mockRestore();
+    mathSpy.mockRestore();
   });
 
   it("merges optimistic comments into the server thread in chronological order", () => {
