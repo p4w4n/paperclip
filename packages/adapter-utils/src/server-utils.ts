@@ -293,24 +293,42 @@ export function stringifyPaperclipWakePayload(value: unknown): string | null {
   return JSON.stringify(normalized);
 }
 
-export function renderPaperclipWakePrompt(value: unknown): string {
+export function renderPaperclipWakePrompt(
+  value: unknown,
+  options: { resumedSession?: boolean } = {},
+): string {
   const normalized = normalizePaperclipWakePayload(value);
   if (!normalized) return "";
+  const resumedSession = options.resumedSession === true;
 
-  const lines = [
-    "## Paperclip Wake Payload",
-    "",
-    "Treat this wake payload as the highest-priority change for the current heartbeat.",
-    "Before generic repo exploration or boilerplate heartbeat updates, acknowledge the latest comment and explain how it changes your next action.",
-    "Use this inline wake data first before refetching the issue thread.",
-    "Only fetch the API thread when `fallbackFetchNeeded` is true or you need broader history than this batch.",
-    "",
-    `- reason: ${normalized.reason ?? "unknown"}`,
-    `- issue: ${normalized.issue?.identifier ?? normalized.issue?.id ?? "unknown"}${normalized.issue?.title ? ` ${normalized.issue.title}` : ""}`,
-    `- pending comments: ${normalized.includedCount}/${normalized.requestedCount}`,
-    `- latest comment id: ${normalized.latestCommentId ?? "unknown"}`,
-    `- fallback fetch needed: ${normalized.fallbackFetchNeeded ? "yes" : "no"}`,
-  ];
+  const lines = resumedSession
+    ? [
+        "## Paperclip Resume Delta",
+        "",
+        "You are resuming an existing Paperclip session.",
+        "Focus on the new wake delta below and continue the current task without restating the full heartbeat boilerplate.",
+        "Fetch the API thread only when `fallbackFetchNeeded` is true or you need broader history than this batch.",
+        "",
+        `- reason: ${normalized.reason ?? "unknown"}`,
+        `- issue: ${normalized.issue?.identifier ?? normalized.issue?.id ?? "unknown"}${normalized.issue?.title ? ` ${normalized.issue.title}` : ""}`,
+        `- pending comments: ${normalized.includedCount}/${normalized.requestedCount}`,
+        `- latest comment id: ${normalized.latestCommentId ?? "unknown"}`,
+        `- fallback fetch needed: ${normalized.fallbackFetchNeeded ? "yes" : "no"}`,
+      ]
+    : [
+        "## Paperclip Wake Payload",
+        "",
+        "Treat this wake payload as the highest-priority change for the current heartbeat.",
+        "Before generic repo exploration or boilerplate heartbeat updates, acknowledge the latest comment and explain how it changes your next action.",
+        "Use this inline wake data first before refetching the issue thread.",
+        "Only fetch the API thread when `fallbackFetchNeeded` is true or you need broader history than this batch.",
+        "",
+        `- reason: ${normalized.reason ?? "unknown"}`,
+        `- issue: ${normalized.issue?.identifier ?? normalized.issue?.id ?? "unknown"}${normalized.issue?.title ? ` ${normalized.issue.title}` : ""}`,
+        `- pending comments: ${normalized.includedCount}/${normalized.requestedCount}`,
+        `- latest comment id: ${normalized.latestCommentId ?? "unknown"}`,
+        `- fallback fetch needed: ${normalized.fallbackFetchNeeded ? "yes" : "no"}`,
+      ];
 
   if (normalized.issue?.status) {
     lines.push(`- issue status: ${normalized.issue.status}`);
