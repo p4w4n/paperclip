@@ -85,6 +85,7 @@ const env: NodeJS.ProcessEnv = {
 
 if (mode === "dev") {
   env.PAPERCLIP_DEV_SERVER_STATUS_FILE = devServerStatusFilePath;
+  env.PAPERCLIP_MIGRATION_AUTO_APPLY ??= "true";
 }
 
 if (mode === "watch") {
@@ -304,11 +305,13 @@ async function updateDevServiceRecord(extra?: Record<string, unknown>) {
 async function runPnpm(args: string[], options: {
   stdio?: "inherit" | ["ignore", "pipe", "pipe"];
   env?: NodeJS.ProcessEnv;
+  cwd?: string;
 } = {}) {
   return await new Promise<{ code: number; signal: NodeJS.Signals | null; stdout: string; stderr: string }>((resolve, reject) => {
     const spawned = spawn(pnpmBin, args, {
       stdio: options.stdio ?? ["ignore", "pipe", "pipe"],
       env: options.env ?? process.env,
+      cwd: options.cwd,
       shell: process.platform === "win32",
     });
 
@@ -416,13 +419,10 @@ async function maybePreflightMigrations(options: { interactive?: boolean; autoAp
     return;
   }
 
-  const migrate = spawn(pnpmBin, ["db:migrate"], {
+  const exit = await runPnpm(["db:migrate"], {
     stdio: "inherit",
     env,
-    shell: process.platform === "win32",
-  });
-  const exit = await new Promise<{ code: number; signal: NodeJS.Signals | null }>((resolve) => {
-    migrate.on("exit", (code, signal) => resolve({ code: code ?? 0, signal }));
+    cwd: repoRoot,
   });
   if (exit.signal) {
     exitForSignal(exit.signal);
