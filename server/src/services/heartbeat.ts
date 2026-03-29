@@ -51,7 +51,6 @@ import {
   resolveExecutionWorkspaceMode,
 } from "./execution-workspace-policy.js";
 import { instanceSettingsService } from "./instance-settings.js";
-import { readProjectWorkspaceRuntimeConfig } from "./project-workspace-runtime-config.js";
 import { redactCurrentUserText, redactCurrentUserValue } from "../log-redaction.js";
 import {
   hasSessionCompactionThresholds,
@@ -77,10 +76,9 @@ const SESSIONED_LOCAL_ADAPTERS = new Set([
   "pi_local",
 ]);
 
-function applyPersistedExecutionWorkspaceConfig(input: {
+export function applyPersistedExecutionWorkspaceConfig(input: {
   config: Record<string, unknown>;
   workspaceConfig: ExecutionWorkspaceConfig | null;
-  projectWorkspaceRuntime: Record<string, unknown> | null;
   mode: ReturnType<typeof resolveExecutionWorkspaceMode>;
 }) {
   const nextConfig = { ...input.config };
@@ -90,8 +88,6 @@ function applyPersistedExecutionWorkspaceConfig(input: {
       delete nextConfig.workspaceRuntime;
     } else if (input.workspaceConfig?.workspaceRuntime) {
       nextConfig.workspaceRuntime = { ...input.workspaceConfig.workspaceRuntime };
-    } else if (input.projectWorkspaceRuntime) {
-      nextConfig.workspaceRuntime = { ...input.projectWorkspaceRuntime };
     }
   }
 
@@ -104,6 +100,12 @@ function applyPersistedExecutionWorkspaceConfig(input: {
     nextConfig.workspaceStrategy = nextStrategy;
   }
 
+  return nextConfig;
+}
+
+export function stripWorkspaceRuntimeFromExecutionRunConfig(config: Record<string, unknown>) {
+  const nextConfig = { ...config };
+  delete nextConfig.workspaceRuntime;
   return nextConfig;
 }
 
@@ -2114,35 +2116,19 @@ export function heartbeatService(db: Db) {
       : null;
     const existingExecutionWorkspace =
       issueRef?.executionWorkspaceId ? await executionWorkspacesSvc.getById(issueRef.executionWorkspaceId) : null;
-    const resolvedProjectWorkspace =
-      resolvedWorkspace.workspaceId
-        ? await db
-            .select({ metadata: projectWorkspaces.metadata })
-            .from(projectWorkspaces)
-            .where(
-              and(
-                eq(projectWorkspaces.id, resolvedWorkspace.workspaceId),
-                eq(projectWorkspaces.companyId, agent.companyId),
-              ),
-            )
-            .then((rows) => rows[0] ?? null)
-        : null;
-    const projectWorkspaceRuntimeConfig = readProjectWorkspaceRuntimeConfig(
-      (resolvedProjectWorkspace?.metadata as Record<string, unknown> | null) ?? null,
-    );
     const persistedWorkspaceManagedConfig = applyPersistedExecutionWorkspaceConfig({
       config: workspaceManagedConfig,
       workspaceConfig: existingExecutionWorkspace?.config ?? null,
-      projectWorkspaceRuntime: projectWorkspaceRuntimeConfig?.workspaceRuntime ?? null,
       mode: executionWorkspaceMode,
     });
     const mergedConfig = issueAssigneeOverrides?.adapterConfig
       ? { ...persistedWorkspaceManagedConfig, ...issueAssigneeOverrides.adapterConfig }
       : persistedWorkspaceManagedConfig;
     const configSnapshot = buildExecutionWorkspaceConfigSnapshot(mergedConfig);
+    const executionRunConfig = stripWorkspaceRuntimeFromExecutionRunConfig(mergedConfig);
     const { config: resolvedConfig, secretKeys } = await secretsSvc.resolveAdapterConfigForRuntime(
       agent.companyId,
-      mergedConfig,
+      executionRunConfig,
     );
     const runtimeSkillEntries = await companySkills.listRuntimeSkillEntries(agent.companyId);
     const runtimeConfig = {

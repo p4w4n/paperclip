@@ -28,7 +28,7 @@ import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { logger } from "./middleware/logger.js";
 import { setupLiveEventsWebSocketServer } from "./realtime/live-events-ws.js";
-import { heartbeatService, reconcilePersistedRuntimeServicesOnStartup, restartDesiredRuntimeServicesOnStartup, routineService } from "./services/index.js";
+import { heartbeatService, reconcilePersistedRuntimeServicesOnStartup, routineService } from "./services/index.js";
 import { createStorageServiceFromConfig } from "./storage/index.js";
 import { printStartupBanner } from "./startup-banner.js";
 import { getBoardClaimWarningUrl, initializeBoardClaimChallenge } from "./board-claim.js";
@@ -555,15 +555,6 @@ export async function startServer(): Promise<StartedServer> {
         logger.warn(
           { reconciled: result.reconciled },
           "reconciled persisted runtime services from a previous server process",
-        );
-      }
-      return restartDesiredRuntimeServicesOnStartup(db as any);
-    })
-    .then((result) => {
-      if (result && result.restarted > 0) {
-        logger.warn(
-          { restarted: result.restarted, failed: result.failed },
-          "restarted desired workspace runtime services on startup",
         );
       }
     })
