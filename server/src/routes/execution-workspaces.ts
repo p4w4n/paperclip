@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { Router } from "express";
 import type { Db } from "@paperclipai/db";
-import { projects, projectWorkspaces } from "@paperclipai/db";
+import { issues, projects, projectWorkspaces } from "@paperclipai/db";
 import { updateExecutionWorkspaceSchema } from "@paperclipai/shared";
 import { validate } from "../middleware/validate.js";
 import { executionWorkspaceService, logActivity, workspaceOperationService } from "../services/index.js";
@@ -302,6 +302,21 @@ export function executionWorkspaceRoutes(db: Db) {
         return;
       }
       workspace = archivedWorkspace;
+
+      if (existing.mode === "shared_workspace") {
+        await db
+          .update(issues)
+          .set({
+            executionWorkspaceId: null,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(issues.companyId, existing.companyId),
+              eq(issues.executionWorkspaceId, existing.id),
+            ),
+          );
+      }
 
       try {
         await stopRuntimeServicesForExecutionWorkspace({

@@ -456,15 +456,19 @@ export function executionWorkspaceService(db: Db) {
 
       const blockingIssues = linkedIssueSummaries.filter((issue) => !issue.isTerminal);
       if (blockingIssues.length > 0) {
-        blockingReasons.push(
+        const linkedIssueMessage =
           blockingIssues.length === 1
             ? "This workspace is still linked to an open issue."
-            : `This workspace is still linked to ${blockingIssues.length} open issues.`,
-        );
+            : `This workspace is still linked to ${blockingIssues.length} open issues.`;
+        if (isSharedWorkspace) {
+          warnings.push(`${linkedIssueMessage} Archiving it will detach this shared workspace session from those issues, but keep the underlying project workspace available.`);
+        } else {
+          blockingReasons.push(linkedIssueMessage);
+        }
       }
 
       if (isSharedWorkspace) {
-        blockingReasons.push("Shared execution workspaces are project infrastructure and cannot be destructively closed.");
+        warnings.push("This shared workspace session points at project workspace infrastructure. Archiving it only removes the session record.");
       }
 
       if (runtimeServices.some((service) => service.status !== "stopped")) {

@@ -118,7 +118,7 @@ export function ExecutionWorkspaceCloseDialog({
               </div>
               <div className="mt-1 text-xs opacity-80">
                 {readiness.isSharedWorkspace
-                  ? "This is the shared project workspace session, so destructive close is blocked."
+                  ? "This is a shared workspace session. Archiving it removes this session record but keeps the underlying project workspace."
                   : readiness.git?.workspacePath && readiness.git.repoRoot && readiness.git.workspacePath !== readiness.git.repoRoot
                     ? "This execution workspace has its own checkout path and can be archived independently."
                     : readiness.isProjectPrimaryWorkspace

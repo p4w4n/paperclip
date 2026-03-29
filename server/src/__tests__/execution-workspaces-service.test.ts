@@ -148,7 +148,7 @@ describeEmbeddedPostgres("executionWorkspaceService.getCloseReadiness", () => {
     await tempDb?.cleanup();
   });
 
-  it("blocks close for shared workspaces that still have open linked issues", async () => {
+  it("allows archiving shared workspace sessions with warnings even when issues are still open", async () => {
     const companyId = randomUUID();
     const projectId = randomUUID();
     const projectWorkspaceId = randomUUID();
@@ -209,14 +209,15 @@ describeEmbeddedPostgres("executionWorkspaceService.getCloseReadiness", () => {
 
     expect(readiness).toMatchObject({
       workspaceId: executionWorkspaceId,
-      state: "blocked",
+      state: "ready_with_warnings",
       isSharedWorkspace: true,
       isProjectPrimaryWorkspace: true,
-      isDestructiveCloseAllowed: false,
+      isDestructiveCloseAllowed: true,
     });
-    expect(readiness?.blockingReasons).toEqual(expect.arrayContaining([
-      "This workspace is still linked to an open issue.",
-      "Shared execution workspaces are project infrastructure and cannot be destructively closed.",
+    expect(readiness?.blockingReasons).toEqual([]);
+    expect(readiness?.warnings).toEqual(expect.arrayContaining([
+      "This workspace is still linked to an open issue. Archiving it will detach this shared workspace session from those issues, but keep the underlying project workspace available.",
+      "This shared workspace session points at project workspace infrastructure. Archiving it only removes the session record.",
     ]));
   });
 
