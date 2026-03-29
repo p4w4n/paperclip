@@ -13,6 +13,7 @@ interface SwipeToArchiveProps {
 const COMMIT_THRESHOLD = 0.32;
 const MAX_SWIPE = 0.88;
 const COMMIT_DELAY_MS = 140;
+const SELECTED_ROW_BACKGROUND = "#f3f4f6";
 
 export function SwipeToArchive({
   children,
@@ -155,7 +156,7 @@ export function SwipeToArchive({
         style={{
           transform: `translate3d(${offsetX}px, 0, 0)`,
           transition: isDragging ? "none" : "transform 180ms ease-out",
-          backgroundColor: selected ? "hsl(var(--muted))" : undefined,
+          backgroundColor: selected ? SELECTED_ROW_BACKGROUND : undefined,
         }}
       >
         {children}
