@@ -186,9 +186,9 @@ function Field({
 }) {
   return (
     <label className="space-y-1.5">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
         <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{label}</span>
-        {hint ? <span className="text-[11px] text-muted-foreground">{hint}</span> : null}
+        {hint ? <span className="text-[11px] leading-relaxed text-muted-foreground sm:text-right">{hint}</span> : null}
       </div>
       {children}
     </label>
@@ -197,8 +197,8 @@ function Field({
 
 function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-start gap-3 py-1.5">
-      <div className="w-28 shrink-0 text-xs text-muted-foreground">{label}</div>
+    <div className="flex flex-col gap-1.5 py-1.5 sm:flex-row sm:items-start sm:gap-3">
+      <div className="shrink-0 text-xs text-muted-foreground sm:w-28">{label}</div>
       <div className="min-w-0 flex-1 text-sm">{children}</div>
     </div>
   );
@@ -364,7 +364,7 @@ export function ProjectWorkspaceDetail() {
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.9fr)]">
         <div className="space-y-6">
           <div className="rounded-2xl border border-border bg-card p-5">
-            <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
               <div className="space-y-2">
                 <div className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
                   Project workspace
@@ -379,6 +379,7 @@ export function ProjectWorkspaceDetail() {
               {!workspace.isPrimary ? (
                 <Button
                   variant="outline"
+                  className="w-full sm:w-auto"
                   disabled={setPrimaryWorkspace.isPending}
                   onClick={() => setPrimaryWorkspace.mutate()}
                 >
@@ -388,7 +389,7 @@ export function ProjectWorkspaceDetail() {
                   Make primary
                 </Button>
               ) : (
-                <div className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">
+                <div className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300 sm:max-w-sm">
                   <Sparkles className="h-4 w-4" />
                   This is the project’s primary codebase workspace.
                 </div>
@@ -537,13 +538,14 @@ export function ProjectWorkspaceDetail() {
               </Field>
             </div>
 
-            <div className="mt-5 flex flex-wrap items-center gap-3">
-              <Button disabled={!isDirty || updateWorkspace.isPending} onClick={saveChanges}>
+            <div className="mt-5 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+              <Button className="w-full sm:w-auto" disabled={!isDirty || updateWorkspace.isPending} onClick={saveChanges}>
                 {updateWorkspace.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                 Save changes
               </Button>
               <Button
                 variant="outline"
+                className="w-full sm:w-auto"
                 disabled={!isDirty || updateWorkspace.isPending}
                 onClick={() => {
                   setForm(initialState);
@@ -590,18 +592,19 @@ export function ProjectWorkspaceDetail() {
           </div>
 
           <div className="rounded-2xl border border-border bg-card p-5">
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="space-y-1">
-              <div className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">Runtime services</div>
-              <h2 className="text-lg font-semibold">Attached services</h2>
+                <div className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">Runtime services</div>
+                <h2 className="text-lg font-semibold">Attached services</h2>
                 <p className="text-sm text-muted-foreground">
                   Shared services for this project workspace. Execution workspaces inherit this config unless they override it.
                 </p>
               </div>
-              <div className="flex shrink-0 flex-wrap gap-2">
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap">
                 <Button
                   variant="outline"
                   size="sm"
+                  className="w-full sm:w-auto"
                   disabled={controlRuntimeServices.isPending || !workspace.runtimeConfig?.workspaceRuntime || !workspace.cwd}
                   onClick={() => controlRuntimeServices.mutate("start")}
                 >
@@ -611,6 +614,7 @@ export function ProjectWorkspaceDetail() {
                 <Button
                   variant="outline"
                   size="sm"
+                  className="w-full sm:w-auto"
                   disabled={controlRuntimeServices.isPending || !workspace.cwd}
                   onClick={() => controlRuntimeServices.mutate("restart")}
                 >
@@ -619,6 +623,7 @@ export function ProjectWorkspaceDetail() {
                 <Button
                   variant="outline"
                   size="sm"
+                  className="w-full sm:w-auto"
                   disabled={controlRuntimeServices.isPending || (workspace.runtimeServices?.length ?? 0) === 0}
                   onClick={() => controlRuntimeServices.mutate("stop")}
                 >
@@ -631,7 +636,7 @@ export function ProjectWorkspaceDetail() {
               <div className="space-y-3">
                 {workspace.runtimeServices.map((service) => (
                   <div key={service.id} className="rounded-xl border border-border/80 bg-background px-3 py-2">
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="space-y-1">
                         <div className="text-sm font-medium">{service.serviceName}</div>
                         <div className="space-y-1 text-xs text-muted-foreground">
@@ -646,7 +651,7 @@ export function ProjectWorkspaceDetail() {
                           {service.cwd ? <div className="break-all font-mono">{service.cwd}</div> : null}
                         </div>
                       </div>
-                      <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+                      <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground sm:text-right">
                         {service.status} · {service.healthStatus}
                       </div>
                     </div>
