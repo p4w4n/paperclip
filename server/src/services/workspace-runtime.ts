@@ -194,9 +194,9 @@ function toRuntimeServiceRef(record: RuntimeServiceRecord, overrides?: Partial<R
 function sanitizeSlugPart(value: string | null | undefined, fallback: string): string {
   const raw = (value ?? "").trim().toLowerCase();
   const normalized = raw
-    .replace(/[^a-z0-9/_-]+/g, "-")
+    .replace(/[^a-z0-9_-]+/g, "-")
     .replace(/-+/g, "-")
-    .replace(/^[-/]+|[-/]+$/g, "");
+    .replace(/^[-_]+|[-_]+$/g, "");
   return normalized.length > 0 ? normalized : fallback;
 }
 
@@ -231,9 +231,9 @@ function renderWorkspaceTemplate(template: string, input: {
 function sanitizeBranchName(value: string): string {
   return value
     .trim()
-    .replace(/[^A-Za-z0-9._/-]+/g, "-")
+    .replace(/[^A-Za-z0-9_-]+/g, "-")
     .replace(/-+/g, "-")
-    .replace(/^[-/.]+|[-/.]+$/g, "")
+    .replace(/^[-_]+|[-_]+$/g, "")
     .slice(0, 120) || "paperclip-work";
 }
 
