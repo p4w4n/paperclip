@@ -4,6 +4,7 @@ import { sessionCodec as codexSessionCodec } from "@paperclipai/adapter-codex-lo
 import { resolveDefaultAgentWorkspaceDir } from "../home-paths.js";
 import {
   applyPersistedExecutionWorkspaceConfig,
+  buildRealizedExecutionWorkspaceFromPersisted,
   buildExplicitResumeSessionOverride,
   formatRuntimeWorkspaceWarningLog,
   prioritizeProjectWorkspaceCandidatesForRun,
@@ -151,6 +152,89 @@ describe("applyPersistedExecutionWorkspaceConfig", () => {
     expect(result.workspaceRuntime).toEqual({
       services: [{ name: "workspace-web" }],
     });
+  });
+});
+
+describe("buildRealizedExecutionWorkspaceFromPersisted", () => {
+  it("reuses the persisted execution workspace path instead of deriving a new worktree", () => {
+    const result = buildRealizedExecutionWorkspaceFromPersisted({
+      base: buildResolvedWorkspace({
+        cwd: "/tmp/project-primary",
+        repoRef: "main",
+      }),
+      workspace: {
+        id: "execution-workspace-1",
+        companyId: "company-1",
+        projectId: "project-1",
+        projectWorkspaceId: "workspace-1",
+        sourceIssueId: "issue-1",
+        mode: "isolated_workspace",
+        strategyType: "git_worktree",
+        name: "PAP-880-thumbs-capture-for-evals-feature",
+        status: "active",
+        cwd: "/tmp/reused-worktree",
+        repoUrl: "https://example.com/paperclip.git",
+        baseRef: "main",
+        branchName: "PAP-880-thumbs-capture-for-evals-feature",
+        providerType: "git_worktree",
+        providerRef: "/tmp/reused-worktree",
+        derivedFromExecutionWorkspaceId: null,
+        lastUsedAt: new Date(),
+        openedAt: new Date(),
+        closedAt: null,
+        cleanupEligibleAt: null,
+        cleanupReason: null,
+        config: null,
+        metadata: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+
+    expect(result.created).toBe(false);
+    expect(result.strategy).toBe("git_worktree");
+    expect(result.cwd).toBe("/tmp/reused-worktree");
+    expect(result.worktreePath).toBe("/tmp/reused-worktree");
+    expect(result.branchName).toBe("PAP-880-thumbs-capture-for-evals-feature");
+    expect(result.source).toBe("task_session");
+  });
+
+  it("falls back to realization when the persisted workspace has no local path yet", () => {
+    const result = buildRealizedExecutionWorkspaceFromPersisted({
+      base: buildResolvedWorkspace({
+        cwd: "/tmp/project-primary",
+        repoRef: "main",
+      }),
+      workspace: {
+        id: "execution-workspace-2",
+        companyId: "company-1",
+        projectId: "project-1",
+        projectWorkspaceId: "workspace-1",
+        sourceIssueId: "issue-2",
+        mode: "isolated_workspace",
+        strategyType: "git_worktree",
+        name: "PAP-999-missing-provider-ref",
+        status: "active",
+        cwd: null,
+        repoUrl: "https://example.com/paperclip.git",
+        baseRef: "main",
+        branchName: "feature/PAP-999-missing-provider-ref",
+        providerType: "git_worktree",
+        providerRef: null,
+        derivedFromExecutionWorkspaceId: null,
+        lastUsedAt: new Date(),
+        openedAt: new Date(),
+        closedAt: null,
+        cleanupEligibleAt: null,
+        cleanupReason: null,
+        config: null,
+        metadata: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+
+    expect(result).toBeNull();
   });
 });
 
