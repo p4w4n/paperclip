@@ -255,8 +255,8 @@ function shouldSuppressAgentStatusToastForVisibleIssue(
 }
 
 const ISSUE_TOAST_ACTIONS = new Set(["issue.created", "issue.updated", "issue.comment_added"]);
-const AGENT_TOAST_STATUSES = new Set(["running", "error"]);
-const TERMINAL_RUN_STATUSES = new Set(["succeeded", "failed", "timed_out", "cancelled"]);
+const AGENT_TOAST_STATUSES = new Set(["error"]);
+const RUN_TOAST_STATUSES = new Set(["failed", "timed_out", "cancelled"]);
 
 function describeIssueUpdate(details: Record<string, unknown> | null): string | null {
   if (!details) return null;
@@ -427,7 +427,7 @@ function buildRunStatusToast(
   const runId = readString(payload.runId);
   const agentId = readString(payload.agentId);
   const status = readString(payload.status);
-  if (!runId || !agentId || !status || !TERMINAL_RUN_STATUSES.has(status)) return null;
+  if (!runId || !agentId || !status || !RUN_TOAST_STATUSES.has(status)) return null;
 
   const error = readString(payload.error);
   const triggerDetail = readString(payload.triggerDetail);
@@ -703,6 +703,8 @@ function closeSocketQuietly(target: LiveUpdatesSocketLike | null, reason: string
 }
 
 export const __liveUpdatesTestUtils = {
+  buildAgentStatusToast,
+  buildRunStatusToast,
   closeSocketQuietly,
   invalidateActivityQueries,
   resolveLiveCompanyId,

@@ -111,6 +111,7 @@ export {
   createProjectWorkspaceSchema,
   updateProjectWorkspaceSchema,
   projectExecutionWorkspacePolicySchema,
+  projectWorkspaceRuntimeConfigSchema,
   type CreateProject,
   type UpdateProject,
   type CreateProjectWorkspace,
@@ -153,8 +154,15 @@ export {
 } from "./work-product.js";
 
 export {
+  executionWorkspaceConfigSchema,
   updateExecutionWorkspaceSchema,
   executionWorkspaceStatusSchema,
+  executionWorkspaceCloseActionKindSchema,
+  executionWorkspaceCloseActionSchema,
+  executionWorkspaceCloseGitReadinessSchema,
+  executionWorkspaceCloseLinkedIssueSchema,
+  executionWorkspaceCloseReadinessSchema,
+  executionWorkspaceCloseReadinessStateSchema,
   type UpdateExecutionWorkspace,
 } from "./execution-workspace.js";
 
