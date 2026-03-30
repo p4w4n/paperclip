@@ -1,6 +1,6 @@
 #!/usr/bin/env -S node --import tsx
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { repoRoot } from "./dev-service-profile.ts";
 
@@ -14,24 +14,35 @@ function readJsonFile(filePath: string): Record<string, unknown> {
   return JSON.parse(readFileSync(filePath, "utf8")) as Record<string, unknown>;
 }
 
-function resolveWorkspacePackagePath(packageName: string): string | null {
-  if (packageName === "@paperclipai/adapter-utils") {
-    return path.join(repoRoot, "packages", "adapter-utils");
+function discoverWorkspacePackagePaths(rootDir: string): Map<string, string> {
+  const packagePaths = new Map<string, string>();
+  const ignoredDirNames = new Set([".git", ".paperclip", "dist", "node_modules"]);
+
+  function visit(dirPath: string) {
+    const packageJsonPath = path.join(dirPath, "package.json");
+    if (existsSync(packageJsonPath)) {
+      const packageJson = readJsonFile(packageJsonPath);
+      if (typeof packageJson.name === "string" && packageJson.name.length > 0) {
+        packagePaths.set(packageJson.name, dirPath);
+      }
+    }
+
+    for (const entry of readdirSync(dirPath, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      if (ignoredDirNames.has(entry.name)) continue;
+      visit(path.join(dirPath, entry.name));
+    }
   }
-  if (packageName === "@paperclipai/db") {
-    return path.join(repoRoot, "packages", "db");
-  }
-  if (packageName === "@paperclipai/shared") {
-    return path.join(repoRoot, "packages", "shared");
-  }
-  if (packageName === "@paperclipai/plugin-sdk") {
-    return path.join(repoRoot, "packages", "plugins", "sdk");
-  }
-  if (packageName.startsWith("@paperclipai/adapter-")) {
-    return path.join(repoRoot, "packages", "adapters", packageName.slice("@paperclipai/adapter-".length));
-  }
-  return null;
+
+  visit(path.join(rootDir, "packages"));
+  visit(path.join(rootDir, "server"));
+  visit(path.join(rootDir, "ui"));
+  visit(path.join(rootDir, "cli"));
+
+  return packagePaths;
 }
+
+const workspacePackagePaths = discoverWorkspacePackagePaths(repoRoot);
 
 function findServerWorkspaceLinkMismatches(): WorkspaceLinkMismatch[] {
   const serverPackageJson = readJsonFile(path.join(repoRoot, "server", "package.json"));
@@ -44,7 +55,7 @@ function findServerWorkspaceLinkMismatches(): WorkspaceLinkMismatch[] {
   for (const [packageName, version] of Object.entries(dependencies)) {
     if (typeof version !== "string" || !version.startsWith("workspace:")) continue;
 
-    const expectedPath = resolveWorkspacePackagePath(packageName);
+    const expectedPath = workspacePackagePaths.get(packageName);
     if (!expectedPath) continue;
 
     const linkPath = path.join(repoRoot, "server", "node_modules", ...packageName.split("/"));
