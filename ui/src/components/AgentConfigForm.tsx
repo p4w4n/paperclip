@@ -1170,8 +1170,12 @@ function EnvVarEditor({
       const k = row.key.trim();
       if (!k) continue;
       if (row.source === "secret") {
-        if (!row.secretId) continue;
-        rec[k] = { type: "secret_ref", secretId: row.secretId, version: "latest" };
+        if (row.secretId) {
+          rec[k] = { type: "secret_ref", secretId: row.secretId, version: "latest" };
+        } else {
+          // Preserve as plain during transition to avoid data loss
+          rec[k] = { type: "plain", value: row.plainValue };
+        }
       } else {
         rec[k] = { type: "plain", value: row.plainValue };
       }
