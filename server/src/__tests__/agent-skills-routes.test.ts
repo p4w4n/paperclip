@@ -86,6 +86,7 @@ vi.mock("../services/index.js", () => ({
 vi.mock("../adapters/index.js", () => ({
   findServerAdapter: vi.fn(() => mockAdapter),
   listAdapterModels: vi.fn(),
+  detectAdapterModel: vi.fn(),
 }));
 
 function createDb(requireBoardApprovalForNewAgents = false) {
