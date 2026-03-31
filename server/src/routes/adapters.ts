@@ -39,24 +39,9 @@ import type { ServerAdapterModule } from "../adapters/types.js";
 import { loadExternalAdapterPackage, getUiParserSource, getOrExtractUiParserSource, reloadExternalAdapter } from "../adapters/plugin-loader.js";
 import { logger } from "../middleware/logger.js";
 import { assertBoard } from "./authz.js";
+import { BUILTIN_ADAPTER_TYPES } from "../adapters/builtin-adapter-types.js";
 
 const execFileAsync = promisify(execFile);
-
-// ---------------------------------------------------------------------------
-// Known built-in adapter types (cannot be removed via the API)
-// ---------------------------------------------------------------------------
-
-const BUILTIN_ADAPTER_TYPES = new Set([
-  "claude_local",
-  "codex_local",
-  "cursor",
-  "gemini_local",
-  "openclaw_gateway",
-  "opencode_local",
-  "pi_local",
-  "process",
-  "http",
-]);
 
 // ---------------------------------------------------------------------------
 // Request / Response types

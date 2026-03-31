@@ -67,6 +67,21 @@ import {
 import {
   agentConfigurationDoc as piAgentConfigurationDoc,
 } from "@paperclipai/adapter-pi-local";
+import {
+  execute as hermesExecute,
+  testEnvironment as hermesTestEnvironment,
+  sessionCodec as hermesSessionCodec,
+  listSkills as hermesListSkills,
+  syncSkills as hermesSyncSkills,
+  detectModel as detectModelFromHermes,
+} from "hermes-paperclip-adapter/server";
+import {
+  agentConfigurationDoc as hermesAgentConfigurationDoc,
+  models as hermesModels,
+} from "hermes-paperclip-adapter";
+import { BUILTIN_ADAPTER_TYPES } from "./builtin-adapter-types.js";
+import { buildExternalAdapters } from "./plugin-loader.js";
+import { getDisabledAdapterTypes } from "../services/adapter-plugin-store.js";
 import { processAdapter } from "./process/index.js";
 import { httpAdapter } from "./http/index.js";
 
@@ -163,6 +178,19 @@ const piLocalAdapter: ServerAdapterModule = {
   agentConfigurationDoc: piAgentConfigurationDoc,
 };
 
+const hermesLocalAdapter: ServerAdapterModule = {
+  type: "hermes_local",
+  execute: hermesExecute,
+  testEnvironment: hermesTestEnvironment,
+  sessionCodec: hermesSessionCodec,
+  listSkills: hermesListSkills,
+  syncSkills: hermesSyncSkills,
+  models: hermesModels,
+  supportsLocalAgentJwt: true,
+  agentConfigurationDoc: hermesAgentConfigurationDoc,
+  detectModel: () => detectModelFromHermes(),
+};
+
 const adaptersByType = new Map<string, ServerAdapterModule>();
 
 function registerBuiltInAdapters() {
@@ -174,6 +202,7 @@ function registerBuiltInAdapters() {
     cursorLocalAdapter,
     geminiLocalAdapter,
     openclawGatewayAdapter,
+    hermesLocalAdapter,
     processAdapter,
     httpAdapter,
   ]) {
@@ -184,14 +213,11 @@ function registerBuiltInAdapters() {
 registerBuiltInAdapters();
 
 // ---------------------------------------------------------------------------
-// Load external adapter plugins (droid, hermes, etc.)
+// Load external adapter plugins (e.g. droid_local)
 //
 // External adapter packages export createServerAdapter() which returns a
 // ServerAdapterModule. The host fills in sessionManagement.
 // ---------------------------------------------------------------------------
-
-import { buildExternalAdapters } from "./plugin-loader.js";
-import { getDisabledAdapterTypes } from "../services/adapter-plugin-store.js";
 
 /** Cached sync wrapper — the store is a simple JSON file read, safe to call frequently. */
 function getDisabledAdapterTypesFromStore(): string[] {
@@ -208,6 +234,12 @@ const externalAdaptersReady: Promise<void> = (async () => {
   try {
     const externalAdapters = await buildExternalAdapters();
     for (const externalAdapter of externalAdapters) {
+      if (BUILTIN_ADAPTER_TYPES.has(externalAdapter.type)) {
+        console.warn(
+          `[paperclip] Skipping external adapter "${externalAdapter.type}" — conflicts with built-in adapter`,
+        );
+        continue;
+      }
       adaptersByType.set(
         externalAdapter.type,
         {
