@@ -16,6 +16,10 @@ import { registerApprovalCommands } from "./commands/client/approval.js";
 import { registerActivityCommands } from "./commands/client/activity.js";
 import { registerDashboardCommands } from "./commands/client/dashboard.js";
 import { applyDataDirOverride, type DataDirOptionLike } from "./config/data-dir.js";
+import { loadPaperclipEnvFile } from "./config/env.js";
+import { registerWorktreeCommands } from "./commands/worktree.js";
+import { registerPluginCommands } from "./commands/client/plugin.js";
+import { registerClientAuthCommands } from "./commands/client/auth.js";
 
 const program = new Command();
 const DATA_DIR_OPTION_HELP =
@@ -33,6 +37,7 @@ program.hook("preAction", (_thisCommand, actionCommand) => {
     hasConfigOption: optionNames.has("config"),
     hasContextOption: optionNames.has("context"),
   });
+  loadPaperclipEnvFile(options.config);
 });
 
 program
@@ -132,6 +137,8 @@ registerAgentCommands(program);
 registerApprovalCommands(program);
 registerActivityCommands(program);
 registerDashboardCommands(program);
+registerWorktreeCommands(program);
+registerPluginCommands(program);
 
 const auth = program.command("auth").description("Authentication and bootstrap utilities");
 
@@ -144,6 +151,8 @@ auth
   .option("--expires-hours <hours>", "Invite expiration window in hours", (value) => Number(value))
   .option("--base-url <url>", "Public base URL used to print invite link")
   .action(bootstrapCeoInvite);
+
+registerClientAuthCommands(auth);
 
 program.parseAsync().catch((err) => {
   console.error(err instanceof Error ? err.message : String(err));

@@ -14,20 +14,24 @@ import {
   ArrowLeft,
   Bot,
   Code,
+  Gem,
   MousePointer2,
   Sparkles,
   Terminal,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { OpenCodeLogoIcon } from "./OpenCodeLogoIcon";
+import { HermesIcon } from "./HermesIcon";
 
 type AdvancedAdapterType =
   | "claude_local"
   | "codex_local"
+  | "gemini_local"
   | "opencode_local"
   | "pi_local"
   | "cursor"
-  | "openclaw_gateway";
+  | "openclaw_gateway"
+  | "hermes_local";
 
 const ADVANCED_ADAPTER_OPTIONS: Array<{
   value: AdvancedAdapterType;
@@ -51,9 +55,21 @@ const ADVANCED_ADAPTER_OPTIONS: Array<{
     recommended: true,
   },
   {
+    value: "gemini_local",
+    label: "Gemini CLI",
+    icon: Gem,
+    desc: "Local Gemini agent",
+  },
+  {
     value: "opencode_local",
     label: "OpenCode",
     icon: OpenCodeLogoIcon,
+    desc: "Local multi-provider agent",
+  },
+  {
+    value: "hermes_local",
+    label: "Hermes Agent",
+    icon: HermesIcon,
     desc: "Local multi-provider agent",
   },
   {
