@@ -8,6 +8,7 @@ import {
   unregisterUIAdapter,
 } from "./registry";
 import { processUIAdapter } from "./process";
+import { SchemaConfigFields } from "./schema-config-fields";
 
 const externalUIAdapter: UIAdapterModule = {
   type: "external_test",
@@ -44,7 +45,7 @@ describe("ui adapter registry", () => {
     // Unknown types return a lazy-loading wrapper (for external adapters),
     // not the process adapter directly. The type is preserved.
     expect(fallback.type).toBe("external_test");
-    // But it uses the process parser under the hood.
-    expect(fallback.ConfigFields).toBe(processUIAdapter.ConfigFields);
+    // But it uses the schema-based config fields for external adapter forms.
+    expect(fallback.ConfigFields).toBe(SchemaConfigFields);
   });
 });
