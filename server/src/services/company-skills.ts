@@ -30,6 +30,7 @@ import { normalizeAgentUrlKey } from "@paperclipai/shared";
 import { findServerAdapter } from "../adapters/index.js";
 import { resolvePaperclipInstanceRoot } from "../home-paths.js";
 import { notFound, unprocessable } from "../errors.js";
+import { ghFetch, gitHubApiBase, resolveRawGitHubUrl } from "./github-fetch.js";
 import { agentService } from "./agents.js";
 import { projectService } from "./projects.js";
 import { secretService } from "./secrets.js";
@@ -470,14 +471,6 @@ function parseFrontmatterMarkdown(raw: string): { frontmatter: Record<string, un
   };
 }
 
-async function ghFetch(url: string, init?: RequestInit): Promise<Response> {
-  try {
-    return await fetch(url, init);
-  } catch {
-    throw unprocessable(`Could not connect to ${new URL(url).hostname} — ensure the URL points to a GitHub or GitHub Enterprise instance`);
-  }
-}
-
 async function fetchText(url: string) {
   const response = await ghFetch(url);
   if (!response.ok) {
@@ -498,14 +491,6 @@ async function fetchJson<T>(url: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-function isGitHubDotCom(hostname: string) {
-  const h = hostname.toLowerCase();
-  return h === "github.com" || h === "www.github.com";
-}
-
-function gitHubApiBase(hostname: string) {
-  return isGitHubDotCom(hostname) ? "https://api.github.com" : `https://${hostname}/api/v3`;
-}
 
 async function resolveGitHubDefaultBranch(owner: string, repo: string, apiBase: string) {
   const response = await fetchJson<{ default_branch?: string }>(
@@ -566,12 +551,6 @@ async function resolveGitHubPinnedRef(parsed: ReturnType<typeof parseGitHubSourc
   return { pinnedRef, trackingRef };
 }
 
-function resolveRawGitHubUrl(hostname: string, owner: string, repo: string, ref: string, filePath: string) {
-  const p = filePath.replace(/^\/+/, "");
-  return isGitHubDotCom(hostname)
-    ? `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${p}`
-    : `https://${hostname}/raw/${owner}/${repo}/${ref}/${p}`;
-}
 
 function extractCommandTokens(raw: string) {
   const matches = raw.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
@@ -1004,8 +983,11 @@ async function readUrlSkillImports(
   const warnings: string[] = [];
   const isGitHubRepoUrl = (() => { try {
     const parsed = new URL(url);
-    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
-    return parsed.pathname.split("/").filter(Boolean).length >= 2 && !parsed.pathname.endsWith(".md");
+    if (parsed.protocol !== "https:") return false;
+    const h = parsed.hostname.toLowerCase();
+    if (h.endsWith(".githubusercontent.com") || h === "gist.github.com") return false;
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    return segments.length >= 2 && !parsed.pathname.endsWith(".md");
   } catch { return false; } })();
   if (isGitHubRepoUrl) {
     const parsed = parseGitHubSourceUrl(url);

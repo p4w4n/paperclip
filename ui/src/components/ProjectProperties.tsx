@@ -346,7 +346,7 @@ export function ProjectProperties({ project, onUpdate, onFieldUpdate, getFieldSa
   const isGitHubRepoUrl = (value: string) => {
     try {
       const parsed = new URL(value);
-      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
+      if (parsed.protocol !== "https:") return false;
       const segments = parsed.pathname.split("/").filter(Boolean);
       return segments.length >= 2;
     } catch {

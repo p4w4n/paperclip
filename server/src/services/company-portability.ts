@@ -45,6 +45,7 @@ import {
   writePaperclipSkillSyncPreference,
 } from "@paperclipai/adapter-utils/server-utils";
 import { notFound, unprocessable } from "../errors.js";
+import { ghFetch, gitHubApiBase, resolveRawGitHubUrl } from "./github-fetch.js";
 import type { StorageService } from "../storage/types.js";
 import { accessService } from "./access.js";
 import { agentService } from "./agents.js";
@@ -2100,14 +2101,6 @@ function parseFrontmatterMarkdown(raw: string): MarkdownDoc {
   };
 }
 
-async function ghFetch(url: string, init?: RequestInit): Promise<Response> {
-  try {
-    return await fetch(url, init);
-  } catch {
-    throw unprocessable(`Could not connect to ${new URL(url).hostname} — ensure the URL points to a GitHub or GitHub Enterprise instance`);
-  }
-}
-
 async function fetchText(url: string) {
   const response = await ghFetch(url);
   if (!response.ok) {
@@ -2619,21 +2612,6 @@ export function parseGitHubSourceUrl(rawUrl: string) {
   return { hostname, owner, repo, ref, basePath, companyPath };
 }
 
-function isGitHubDotCom(hostname: string) {
-  const h = hostname.toLowerCase();
-  return h === "github.com" || h === "www.github.com";
-}
-
-function resolveRawGitHubUrl(hostname: string, owner: string, repo: string, ref: string, filePath: string) {
-  const p = filePath.replace(/^\/+/, "");
-  return isGitHubDotCom(hostname)
-    ? `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${p}`
-    : `https://${hostname}/raw/${owner}/${repo}/${ref}/${p}`;
-}
-
-function gitHubApiBase(hostname: string) {
-  return isGitHubDotCom(hostname) ? "https://api.github.com" : `https://${hostname}/api/v3`;
-}
 
 export function companyPortabilityService(db: Db, storage?: StorageService) {
   const companies = companyService(db);

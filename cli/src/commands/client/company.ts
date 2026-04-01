@@ -768,7 +768,7 @@ export function isHttpUrl(input: string): boolean {
 export function isGithubUrl(input: string): boolean {
   try {
     const url = new URL(input.trim());
-    if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+    if (url.protocol !== "https:") return false;
     const segments = url.pathname.split("/").filter(Boolean);
     return segments.length >= 2;
   } catch {
