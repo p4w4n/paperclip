@@ -512,6 +512,9 @@ async function resolveGitHubCommitSha(owner: string, repo: string, ref: string, 
 
 function parseGitHubSourceUrl(rawUrl: string) {
   const url = new URL(rawUrl);
+  if (url.protocol !== "https:") {
+    throw unprocessable("GitHub source URL must use HTTPS");
+  }
   const parts = url.pathname.split("/").filter(Boolean);
   if (parts.length < 2) {
     throw unprocessable("Invalid GitHub URL");

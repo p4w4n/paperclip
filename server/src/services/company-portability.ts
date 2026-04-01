@@ -2567,6 +2567,9 @@ function normalizeGitHubSourcePath(value: string | null | undefined) {
 
 export function parseGitHubSourceUrl(rawUrl: string) {
   const url = new URL(rawUrl);
+  if (url.protocol !== "https:") {
+    throw unprocessable("GitHub source URL must use HTTPS");
+  }
   const hostname = url.hostname;
   const parts = url.pathname.split("/").filter(Boolean);
   if (parts.length < 2) {
