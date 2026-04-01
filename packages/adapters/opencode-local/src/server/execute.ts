@@ -226,8 +226,6 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         `[paperclip] OpenCode session "${runtimeSessionId}" was saved for cwd "${runtimeSessionCwd}" and will not be resumed in "${cwd}".\n`,
       );
     }
-
-<<<<<<< HEAD
     const instructionsFilePath = asString(config.instructionsFilePath, "").trim();
     const resolvedInstructionsFilePath = instructionsFilePath
       ? path.resolve(cwd, instructionsFilePath)
