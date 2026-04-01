@@ -212,8 +212,23 @@ export async function reloadExternalAdapter(
   const packageDir = resolvePackageDir(record);
   const entryPoint = resolvePackageEntryPoint(packageDir);
   const modulePath = path.resolve(packageDir, entryPoint);
+  const fileUrl = `file://${modulePath}`;
 
-  const cacheBustUrl = `file://${modulePath}?t=${Date.now()}`;
+  // Bust ESM module cache so re-import loads fresh code from disk.
+  // Query-string trick (?t=...) works in Node; Bun may need the file:// URL
+  // to be evicted from its internal registry first.
+  try {
+    // @ts-expect-error -- Bun internal module cache
+    const bunCache = globalThis.Bun?.__moduleCache as Map<string, unknown> | undefined;
+    if (bunCache) {
+      bunCache.delete(fileUrl);
+      bunCache.delete(modulePath);
+    }
+  } catch {
+    // Ignore — query-string fallback still works in Node
+  }
+
+  const cacheBustUrl = `${fileUrl}?t=${Date.now()}`;
 
   logger.info(
     { type, packageName: record.packageName, modulePath, cacheBustUrl },

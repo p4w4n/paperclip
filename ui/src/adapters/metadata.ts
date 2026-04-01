@@ -26,6 +26,18 @@ export function listKnownAdapterTypes(): string[] {
  * Unknown types (external adapters) are always considered enabled.
  */
 export function isEnabledAdapterType(type: string): boolean {
+  // Known external adapter — always valid
+  if (listUIAdapters().some((a) => a.type === type)) return true;
+  return !getAdapterDisplay(type).comingSoon;
+}
+
+/**
+ * Check whether an adapter type is a valid choice for new agent creation.
+ * Includes all registered UI adapters (built-in + external) and
+ * any non-"coming soon" adapter from the display registry.
+ */
+export function isValidAdapterType(type: string): boolean {
+  if (listUIAdapters().some((a) => a.type === type)) return true;
   return !getAdapterDisplay(type).comingSoon;
 }
 

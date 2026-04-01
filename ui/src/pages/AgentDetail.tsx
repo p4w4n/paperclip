@@ -27,7 +27,7 @@ import { PageTabBar } from "../components/PageTabBar";
 import { adapterLabels, roleLabels, help } from "../components/agent-config-primitives";
 import { MarkdownEditor } from "../components/MarkdownEditor";
 import { assetsApi } from "../api/assets";
-import { getUIAdapter, buildTranscript } from "../adapters";
+import { getUIAdapter, buildTranscript, onAdapterChange } from "../adapters";
 import { StatusBadge } from "../components/StatusBadge";
 import { agentStatusDot, agentStatusDotDefault } from "../lib/status-colors";
 import { MarkdownBody } from "../components/MarkdownBody";
@@ -3762,10 +3762,20 @@ function LogViewer({ run, adapterType }: { run: HeartbeatRun; adapterType: strin
     return redactPathValue(asRecord(evt?.payload ?? null), censorUsernameInLogs);
   }, [censorUsernameInLogs, events]);
 
-  const adapter = useMemo(() => getUIAdapter(adapterType), [adapterType]);
+  // NOTE: adapter is NOT memoized because external adapters replace their
+  // parseStdoutLine asynchronously after dynamic parser loading. Memoizing
+  // on adapterType alone would stale the transcript with the fallback parser.
+  // We subscribe to adapter registry changes to force transcript recomputation.
+  const [parserTick, setParserTick] = useState(0);
+  const adapter = getUIAdapter(adapterType);
+
+  useEffect(() => {
+    return onAdapterChange(() => setParserTick((t) => t + 1));
+  }, []);
+
   const transcript = useMemo(
     () => buildTranscript(logLines, adapter.parseStdoutLine, { censorUsernameInLogs }),
-    [adapter, censorUsernameInLogs, logLines],
+    [adapter, censorUsernameInLogs, logLines, parserTick],
   );
 
   useEffect(() => {

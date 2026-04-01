@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleAlert,
+  GitCompare,
   TerminalSquare,
   User,
   Wrench,
@@ -104,6 +105,16 @@ type TranscriptBlock =
       tone: "info" | "warn" | "error" | "neutral";
       text: string;
       detail?: string;
+    }
+  | {
+      type: "diff_group";
+      ts: string;
+      endTs?: string;
+      filePath?: string;
+      hunks: Array<{
+        changeType: "add" | "remove" | "context" | "hunk" | "file_header" | "truncation";
+        text: string;
+      }>;
     };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -565,6 +576,28 @@ export function normalizeTranscript(entries: TranscriptEntry[], streaming: boole
       activeCommandBlock.result = activeCommandBlock.result
         ? `${activeCommandBlock.result}${activeCommandBlock.result.endsWith("\n") || entry.text.startsWith("\n") ? entry.text : `\n${entry.text}`}`
         : entry.text;
+      continue;
+    }
+
+    // ── Diff entries — accumulate into diff_group blocks ──────────
+    if (entry.kind === "diff") {
+      const prev = blocks[blocks.length - 1];
+      if (prev && prev.type === "diff_group") {
+        if (entry.changeType === "file_header") {
+          // New file in the same diff block — update filePath
+          prev.filePath = entry.text;
+        }
+        prev.hunks.push({ changeType: entry.changeType, text: entry.text });
+        prev.endTs = entry.ts;
+      } else {
+        blocks.push({
+          type: "diff_group",
+          ts: entry.ts,
+          endTs: entry.ts,
+          filePath: entry.changeType === "file_header" ? entry.text : undefined,
+          hunks: [{ changeType: entry.changeType, text: entry.text }],
+        });
+      }
       continue;
     }
 
@@ -1093,6 +1126,103 @@ function TranscriptEventRow({
   );
 }
 
+function TranscriptDiffGroup({
+  block,
+  density,
+}: {
+  block: Extract<TranscriptBlock, { type: "diff_group" }>;
+  density: TranscriptDensity;
+}) {
+  const [open, setOpen] = useState(false);
+  const compact = density === "compact";
+
+  // Count add/remove lines (exclude context, hunk, file_header, truncation)
+  const addCount = block.hunks.filter((h) => h.changeType === "add").length;
+  const removeCount = block.hunks.filter((h) => h.changeType === "remove").length;
+  const hasChanges = addCount > 0 || removeCount > 0;
+
+  // Extract a short file name from the path
+  const shortFile = block.filePath
+    ? block.filePath.split("/").pop() ?? block.filePath
+    : "diff";
+
+  return (
+    <div className="rounded-xl border border-blue-500/20 bg-blue-500/[0.04] p-2">
+      <div
+        role="button"
+        tabIndex={0}
+        className="flex cursor-pointer items-center gap-2"
+        onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen((v) => !v); } }}
+      >
+        <GitCompare className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} />
+        <span className={cn("text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-700 dark:text-blue-300")}>
+          {shortFile}
+        </span>
+        {hasChanges && (
+          <span className="text-[10px] tabular-nums">
+            <span className="text-emerald-600 dark:text-emerald-400">+{addCount}</span>
+            {" "}
+            <span className="text-red-600 dark:text-red-400">-{removeCount}</span>
+          </span>
+        )}
+        {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+      </div>
+      {open && (
+        <pre className={cn(
+          "mt-2 overflow-x-auto whitespace-pre-wrap break-words font-mono pl-5",
+          compact ? "text-[11px]" : "text-xs",
+        )}>
+          {block.hunks.map((hunk, i) => {
+            const key = `${i}-${hunk.changeType}`;
+            switch (hunk.changeType) {
+              case "remove":
+                return (
+                  <span key={key} className="block bg-red-500/[0.10] text-red-700 dark:text-red-300 -mx-2 px-2">
+                    <span className="select-none mr-2 text-red-500/60 dark:text-red-400/50">-</span>
+                    {hunk.text}
+                    {"\n"}
+                  </span>
+                );
+              case "add":
+                return (
+                  <span key={key} className="block bg-emerald-500/[0.10] text-emerald-700 dark:text-emerald-300 -mx-2 px-2">
+                    <span className="select-none mr-2 text-emerald-500/60 dark:text-emerald-400/50">+</span>
+                    {hunk.text}
+                    {"\n"}
+                  </span>
+                );
+              case "file_header":
+                return (
+                  <span key={key} className="block font-semibold text-blue-600 dark:text-blue-300 mt-2 first:mt-0">
+                    {hunk.text}
+                    {"\n"}
+                  </span>
+                );
+              case "truncation":
+                return (
+                  <span key={key} className="block text-muted-foreground italic mt-1">
+                    {hunk.text}
+                    {"\n"}
+                  </span>
+                );
+              case "context":
+              default:
+                return (
+                  <span key={key} className="block text-muted-foreground/70">
+                    {" "}
+                    {hunk.text}
+                    {"\n"}
+                  </span>
+                );
+            }
+          })}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 function TranscriptStderrGroup({
   block,
   density,
@@ -1251,6 +1381,7 @@ export function RunTranscriptView({
           {block.type === "tool" && <TranscriptToolCard block={block} density={density} />}
           {block.type === "command_group" && <TranscriptCommandGroup block={block} density={density} />}
           {block.type === "tool_group" && <TranscriptToolGroup block={block} density={density} />}
+          {block.type === "diff_group" && <TranscriptDiffGroup block={block} density={density} />}
           {block.type === "stderr_group" && <TranscriptStderrGroup block={block} density={density} />}
           {block.type === "stdout" && (
             <TranscriptStdoutRow block={block} density={density} collapseByDefault={collapseStdout} />

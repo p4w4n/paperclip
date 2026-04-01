@@ -268,17 +268,21 @@ export interface ProviderQuotaResult {
 export interface ConfigFieldOption {
   label: string;
   value: string;
+  /** Optional group key for categorizing options (e.g. provider name) */
+  group?: string;
 }
 
 export interface ConfigFieldSchema {
   key: string;
   label: string;
-  type: "text" | "select" | "toggle" | "number" | "textarea";
+  type: "text" | "select" | "toggle" | "number" | "textarea" | "combobox";
   options?: ConfigFieldOption[];
   default?: unknown;
   hint?: string;
   required?: boolean;
   group?: string;
+  /** Optional metadata — not rendered, but available to custom UI logic */
+  meta?: Record<string, unknown>;
 }
 
 export interface AdapterConfigSchema {
@@ -340,7 +344,8 @@ export type TranscriptEntry =
   | { kind: "result"; ts: string; text: string; inputTokens: number; outputTokens: number; cachedTokens: number; costUsd: number; subtype: string; isError: boolean; errors: string[] }
   | { kind: "stderr"; ts: string; text: string }
   | { kind: "system"; ts: string; text: string }
-  | { kind: "stdout"; ts: string; text: string };
+  | { kind: "stdout"; ts: string; text: string }
+  | { kind: "diff"; ts: string; changeType: "add" | "remove" | "context" | "hunk" | "file_header" | "truncation"; text: string };
 
 export type StdoutLineParser = (line: string, ts: string) => TranscriptEntry[];
 

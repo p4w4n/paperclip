@@ -15,6 +15,20 @@ import { SchemaConfigFields, buildSchemaAdapterConfig } from "./schema-config-fi
 const uiAdapters: UIAdapterModule[] = [];
 const adaptersByType = new Map<string, UIAdapterModule>();
 
+// Subscriber list — components can register to be notified when adapters change
+// (e.g., when a dynamic parser replaces a placeholder).
+const adapterChangeListeners = new Set<() => void>();
+
+/** Subscribe to adapter registry changes. Returns unsubscribe function. */
+export function onAdapterChange(fn: () => void): () => void {
+  adapterChangeListeners.add(fn);
+  return () => adapterChangeListeners.delete(fn);
+}
+
+function notifyAdapterChange(): void {
+  for (const fn of adapterChangeListeners) fn();
+}
+
 function registerBuiltInUIAdapters() {
   for (const adapter of [
     claudeLocalUIAdapter,
@@ -40,6 +54,7 @@ export function registerUIAdapter(adapter: UIAdapterModule): void {
     uiAdapters.push(adapter);
   }
   adaptersByType.set(adapter.type, adapter);
+  notifyAdapterChange();
 }
 
 export function unregisterUIAdapter(type: string): void {

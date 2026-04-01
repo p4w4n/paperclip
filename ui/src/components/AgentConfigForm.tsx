@@ -693,8 +693,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
             </>
           )}
 
-          {/* Adapter-specific fields */}
-          <uiAdapter.ConfigFields {...adapterFieldProps} />
+          {/* Adapter-specific fields are rendered inside Permissions & Configuration */}
         </div>
 
       </div>
@@ -816,6 +815,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
               {adapterType === "claude_local" && (
                 <ClaudeLocalAdvancedFields {...adapterFieldProps} />
               )}
+              <uiAdapter.ConfigFields {...adapterFieldProps} />
 
               <Field label="Extra args (comma-separated)" hint={help.extraArgs}>
                 <DraftInput

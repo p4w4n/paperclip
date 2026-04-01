@@ -5,6 +5,7 @@ export {
   registerUIAdapter,
   unregisterUIAdapter,
   syncExternalAdapters,
+  onAdapterChange,
 } from "./registry";
 export { buildTranscript } from "./transcript";
 export type {
