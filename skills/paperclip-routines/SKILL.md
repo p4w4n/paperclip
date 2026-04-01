@@ -54,6 +54,7 @@ POST /api/companies/{companyId}/routines
 | Field | Required | Notes |
 |-------|----------|-------|
 | `title` | yes | Max 200 chars |
+| `description` | no | Human-readable description of the routine |
 | `assigneeAgentId` | yes | Agents: must be themselves |
 | `projectId` | yes | |
 | `goalId` | no | Inherited by run issues |
@@ -91,6 +92,8 @@ Controls what happens with scheduled runs that were missed (e.g. server downtime
 ## Adding Triggers
 
 A routine can have multiple triggers of different kinds.
+
+All trigger kinds accept an optional `label` field (max 120 chars) — useful for distinguishing multiple triggers of the same kind on one routine.
 
 ```
 POST /api/routines/{routineId}/triggers
