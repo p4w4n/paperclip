@@ -32,10 +32,12 @@ vi.mock("../services/index.js", () => ({
   agentService: () => mockAgentService,
   documentService: () => ({}),
   executionWorkspaceService: () => ({}),
+  feedbackService: () => ({}),
   goalService: () => ({}),
   heartbeatService: () => ({
     reportRunActivity: vi.fn(async () => undefined),
   }),
+  instanceSettingsService: () => ({}),
   issueApprovalService: () => ({}),
   issueService: () => mockIssueService,
   logActivity: vi.fn(async () => undefined),
