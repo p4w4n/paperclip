@@ -228,7 +228,11 @@ export function createBufferedTextFileWriter(filePath: string, maxBufferedBytes 
       stream.destroy();
       await pendingWrite.catch(() => {});
       if (existsSync(filePath)) {
-        unlinkSync(filePath);
+        try {
+          unlinkSync(filePath);
+        } catch {
+          // Preserve the original backup failure if temporary file cleanup also fails.
+        }
       }
     },
   };
