@@ -12,8 +12,7 @@ import type {
   CompanyPortabilityPreviewResult,
   CompanyPortabilityImportResult,
 } from "@paperclipai/shared";
-import { trackCompanyImported } from "@paperclipai/shared/telemetry";
-import { getTelemetryClient } from "../../telemetry.js";
+import { getTelemetryClient, trackCompanyImported } from "../../telemetry.js";
 import { ApiRequestError } from "../../client/http.js";
 import { openUrl } from "../../client/board-auth.js";
 import { binaryContentTypeByExtension, readZipArchive } from "./zip.js";

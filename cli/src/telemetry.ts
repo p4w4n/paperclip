@@ -3,7 +3,10 @@ import {
   TelemetryClient,
   resolveTelemetryConfig,
   loadOrCreateState,
-} from "@paperclipai/shared/telemetry";
+  trackInstallStarted,
+  trackInstallCompleted,
+  trackCompanyImported,
+} from "../../packages/shared/src/telemetry/index.js";
 import { resolvePaperclipInstanceRoot } from "./config/home.js";
 import { readConfig } from "./config/store.js";
 import { cliVersion } from "./version.js";
@@ -38,3 +41,9 @@ export async function flushTelemetry(): Promise<void> {
     await client.flush();
   }
 }
+
+export {
+  trackInstallStarted,
+  trackInstallCompleted,
+  trackCompanyImported,
+};

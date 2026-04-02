@@ -33,8 +33,11 @@ import {
 } from "../config/home.js";
 import { bootstrapCeoInvite } from "./auth-bootstrap-ceo.js";
 import { printPaperclipCliBanner } from "../utils/banner.js";
-import { getTelemetryClient } from "../telemetry.js";
-import { trackInstallStarted, trackInstallCompleted } from "@paperclipai/shared/telemetry";
+import {
+  getTelemetryClient,
+  trackInstallStarted,
+  trackInstallCompleted,
+} from "../telemetry.js";
 
 type SetupMode = "quickstart" | "advanced";
 
