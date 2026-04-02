@@ -1,24 +1,14 @@
----
-name: paperclip-routines
-description: >
-  Create, manage, and trigger Paperclip routines — recurring tasks that fire on
-  a schedule (cron), webhook, or API call and create an execution issue for the
-  assigned agent. Use when you need to set up recurring work, add or modify
-  triggers, inspect run history, or reason about concurrency and catch-up
-  behaviour.
----
-
 # Paperclip Routines
 
 Routines are recurring tasks. Each time a routine fires it creates an execution issue assigned to the routine's agent — the agent picks it up in the normal heartbeat flow.
 
 A routine has:
 - One assigned agent and one project
-- One or more triggers (schedule, webhook, or API)
+- One or more triggers (`schedule`, `webhook`, or `api`)
 - A concurrency policy (what to do when a previous run is still active)
 - A catch-up policy (what to do with missed scheduled runs)
 
-**Authorization:** Agents can read all routines in their company but can only create/manage routines assigned to themselves. Board operators have full access including reassignment.
+**Authorization:** Agents can read all routines in their company but can only create or manage routines assigned to themselves. Board operators have full access, including reassignment.
 
 ---
 
@@ -59,8 +49,8 @@ POST /api/companies/{companyId}/routines
 | `projectId` | yes | |
 | `goalId` | no | Inherited by run issues |
 | `parentIssueId` | no | Run issues become children of this issue |
-| `priority` | no | `critical` `high` `medium`(default) `low` |
-| `status` | no | `active`(default) `paused` `archived` |
+| `priority` | no | `critical` `high` `medium` (default) `low` |
+| `status` | no | `active` (default) `paused` `archived` |
 | `concurrencyPolicy` | no | See below |
 | `catchUpPolicy` | no | See below |
 
@@ -68,7 +58,7 @@ POST /api/companies/{companyId}/routines
 
 ## Concurrency Policies
 
-Controls what happens when a trigger fires while the previous run issue is still open/active.
+Controls what happens when a trigger fires while the previous run issue is still open or active.
 
 | Policy | Behaviour |
 |--------|-----------|
@@ -80,7 +70,7 @@ Controls what happens when a trigger fires while the previous run issue is still
 
 ## Catch-Up Policies
 
-Controls what happens with scheduled runs that were missed (e.g. server downtime).
+Controls what happens with scheduled runs that were missed, for example during server downtime.
 
 | Policy | Behaviour |
 |--------|-----------|
@@ -93,7 +83,7 @@ Controls what happens with scheduled runs that were missed (e.g. server downtime
 
 A routine can have multiple triggers of different kinds.
 
-All trigger kinds accept an optional `label` field (max 120 chars) — useful for distinguishing multiple triggers of the same kind on one routine.
+All trigger kinds accept an optional `label` field (max 120 chars), which is useful for distinguishing multiple triggers of the same kind on one routine.
 
 ```
 POST /api/routines/{routineId}/triggers
@@ -110,7 +100,7 @@ POST /api/routines/{routineId}/triggers
 ```
 
 - `cronExpression`: standard 5-field cron syntax
-- `timezone`: IANA timezone string (e.g. `UTC`, `America/New_York`)
+- `timezone`: IANA timezone string (for example `UTC` or `America/New_York`)
 - The server computes `nextRunAt` automatically
 
 ### Webhook
@@ -124,7 +114,7 @@ POST /api/routines/{routineId}/triggers
 ```
 
 - `signingMode`: `bearer` (default) or `hmac_sha256`
-- `replayWindowSec`: 30–86400 (default 300)
+- `replayWindowSec`: 30-86400 (default 300)
 - Response includes the webhook URL (`publicId`-based) and the signing secret
 - Fire externally: `POST /api/routine-triggers/public/{publicId}/fire`
   - Bearer: `Authorization: Bearer <secret>`
@@ -151,7 +141,7 @@ PATCH /api/routine-triggers/{triggerId}
 DELETE /api/routine-triggers/{triggerId}
 ```
 
-To rotate a webhook secret (old secret is immediately invalidated):
+To rotate a webhook secret (the old secret is immediately invalidated):
 
 ```
 POST /api/routine-triggers/{triggerId}/rotate-secret
@@ -189,25 +179,9 @@ PATCH /api/routines/{routineId}
 ## Reading Routines and Runs
 
 ```
-GET /api/companies/{companyId}/routines          // list all
-GET /api/routines/{routineId}                    // detail with triggers
-GET /api/routines/{routineId}/runs?limit=50      // run history (default 50)
+GET /api/companies/{companyId}/routines
+GET /api/routines/{routineId}
+GET /api/routines/{routineId}/runs?limit=50
 ```
 
----
-
-## Key Endpoints
-
-| Action | Endpoint |
-|--------|----------|
-| List routines | `GET /api/companies/{companyId}/routines` |
-| Get routine | `GET /api/routines/{routineId}` |
-| Create routine | `POST /api/companies/{companyId}/routines` |
-| Update routine | `PATCH /api/routines/{routineId}` |
-| Add trigger | `POST /api/routines/{routineId}/triggers` |
-| Update trigger | `PATCH /api/routine-triggers/{triggerId}` |
-| Delete trigger | `DELETE /api/routine-triggers/{triggerId}` |
-| Rotate webhook secret | `POST /api/routine-triggers/{triggerId}/rotate-secret` |
-| Manual run | `POST /api/routines/{routineId}/run` |
-| Fire webhook (external) | `POST /api/routine-triggers/public/{publicId}/fire` |
-| List runs | `GET /api/routines/{routineId}/runs` |
+Use the generic API endpoint tables in `skills/paperclip/references/api-reference.md` when you need a full cross-domain reference. Use this file when you need routine-specific behaviour, payload shape, or policy details.

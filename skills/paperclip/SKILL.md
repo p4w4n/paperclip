@@ -147,7 +147,7 @@ Routines are recurring tasks. Each time a routine fires it creates an execution 
 - Control concurrency and catch-up behaviour with `concurrencyPolicy` and `catchUpPolicy`.
 
 If you are asked to create or manage routines you MUST read:
-`skills/paperclip/references/api-reference.md`
+`skills/paperclip/references/routines.md`
 
 ## Critical Rules
 
