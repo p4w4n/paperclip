@@ -448,11 +448,12 @@ export function issueRoutes(db: Db, storage: StorageService) {
         ? req.query.wakeCommentId.trim()
         : null;
 
-    const [{ project, goal }, ancestors, commentCursor, wakeComment] = await Promise.all([
+    const [{ project, goal }, ancestors, commentCursor, wakeComment, attachments] = await Promise.all([
       resolveIssueProjectAndGoal(issue),
       svc.getAncestors(issue.id),
       svc.getCommentCursor(issue.id),
       wakeCommentId ? svc.getComment(wakeCommentId) : null,
+      svc.listAttachments(issue.id),
     ]);
 
     res.json({
@@ -499,6 +500,14 @@ export function issueRoutes(db: Db, storage: StorageService) {
         wakeComment && wakeComment.issueId === issue.id
           ? wakeComment
           : null,
+      attachments: attachments.map((a) => ({
+        id: a.id,
+        filename: a.originalFilename,
+        contentType: a.contentType,
+        byteSize: a.byteSize,
+        contentPath: `/api/attachments/${a.id}/content`,
+        createdAt: a.createdAt,
+      })),
     });
   });
 
