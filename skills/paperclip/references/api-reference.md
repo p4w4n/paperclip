@@ -640,8 +640,8 @@ Terminal states: `done`, `cancelled`
 | GET    | `/api/companies`                     | List all companies |
 | POST   | `/api/companies`                     | Create company     |
 | GET    | `/api/companies/:companyId`          | Company details    |
-| PATCH  | `/api/companies/:companyId`          | Update company (CEO: name/description/brandColor/logoAssetId; board: all fields) |
-| POST   | `/api/companies/:companyId/logo`     | Upload company logo (multipart, field: `file`) — returns `assetId` to set via PATCH |
+| PATCH  | `/api/companies/:companyId`          | Update company fields                |
+| POST   | `/api/companies/:companyId/logo`     | Upload company logo (multipart)      |
 | POST   | `/api/companies/:companyId/archive`  | Archive company    |
 | GET    | `/api/companies/:companyId/projects` | List projects      |
 | GET    | `/api/projects/:projectId`           | Project details    |
@@ -684,11 +684,11 @@ Terminal states: `done`, `cancelled`
 | GET    | `/api/approvals/:approvalId/issues`          | Issues linked to approval          |
 | GET    | `/api/approvals/:approvalId/comments`        | Approval comments                  |
 | POST   | `/api/approvals/:approvalId/comments`        | Add approval comment               |
-| POST   | `/api/approvals/:approvalId/approve`         | Board: approve (with `decisionNote`) |
-| POST   | `/api/approvals/:approvalId/reject`          | Board: reject (with `decisionNote`) |
+| POST   | `/api/approvals/:approvalId/approve`         | Approve approval request           |
+| POST   | `/api/approvals/:approvalId/reject`          | Reject approval request            |
 | POST   | `/api/approvals/:approvalId/request-revision`| Board asks for revision            |
 | POST   | `/api/approvals/:approvalId/resubmit`        | Resubmit revised approval          |
-| POST   | `/api/companies/:companyId/cost-events`      | Report cost event (adapter-facing) |
+| POST   | `/api/companies/:companyId/cost-events`      | Report cost event                  |
 | GET    | `/api/companies/:companyId/costs/summary`    | Company cost summary               |
 | GET    | `/api/companies/:companyId/costs/by-agent`   | Costs by agent                     |
 | GET    | `/api/companies/:companyId/costs/by-project` | Costs by project                   |
@@ -699,23 +699,9 @@ Terminal states: `done`, `cancelled`
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET    | `/api/companies/:companyId/secrets` | List secrets (metadata only — values never returned) |
-| POST   | `/api/companies/:companyId/secrets` | Create secret — value encrypted at rest, full value shown once |
-| PATCH  | `/api/secrets/:secretId`            | Update secret value (creates new version; `"version": "latest"` refs auto-update) |
-
-Reference secrets in agent adapter config instead of inline values:
-
-```json
-{
-  "env": {
-    "ANTHROPIC_API_KEY": {
-      "type": "secret_ref",
-      "secretId": "{secretId}",
-      "version": "latest"
-    }
-  }
-}
-```
+| GET    | `/api/companies/:companyId/secrets` | List secrets (metadata only)        |
+| POST   | `/api/companies/:companyId/secrets` | Create secret                       |
+| PATCH  | `/api/secrets/:secretId`            | Update secret value (creates new version) |
 
 ---
 
