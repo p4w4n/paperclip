@@ -49,6 +49,7 @@ import { getRunLogStore } from "./run-log-store.js";
 
 const FEEDBACK_SCHEMA_VERSION = "paperclip-feedback-envelope-v2";
 const FEEDBACK_BUNDLE_VERSION = "paperclip-feedback-bundle-v2";
+const FEEDBACK_PAYLOAD_VERSION = "paperclip-feedback-v1";
 const FEEDBACK_DESTINATION = "paperclip_labs_feedback_v1";
 const FEEDBACK_CONTEXT_WINDOW = 3;
 const MAX_EXCERPT_CHARS = 200;
@@ -1999,7 +2000,7 @@ export function feedbackService(db: Db, options: FeedbackServiceOptions = {}) {
             consentVersion: sharedWithLabs ? (consentVersion ?? DEFAULT_FEEDBACK_DATA_SHARING_TERMS_VERSION) : null,
             schemaVersion: FEEDBACK_SCHEMA_VERSION,
             bundleVersion: FEEDBACK_BUNDLE_VERSION,
-            payloadVersion: FEEDBACK_BUNDLE_VERSION,
+            payloadVersion: FEEDBACK_PAYLOAD_VERSION,
             payloadDigest: artifacts.payloadDigest,
             payloadSnapshot: artifacts.payloadSnapshot,
             targetSummary: artifacts.targetSummary,
@@ -2021,7 +2022,7 @@ export function feedbackService(db: Db, options: FeedbackServiceOptions = {}) {
               consentVersion: sharedWithLabs ? (consentVersion ?? DEFAULT_FEEDBACK_DATA_SHARING_TERMS_VERSION) : null,
               schemaVersion: FEEDBACK_SCHEMA_VERSION,
               bundleVersion: FEEDBACK_BUNDLE_VERSION,
-              payloadVersion: FEEDBACK_BUNDLE_VERSION,
+              payloadVersion: FEEDBACK_PAYLOAD_VERSION,
               payloadDigest: artifacts.payloadDigest,
               payloadSnapshot: artifacts.payloadSnapshot,
               targetSummary: artifacts.targetSummary,

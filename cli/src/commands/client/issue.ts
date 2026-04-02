@@ -17,6 +17,11 @@ import {
   resolveCommandContext,
   type BaseClientOptions,
 } from "./common.js";
+import {
+  buildFeedbackTraceQuery,
+  normalizeFeedbackTraceExportFormat,
+  serializeFeedbackTraces,
+} from "./feedback.js";
 
 interface IssueBaseOptions extends BaseClientOptions {
   status?: string;
@@ -308,19 +313,19 @@ export function registerIssueCommands(program: Command): void {
         try {
           const ctx = resolveCommandContext(opts);
           const traces = (await ctx.api.get<FeedbackTrace[]>(
-            `/api/issues/${issueId}/feedback-traces${buildFeedbackTraceQuery({
-              ...opts,
-              includePayload: opts.includePayload ?? true,
-            })}`,
+            `/api/issues/${issueId}/feedback-traces${buildFeedbackTraceQuery(opts, opts.includePayload ?? true)}`,
           )) ?? [];
-          const serialized = serializeFeedbackTraces(traces, opts.format);
-          if (opts.out?.trim()) {
-            await writeFile(opts.out, serialized, "utf8");
-            if (ctx.json) {
-              printOutput({ out: opts.out, count: traces.length, format: normalizeExportFormat(opts.format) }, { json: true });
-              return;
-            }
-            console.log(`Wrote ${traces.length} feedback trace(s) to ${opts.out}`);
+            const serialized = serializeFeedbackTraces(traces, opts.format);
+            if (opts.out?.trim()) {
+              await writeFile(opts.out, serialized, "utf8");
+              if (ctx.json) {
+                printOutput(
+                  { out: opts.out, count: traces.length, format: normalizeFeedbackTraceExportFormat(opts.format) },
+                  { json: true },
+                );
+                return;
+              }
+              console.log(`Wrote ${traces.length} feedback trace(s) to ${opts.out}`);
             return;
           }
           process.stdout.write(`${serialized}${serialized.endsWith("\n") ? "" : "\n"}`);
@@ -403,30 +408,4 @@ function filterIssueRows(rows: Issue[], match: string | undefined): Issue[] {
       .toLowerCase();
     return text.includes(needle);
   });
-}
-
-function buildFeedbackTraceQuery(opts: IssueFeedbackOptions): string {
-  const params = new URLSearchParams();
-  if (opts.targetType) params.set("targetType", opts.targetType);
-  if (opts.vote) params.set("vote", opts.vote);
-  if (opts.status) params.set("status", opts.status);
-  if (opts.from) params.set("from", opts.from);
-  if (opts.to) params.set("to", opts.to);
-  if (opts.sharedOnly) params.set("sharedOnly", "true");
-  if (opts.includePayload) params.set("includePayload", "true");
-  const query = params.toString();
-  return query ? `?${query}` : "";
-}
-
-function normalizeExportFormat(value: string | undefined): "json" | "ndjson" {
-  if (!value || value === "ndjson") return "ndjson";
-  if (value === "json") return "json";
-  throw new Error(`Unsupported export format: ${value}`);
-}
-
-function serializeFeedbackTraces(traces: FeedbackTrace[], format: string | undefined): string {
-  if (normalizeExportFormat(format) === "json") {
-    return JSON.stringify(traces, null, 2);
-  }
-  return traces.map((trace) => JSON.stringify(trace)).join("\n");
 }

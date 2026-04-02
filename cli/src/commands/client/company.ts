@@ -23,6 +23,11 @@ import {
   resolveCommandContext,
   type BaseClientOptions,
 } from "./common.js";
+import {
+  buildFeedbackTraceQuery,
+  normalizeFeedbackTraceExportFormat,
+  serializeFeedbackTraces,
+} from "./feedback.js";
 
 interface CompanyCommandOptions extends BaseClientOptions {}
 type CompanyDeleteSelectorMode = "auto" | "id" | "prefix";
@@ -178,34 +183,6 @@ function parseAgents(input: string | undefined): "all" | string[] {
 function parseCsvValues(input: string | undefined): string[] {
   if (!input || !input.trim()) return [];
   return Array.from(new Set(input.split(",").map((part) => part.trim()).filter(Boolean)));
-}
-
-function buildFeedbackTraceQuery(opts: CompanyFeedbackOptions): string {
-  const params = new URLSearchParams();
-  if (opts.targetType) params.set("targetType", opts.targetType);
-  if (opts.vote) params.set("vote", opts.vote);
-  if (opts.status) params.set("status", opts.status);
-  if (opts.projectId) params.set("projectId", opts.projectId);
-  if (opts.issueId) params.set("issueId", opts.issueId);
-  if (opts.from) params.set("from", opts.from);
-  if (opts.to) params.set("to", opts.to);
-  if (opts.sharedOnly) params.set("sharedOnly", "true");
-  if (opts.includePayload) params.set("includePayload", "true");
-  const query = params.toString();
-  return query ? `?${query}` : "";
-}
-
-function normalizeFeedbackExportFormat(value: string | undefined): "json" | "ndjson" {
-  if (!value || value === "ndjson") return "ndjson";
-  if (value === "json") return "json";
-  throw new Error(`Unsupported export format: ${value}`);
-}
-
-function serializeFeedbackTraces(traces: FeedbackTrace[], format: string | undefined): string {
-  if (normalizeFeedbackExportFormat(format) === "json") {
-    return JSON.stringify(traces, null, 2);
-  }
-  return traces.map((trace) => JSON.stringify(trace)).join("\n");
 }
 
 function isInteractiveTerminal(): boolean {
@@ -1208,17 +1185,14 @@ export function registerCompanyCommands(program: Command): void {
         try {
           const ctx = resolveCommandContext(opts, { requireCompany: true });
           const traces = (await ctx.api.get<FeedbackTrace[]>(
-            `/api/companies/${ctx.companyId}/feedback-traces${buildFeedbackTraceQuery({
-              ...opts,
-              includePayload: opts.includePayload ?? true,
-            })}`,
+            `/api/companies/${ctx.companyId}/feedback-traces${buildFeedbackTraceQuery(opts, opts.includePayload ?? true)}`,
           )) ?? [];
           const serialized = serializeFeedbackTraces(traces, opts.format);
           if (opts.out?.trim()) {
             await writeFile(opts.out, serialized, "utf8");
             if (ctx.json) {
               printOutput(
-                { out: opts.out, count: traces.length, format: normalizeFeedbackExportFormat(opts.format) },
+                { out: opts.out, count: traces.length, format: normalizeFeedbackTraceExportFormat(opts.format) },
                 { json: true },
               );
               return;

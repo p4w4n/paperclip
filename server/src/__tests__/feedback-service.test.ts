@@ -762,9 +762,11 @@ describe("feedbackService.saveIssueVote", () => {
 
     expect(localTrace?.status).toBe("local_only");
     expect(localTrace?.exportId).toBeNull();
+    expect(localTrace?.payloadVersion).toBe("paperclip-feedback-v1");
     expect(localTrace?.payloadSnapshot?.bundle).toBeNull();
     expect(sharedTrace?.status).toBe("pending");
     expect(sharedTrace?.exportId).toMatch(/^fbexp_/);
+    expect(sharedTrace?.payloadVersion).toBe("paperclip-feedback-v1");
   });
 
   it("captures Claude project session artifacts as full traces", async () => {

@@ -23,6 +23,17 @@ interface FeedbackFilterOptions extends BaseClientOptions {
   sharedOnly?: boolean;
 }
 
+export interface FeedbackTraceQueryOptions {
+  targetType?: string;
+  vote?: string;
+  status?: string;
+  projectId?: string;
+  issueId?: string;
+  from?: string;
+  to?: string;
+  sharedOnly?: boolean;
+}
+
 interface FeedbackReportOptions extends FeedbackFilterOptions {
   payloads?: boolean;
 }
@@ -174,7 +185,7 @@ export async function resolveFeedbackCompanyId(
   return companyId;
 }
 
-export function buildFeedbackTraceQuery(opts: FeedbackFilterOptions, includePayload = true): string {
+export function buildFeedbackTraceQuery(opts: FeedbackTraceQueryOptions, includePayload = true): string {
   const params = new URLSearchParams();
   if (opts.targetType) params.set("targetType", opts.targetType);
   if (opts.vote) params.set("vote", opts.vote);
@@ -187,6 +198,19 @@ export function buildFeedbackTraceQuery(opts: FeedbackFilterOptions, includePayl
   if (includePayload) params.set("includePayload", "true");
   const query = params.toString();
   return query ? `?${query}` : "";
+}
+
+export function normalizeFeedbackTraceExportFormat(value: string | undefined): "json" | "ndjson" {
+  if (!value || value === "ndjson") return "ndjson";
+  if (value === "json") return "json";
+  throw new Error(`Unsupported export format: ${value}`);
+}
+
+export function serializeFeedbackTraces(traces: FeedbackTrace[], format: string | undefined): string {
+  if (normalizeFeedbackTraceExportFormat(format) === "json") {
+    return JSON.stringify(traces, null, 2);
+  }
+  return traces.map((trace) => JSON.stringify(trace)).join("\n");
 }
 
 export async function fetchCompanyFeedbackTraces(

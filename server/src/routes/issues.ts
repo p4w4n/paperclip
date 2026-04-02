@@ -116,6 +116,13 @@ export function issueRoutes(db: Db, storage: StorageService) {
     return false;
   }
 
+  function actorCanAccessCompany(req: Request, companyId: string) {
+    if (req.actor.type === "none") return false;
+    if (req.actor.type === "agent") return req.actor.companyId === companyId;
+    if (req.actor.source === "local_implicit" || req.actor.isInstanceAdmin) return true;
+    return (req.actor.companyIds ?? []).includes(companyId);
+  }
+
   function canCreateAgentsLegacy(agent: { permissions: Record<string, unknown> | null | undefined; role: string }) {
     if (agent.role === "ceo") return true;
     if (!agent.permissions || typeof agent.permissions !== "object") return false;
@@ -1538,14 +1545,14 @@ export function issueRoutes(db: Db, storage: StorageService) {
 
   router.get("/feedback-traces/:traceId", async (req, res) => {
     const traceId = req.params.traceId as string;
-    const trace = await feedback.getFeedbackTraceById(traceId, parseBooleanQuery(req.query.includePayload) || req.query.includePayload === undefined);
-    if (!trace) {
-      res.status(404).json({ error: "Feedback trace not found" });
-      return;
-    }
-    assertCompanyAccess(req, trace.companyId);
     if (req.actor.type !== "board") {
       res.status(403).json({ error: "Only board users can view feedback traces" });
+      return;
+    }
+    const includePayload = parseBooleanQuery(req.query.includePayload) || req.query.includePayload === undefined;
+    const trace = await feedback.getFeedbackTraceById(traceId, includePayload);
+    if (!trace || !actorCanAccessCompany(req, trace.companyId)) {
+      res.status(404).json({ error: "Feedback trace not found" });
       return;
     }
     res.json(trace);
@@ -1553,14 +1560,13 @@ export function issueRoutes(db: Db, storage: StorageService) {
 
   router.get("/feedback-traces/:traceId/bundle", async (req, res) => {
     const traceId = req.params.traceId as string;
-    const bundle = await feedback.getFeedbackTraceBundle(traceId);
-    if (!bundle) {
-      res.status(404).json({ error: "Feedback trace not found" });
-      return;
-    }
-    assertCompanyAccess(req, bundle.companyId);
     if (req.actor.type !== "board") {
       res.status(403).json({ error: "Only board users can view feedback trace bundles" });
+      return;
+    }
+    const bundle = await feedback.getFeedbackTraceBundle(traceId);
+    if (!bundle || !actorCanAccessCompany(req, bundle.companyId)) {
+      res.status(404).json({ error: "Feedback trace not found" });
       return;
     }
     res.json(bundle);
