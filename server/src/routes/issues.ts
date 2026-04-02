@@ -505,7 +505,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
         filename: a.originalFilename,
         contentType: a.contentType,
         byteSize: a.byteSize,
-        contentPath: `/api/attachments/${a.id}/content`,
+        contentPath: withContentPath(a).contentPath,
         createdAt: a.createdAt,
       })),
     });
