@@ -94,6 +94,12 @@ type TranscriptBlock =
       lines: Array<{ ts: string; text: string }>;
     }
   | {
+      type: "system_group";
+      ts: string;
+      endTs?: string;
+      lines: Array<{ ts: string; text: string }>;
+    }
+  | {
       type: "stdout";
       ts: string;
       text: string;
@@ -558,13 +564,19 @@ export function normalizeTranscript(entries: TranscriptEntry[], streaming: boole
         }
         continue;
       }
-      blocks.push({
-        type: "event",
-        ts: entry.ts,
-        label: "system",
-        tone: "warn",
-        text: entry.text,
-      });
+      // Batch consecutive system events into a single collapsible group
+      const prev = blocks[blocks.length - 1];
+      if (prev && prev.type === "system_group") {
+        prev.lines.push({ ts: entry.ts, text: entry.text });
+        prev.endTs = entry.ts;
+      } else {
+        blocks.push({
+          type: "system_group",
+          ts: entry.ts,
+          endTs: entry.ts,
+          lines: [{ ts: entry.ts, text: entry.text }],
+        });
+      }
       continue;
     }
 
@@ -1260,6 +1272,43 @@ function TranscriptStderrGroup({
   );
 }
 
+function TranscriptSystemGroup({
+  block,
+  density,
+}: {
+  block: Extract<TranscriptBlock, { type: "system_group" }>;
+  density: TranscriptDensity;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-xl border border-blue-500/20 bg-blue-500/[0.04] p-2 text-blue-700 dark:text-blue-300">
+      <div
+        role="button"
+        tabIndex={0}
+        className="flex cursor-pointer items-center gap-2"
+        onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen((v) => !v); } }}
+      >
+        <TerminalSquare className="h-3.5 w-3.5 shrink-0" />
+        <span className="text-[10px] font-semibold uppercase tracking-[0.14em]">
+          {block.lines.length} system {block.lines.length === 1 ? "message" : "messages"}
+        </span>
+        {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+      </div>
+      {open && (
+        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] text-blue-700/80 dark:text-blue-300/80 pl-5">
+          {block.lines.map((line, i) => (
+            <span key={`${line.ts}-${i}`}>
+              <span className="select-none text-blue-500/40 dark:text-blue-400/30">{i > 0 ? "\n" : ""}</span>
+              {line.text}
+            </span>
+          ))}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 function TranscriptStdoutRow({
   block,
   density,
@@ -1383,6 +1432,7 @@ export function RunTranscriptView({
           {block.type === "tool_group" && <TranscriptToolGroup block={block} density={density} />}
           {block.type === "diff_group" && <TranscriptDiffGroup block={block} density={density} />}
           {block.type === "stderr_group" && <TranscriptStderrGroup block={block} density={density} />}
+          {block.type === "system_group" && <TranscriptSystemGroup block={block} density={density} />}
           {block.type === "stdout" && (
             <TranscriptStdoutRow block={block} density={density} collapseByDefault={collapseStdout} />
           )}
