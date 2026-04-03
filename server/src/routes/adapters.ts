@@ -63,6 +63,8 @@ interface AdapterInfo {
   modelsCount: number;
   loaded: boolean;
   disabled: boolean;
+  /** True when an external plugin has replaced a built-in adapter of the same type. */
+  overriddenBuiltin?: boolean;
   version?: string;
   packageName?: string;
   isLocalPath?: boolean;
@@ -105,6 +107,7 @@ function buildAdapterInfo(adapter: ServerAdapterModule, externalRecord: AdapterP
     modelsCount: (adapter.models ?? []).length,
     loaded: true, // If it's in the registry, it's loaded
     disabled: disabledSet.has(adapter.type),
+    overriddenBuiltin: externalRecord ? BUILTIN_ADAPTER_TYPES.has(adapter.type) : undefined,
     // Prefer on-disk package.json so the UI reflects bumps without relying on store-only fields.
     version: fromDisk ?? externalRecord?.version,
     packageName: externalRecord?.packageName,

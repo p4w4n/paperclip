@@ -63,6 +63,11 @@ function AdapterRow({
               {adapter.label || getAdapterLabel(adapter.type)}
             </span>
             <Badge variant="outline">{adapter.source === "external" ? "External" : "Built-in"}</Badge>
+            {adapter.overriddenBuiltin && (
+              <Badge variant="secondary" className="text-blue-600 border-blue-400">
+                Overrides built-in
+              </Badge>
+            )}
             {adapter.source === "external" && (
               adapter.isLocalPath
                 ? <FolderOpen className="h-4 w-4 text-amber-500" title="Installed from local path" />

@@ -17,6 +17,8 @@ export interface AdapterInfo {
   packageName?: string;
   /** Whether the adapter was installed from a local path (vs npm). */
   isLocalPath?: boolean;
+  /** True when an external plugin has replaced a built-in adapter of the same type. */
+  overriddenBuiltin?: boolean;
 }
 
 export interface AdapterInstallResult {
