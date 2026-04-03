@@ -234,11 +234,11 @@ const externalAdaptersReady: Promise<void> = (async () => {
   try {
     const externalAdapters = await buildExternalAdapters();
     for (const externalAdapter of externalAdapters) {
-      if (BUILTIN_ADAPTER_TYPES.has(externalAdapter.type)) {
-        console.warn(
-          `[paperclip] Skipping external adapter "${externalAdapter.type}" — conflicts with built-in adapter`,
+      const overriding = BUILTIN_ADAPTER_TYPES.has(externalAdapter.type);
+      if (overriding) {
+        console.log(
+          `[paperclip] External adapter \"${externalAdapter.type}\" overrides built-in adapter`,
         );
-        continue;
       }
       adaptersByType.set(
         externalAdapter.type,
