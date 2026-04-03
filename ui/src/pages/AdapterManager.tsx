@@ -70,8 +70,8 @@ function AdapterRow({
             )}
             {adapter.source === "external" && (
               adapter.isLocalPath
-                ? <FolderOpen className="h-4 w-4 text-amber-500" title="Installed from local path" />
-                : <Package className="h-4 w-4 text-red-500" title="Installed from npm" />
+                ? <span title="Installed from local path"><FolderOpen className="h-4 w-4 text-amber-500" /></span>
+                : <span title="Installed from npm"><Package className="h-4 w-4 text-red-500" /></span>
             )}
             <Badge
               variant="default"
