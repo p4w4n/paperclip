@@ -263,12 +263,16 @@ function runMetrics(run: HeartbeatRun) {
   );
   const cost =
     visibleRunCostUsd(usage, result);
+  const provider = asNonEmptyString(usage?.provider) ?? null;
+  const model = asNonEmptyString(usage?.model) ?? null;
   return {
     input,
     output,
     cached,
     cost,
     totalTokens: input + output,
+    provider,
+    model,
   };
 }
 
@@ -1127,6 +1131,7 @@ export function AgentDetail() {
           agentRouteId={canonicalAgentRef}
           selectedRunId={urlRunId ?? null}
           adapterType={agent.adapterType}
+          adapterConfig={agent.adapterConfig}
         />
       )}
 
@@ -2905,6 +2910,7 @@ function RunsTab({
   agentRouteId,
   selectedRunId,
   adapterType,
+  adapterConfig,
 }: {
   runs: HeartbeatRun[];
   companyId: string;
@@ -2912,6 +2918,7 @@ function RunsTab({
   agentRouteId: string;
   selectedRunId: string | null;
   adapterType: string;
+  adapterConfig: Record<string, unknown>;
 }) {
   const { isMobile } = useSidebar();
 
@@ -2940,7 +2947,7 @@ function RunsTab({
             <ArrowLeft className="h-3.5 w-3.5" />
             Back to runs
           </Link>
-          <RunDetail key={selectedRun.id} run={selectedRun} agentRouteId={agentRouteId} adapterType={adapterType} />
+          <RunDetail key={selectedRun.id} run={selectedRun} agentRouteId={agentRouteId} adapterType={adapterType} adapterConfig={adapterConfig} />
         </div>
       );
     }
@@ -2971,7 +2978,7 @@ function RunsTab({
       {/* Right: run detail — natural height, page scrolls */}
       {selectedRun && (
         <div className="flex-1 min-w-0 pl-4">
-          <RunDetail key={selectedRun.id} run={selectedRun} agentRouteId={agentRouteId} adapterType={adapterType} />
+          <RunDetail key={selectedRun.id} run={selectedRun} agentRouteId={agentRouteId} adapterType={adapterType} adapterConfig={adapterConfig} />
         </div>
       )}
     </div>
@@ -2980,7 +2987,7 @@ function RunsTab({
 
 /* ---- Run Detail (expanded) ---- */
 
-function RunDetail({ run: initialRun, agentRouteId, adapterType }: { run: HeartbeatRun; agentRouteId: string; adapterType: string }) {
+function RunDetail({ run: initialRun, agentRouteId, adapterType, adapterConfig }: { run: HeartbeatRun; agentRouteId: string; adapterType: string; adapterConfig: Record<string, unknown> }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { data: hydratedRun } = useQuery({
@@ -3174,6 +3181,27 @@ function RunDetail({ run: initialRun, agentRouteId, adapterType }: { run: Heartb
                 </Button>
               )}
             </div>
+            {/* Adapter type · provider · model */}
+            {(() => {
+              const displayProvider = metrics.provider
+                ?? asNonEmptyString(adapterConfig?.provider);
+              const displayModel = metrics.model
+                ?? asNonEmptyString(adapterConfig?.model);
+              if (!adapterType && !displayProvider && !displayModel) return null;
+              return (
+                <div className="text-[11px] text-muted-foreground font-mono flex items-center gap-1.5 flex-wrap">
+                  {adapterType && (
+                    <span className="bg-muted rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide">{adapterType.replace(/_/g, " ")}</span>
+                  )}
+                  {displayProvider && displayModel && (
+                    <span>{displayProvider}/{displayModel}</span>
+                  )}
+                  {!displayProvider && displayModel && (
+                    <span>{displayModel}</span>
+                  )}
+                </div>
+              );
+            })()}
             {resumeRun.isError && (
               <div className="text-xs text-destructive">
                 {resumeRun.error instanceof Error ? resumeRun.error.message : "Failed to resume run"}
