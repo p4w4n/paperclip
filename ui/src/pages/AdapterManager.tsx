@@ -93,28 +93,6 @@ function AdapterRow({
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <Button
-            variant="outline"
-            size="icon-sm"
-            className="h-8 w-8"
-            title={adapter.disabled ? "Show in agent menus" : "Hide from agent menus"}
-            disabled={isToggling}
-            onClick={() => onToggle(adapter.type, !adapter.disabled)}
-          >
-            <Power className={cn("h-4 w-4", !adapter.disabled ? "text-green-600" : "text-muted-foreground")} />
-          </Button>
-          {onReload && (
-            <Button
-              variant="outline"
-              size="icon-sm"
-              className="h-8 w-8"
-              title="Reload adapter (hot-swap)"
-              disabled={isReloading}
-              onClick={() => onReload(adapter.type)}
-            >
-              <RefreshCw className={cn("h-4 w-4", isReloading && "animate-spin")} />
-            </Button>
-          )}
           {onReinstall && (
             <Button
               variant="outline"
@@ -127,6 +105,28 @@ function AdapterRow({
               <Download className={cn("h-4 w-4", isReinstalling && "animate-bounce")} />
             </Button>
           )}
+          {onReload && (
+            <Button
+              variant="outline"
+              size="icon-sm"
+              className="h-8 w-8"
+              title="Reload adapter (hot-swap)"
+              disabled={isReloading}
+              onClick={() => onReload(adapter.type)}
+            >
+              <RefreshCw className={cn("h-4 w-4", isReloading && "animate-spin")} />
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="icon-sm"
+            className="h-8 w-8"
+            title={adapter.disabled ? "Show in agent menus" : "Hide from agent menus"}
+            disabled={isToggling}
+            onClick={() => onToggle(adapter.type, !adapter.disabled)}
+          >
+            <Power className={cn("h-4 w-4", !adapter.disabled ? "text-green-600" : "text-muted-foreground")} />
+          </Button>
           {canRemove && (
             <Button
               variant="outline"
