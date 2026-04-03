@@ -63,6 +63,11 @@ function AdapterRow({
               {adapter.label || getAdapterLabel(adapter.type)}
             </span>
             <Badge variant="outline">{adapter.source === "external" ? "External" : "Built-in"}</Badge>
+            {adapter.source === "external" && (
+              adapter.isLocalPath
+                ? <FolderOpen className="h-4 w-4 text-amber-500" title="Installed from local path" />
+                : <Package className="h-4 w-4 text-red-500" title="Installed from npm" />
+            )}
             <Badge
               variant="default"
               className={adapter.loaded ? "bg-green-600 hover:bg-green-700" : ""}
@@ -140,6 +145,94 @@ function AdapterRow({
   );
 }
 
+function fetchNpmLatestVersion(packageName: string): Promise<string | null> {
+  return fetch(`https://registry.npmjs.org/${encodeURIComponent(packageName)}/latest`, {
+    signal: AbortSignal.timeout(5000),
+  })
+    .then((res) => res.json())
+    .then((data) => (typeof data?.version === "string" ? (data.version as string) : null))
+    .catch(() => null);
+}
+
+function ReinstallDialog({
+  adapter,
+  open,
+  isReinstalling,
+  onConfirm,
+  onCancel,
+}: {
+  adapter: AdapterInfo | null;
+  open: boolean;
+  isReinstalling: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const { data: latestVersion, isLoading: isFetchingVersion } = useQuery({
+    queryKey: ["npm-latest-version", adapter?.packageName],
+    queryFn: () => {
+      if (!adapter?.packageName) return null;
+      return fetchNpmLatestVersion(adapter.packageName);
+    },
+    enabled: open && !!adapter?.packageName,
+    staleTime: 60_000,
+  });
+
+  const isUpToDate = adapter?.version && latestVersion && adapter.version === latestVersion;
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onCancel(); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Reinstall Adapter</DialogTitle>
+          <DialogDescription>
+            This will pull the latest version of{" "}
+            <strong>{adapter?.packageName}</strong> from npm and hot-swap
+            the running adapter module. Existing agents will use the new
+            version on their next run.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="rounded-md border bg-muted/50 px-4 py-3 text-sm space-y-1">
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Package</span>
+            <span className="font-mono">{adapter?.packageName}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Current</span>
+            <span className="font-mono">
+              {adapter?.version ? `v${adapter.version}` : "unknown"}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Latest on npm</span>
+            <span className="font-mono">
+              {isFetchingVersion
+                ? "checking..."
+                : latestVersion
+                  ? `v${latestVersion}`
+                  : "unavailable"}
+            </span>
+          </div>
+          {isUpToDate && (
+            <p className="text-xs text-muted-foreground pt-1">
+              Already on the latest version.
+            </p>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel} disabled={isReinstalling}>
+            Cancel
+          </Button>
+          <Button disabled={isReinstalling} onClick={onConfirm}>
+            {isReinstalling ? "Reinstalling..." : "Reinstall"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function AdapterManager() {
   const { selectedCompany } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
@@ -151,6 +244,7 @@ export function AdapterManager() {
   const [isLocalPath, setIsLocalPath] = useState(false);
   const [installDialogOpen, setInstallDialogOpen] = useState(false);
   const [removeType, setRemoveType] = useState<string | null>(null);
+  const [reinstallTarget, setReinstallTarget] = useState<AdapterInfo | null>(null);
 
   useEffect(() => {
     setBreadcrumbs([
@@ -411,7 +505,7 @@ export function AdapterManager() {
                 onToggle={(type, disabled) => toggleMutation.mutate({ type, disabled })}
                 onRemove={(type) => setRemoveType(type)}
                 onReload={(type) => reloadMutation.mutate(type)}
-                onReinstall={!adapter.isLocalPath ? (type) => reinstallMutation.mutate(type) : undefined}
+                onReinstall={!adapter.isLocalPath ? (type) => setReinstallTarget(adapter) : undefined}
                 isToggling={toggleMutation.isPending}
                 isReloading={reloadMutation.isPending}
                 isReinstalling={reinstallMutation.isPending}
@@ -481,6 +575,20 @@ export function AdapterManager() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* Reinstall confirmation */}
+      <ReinstallDialog
+        adapter={reinstallTarget}
+        open={reinstallTarget !== null}
+        isReinstalling={reinstallMutation.isPending}
+        onConfirm={() => {
+          if (reinstallTarget) {
+            reinstallMutation.mutate(reinstallTarget.type, {
+              onSettled: () => setReinstallTarget(null),
+            });
+          }
+        }}
+        onCancel={() => setReinstallTarget(null)}
+      />
     </div>
   );
 }

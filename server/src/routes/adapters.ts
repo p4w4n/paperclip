@@ -175,7 +175,7 @@ export function adapterRoutes() {
 
     const result: AdapterInfo[] = registeredAdapters.map((adapter) =>
       buildAdapterInfo(adapter, externalRecords.get(adapter.type), disabledSet),
-    );
+    ).sort((a, b) => a.type.localeCompare(b.type));
 
     res.json(result);
   });
