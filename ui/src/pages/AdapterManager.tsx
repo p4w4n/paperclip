@@ -63,16 +63,6 @@ function AdapterRow({
               {adapter.label || getAdapterLabel(adapter.type)}
             </span>
             <Badge variant="outline">{adapter.source === "external" ? "External" : "Built-in"}</Badge>
-            {adapter.overriddenBuiltin && (
-              <Badge variant="secondary" className="text-blue-600 border-blue-400">
-                Overrides built-in
-              </Badge>
-            )}
-            {adapter.source === "external" && (
-              adapter.isLocalPath
-                ? <span title="Installed from local path"><FolderOpen className="h-4 w-4 text-amber-500" /></span>
-                : <span title="Installed from npm"><Package className="h-4 w-4 text-red-500" /></span>
-            )}
             <Badge
               variant="default"
               className={adapter.loaded ? "bg-green-600 hover:bg-green-700" : ""}
@@ -82,6 +72,16 @@ function AdapterRow({
             {adapter.version && (
               <Badge variant="secondary" className="font-mono text-[10px]">
                 v{adapter.version}
+              </Badge>
+            )}
+            {adapter.source === "external" && (
+              adapter.isLocalPath
+                ? <span title="Installed from local path"><FolderOpen className="h-4 w-4 text-amber-500" /></span>
+                : <span title="Installed from npm"><Package className="h-4 w-4 text-red-500" /></span>
+            )}
+            {adapter.overriddenBuiltin && (
+              <Badge variant="secondary" className="text-blue-600 border-blue-400">
+                Overrides built-in
               </Badge>
             )}
             {adapter.disabled && (
