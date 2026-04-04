@@ -48,6 +48,7 @@ import { conflict, forbidden, notFound, unprocessable } from "../errors.js";
 import { assertBoard, assertCompanyAccess, assertInstanceAdmin, getActorInfo } from "./authz.js";
 import {
   detectAdapterModel,
+  findActiveServerAdapter,
   findServerAdapter,
   listAdapterModels,
   requireServerAdapter,
@@ -820,7 +821,7 @@ export function agentRoutes(db: Db) {
     }
     await assertCanReadConfigurations(req, agent.companyId);
 
-    const adapter = findServerAdapter(agent.adapterType);
+    const adapter = findActiveServerAdapter(agent.adapterType);
     if (!adapter?.listSkills) {
       const preference = readPaperclipSkillSyncPreference(
         agent.adapterConfig as Record<string, unknown>,
@@ -898,7 +899,7 @@ export function agentRoutes(db: Db) {
         return;
       }
 
-      const adapter = findServerAdapter(updated.adapterType);
+      const adapter = findActiveServerAdapter(updated.adapterType);
       const { config: runtimeConfig } = await secretsSvc.resolveAdapterConfigForRuntime(
         updated.companyId,
         updated.adapterConfig,

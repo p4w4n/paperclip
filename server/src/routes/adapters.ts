@@ -20,6 +20,7 @@ import { Router } from "express";
 import {
   listServerAdapters,
   findServerAdapter,
+  findActiveServerAdapter,
   listEnabledServerAdapters,
   registerServerAdapter,
   unregisterServerAdapter,
@@ -593,7 +594,7 @@ export function adapterRoutes() {
     assertBoard(req);
     const { type } = req.params;
 
-    const adapter = findServerAdapter(type);
+    const adapter = findActiveServerAdapter(type);
     if (!adapter) {
       res.status(404).json({ error: `Adapter "${type}" is not registered.` });
       return;

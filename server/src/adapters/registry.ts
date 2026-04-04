@@ -278,16 +278,33 @@ export function waitForExternalAdapters(): Promise<void> {
 }
 
 export function registerServerAdapter(adapter: ServerAdapterModule): void {
+  if (BUILTIN_ADAPTER_TYPES.has(adapter.type) && !builtinFallbacks.has(adapter.type)) {
+    const existing = adaptersByType.get(adapter.type);
+    if (existing) {
+      builtinFallbacks.set(adapter.type, existing);
+    }
+  }
   adaptersByType.set(adapter.type, adapter);
 }
 
 export function unregisterServerAdapter(type: string): void {
   if (type === processAdapter.type || type === httpAdapter.type) return;
+  if (builtinFallbacks.has(type)) {
+    pausedOverrides.delete(type);
+    const fallback = builtinFallbacks.get(type);
+    if (fallback) {
+      adaptersByType.set(type, fallback);
+    }
+    return;
+  }
+  if (BUILTIN_ADAPTER_TYPES.has(type)) {
+    return;
+  }
   adaptersByType.delete(type);
 }
 
 export function requireServerAdapter(type: string): ServerAdapterModule {
-  const adapter = adaptersByType.get(type);
+  const adapter = findActiveServerAdapter(type);
   if (!adapter) {
     throw new Error(`Unknown adapter type: ${type}`);
   }
@@ -295,15 +312,11 @@ export function requireServerAdapter(type: string): ServerAdapterModule {
 }
 
 export function getServerAdapter(type: string): ServerAdapterModule {
-  if (pausedOverrides.has(type)) {
-    const fallback = builtinFallbacks.get(type);
-    if (fallback) return fallback;
-  }
-  return adaptersByType.get(type) ?? processAdapter;
+  return findActiveServerAdapter(type) ?? processAdapter;
 }
 
 export async function listAdapterModels(type: string): Promise<{ id: string; label: string }[]> {
-  const adapter = adaptersByType.get(type);
+  const adapter = findActiveServerAdapter(type);
   if (!adapter) return [];
   if (adapter.listModels) {
     const discovered = await adapter.listModels();
@@ -332,7 +345,7 @@ export function listEnabledServerAdapters(): ServerAdapterModule[] {
 export async function detectAdapterModel(
   type: string,
 ): Promise<{ model: string; provider: string; source: string; candidates?: string[] } | null> {
-  const adapter = adaptersByType.get(type);
+  const adapter = findActiveServerAdapter(type);
   if (!adapter?.detectModel) return null;
   const detected = await adapter.detectModel();
   if (!detected) return null;
@@ -388,5 +401,13 @@ export function getPausedOverrides(): Set<string> {
 }
 
 export function findServerAdapter(type: string): ServerAdapterModule | null {
+  return adaptersByType.get(type) ?? null;
+}
+
+export function findActiveServerAdapter(type: string): ServerAdapterModule | null {
+  if (pausedOverrides.has(type)) {
+    const fallback = builtinFallbacks.get(type);
+    if (fallback) return fallback;
+  }
   return adaptersByType.get(type) ?? null;
 }

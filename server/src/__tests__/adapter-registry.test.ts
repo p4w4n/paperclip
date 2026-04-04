@@ -1,12 +1,15 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import type { ServerAdapterModule } from "../adapters/index.js";
 import {
+  detectAdapterModel,
+  findActiveServerAdapter,
   findServerAdapter,
   listAdapterModels,
   registerServerAdapter,
   requireServerAdapter,
   unregisterServerAdapter,
 } from "../adapters/index.js";
+import { setOverridePaused } from "../adapters/registry.js";
 
 const externalAdapter: ServerAdapterModule = {
   type: "external_test",
@@ -28,10 +31,14 @@ const externalAdapter: ServerAdapterModule = {
 describe("server adapter registry", () => {
   beforeEach(() => {
     unregisterServerAdapter("external_test");
+    unregisterServerAdapter("claude_local");
+    setOverridePaused("claude_local", false);
   });
 
   afterEach(() => {
     unregisterServerAdapter("external_test");
+    unregisterServerAdapter("claude_local");
+    setOverridePaused("claude_local", false);
   });
 
   it("registers external adapters and exposes them through lookup helpers", async () => {
@@ -86,5 +93,51 @@ describe("server adapter registry", () => {
     expect(resolved.models).toEqual([
       { id: "plugin-model", label: "Plugin Override" },
     ]);
+  });
+
+  it("switches active adapter behavior back to the builtin when an override is paused", async () => {
+    const builtIn = findServerAdapter("claude_local");
+    expect(builtIn).not.toBeNull();
+
+    const detectModel = vi.fn(async () => ({
+      model: "plugin-model",
+      provider: "plugin-provider",
+      source: "plugin-source",
+    }));
+    const plugin: ServerAdapterModule = {
+      type: "claude_local",
+      execute: async () => ({
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+      }),
+      testEnvironment: async () => ({
+        adapterType: "claude_local",
+        status: "pass",
+        checks: [],
+        testedAt: new Date(0).toISOString(),
+      }),
+      models: [{ id: "plugin-model", label: "Plugin Override" }],
+      detectModel,
+      supportsLocalAgentJwt: false,
+    };
+
+    registerServerAdapter(plugin);
+
+    expect(findActiveServerAdapter("claude_local")).toBe(plugin);
+    expect(await listAdapterModels("claude_local")).toEqual([
+      { id: "plugin-model", label: "Plugin Override" },
+    ]);
+    expect(await detectAdapterModel("claude_local")).toMatchObject({
+      model: "plugin-model",
+      provider: "plugin-provider",
+    });
+
+    expect(setOverridePaused("claude_local", true)).toBe(true);
+
+    expect(findActiveServerAdapter("claude_local")).not.toBe(plugin);
+    expect(await listAdapterModels("claude_local")).toEqual(builtIn?.models ?? []);
+    expect(await detectAdapterModel("claude_local")).toBeNull();
+    expect(detectModel).toHaveBeenCalledTimes(1);
   });
 });

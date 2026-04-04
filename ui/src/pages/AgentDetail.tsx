@@ -3802,7 +3802,7 @@ function LogViewer({ run, adapterType }: { run: HeartbeatRun; adapterType: strin
   }, []);
 
   const transcript = useMemo(
-    () => buildTranscript(logLines, adapter.parseStdoutLine, { censorUsernameInLogs }),
+    () => buildTranscript(logLines, adapter, { censorUsernameInLogs }),
     [adapter, censorUsernameInLogs, logLines, parserTick],
   );
 

@@ -284,7 +284,7 @@ export function useLiveRunTranscripts({
       const adapter = getUIAdapter(run.adapterType);
       next.set(
         run.id,
-        buildTranscript(chunksByRun.get(run.id) ?? [], adapter.parseStdoutLine, {
+        buildTranscript(chunksByRun.get(run.id) ?? [], adapter, {
           censorUsernameInLogs,
         }),
       );

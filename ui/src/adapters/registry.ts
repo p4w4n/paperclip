@@ -101,12 +101,13 @@ export function getUIAdapter(type: string): UIAdapterModule {
       parseStdoutLine: (line: string, ts: string) => {
         if (!loadStarted) {
           loadStarted = true;
-          loadDynamicParser(type).then((parser) => {
-            if (parser) {
+          loadDynamicParser(type).then((parserModule) => {
+            if (parserModule) {
               registerUIAdapter({
                 type,
                 label: type,
-                parseStdoutLine: parser,
+                parseStdoutLine: parserModule.parseStdoutLine,
+                createStdoutParser: parserModule.createStdoutParser,
                 ConfigFields: SchemaConfigFields,
                 buildAdapterConfig: buildSchemaAdapterConfig,
               });
@@ -182,13 +183,14 @@ export function syncExternalAdapters(
         parseStdoutLine: (line: string, ts: string) => {
           if (!loadStarted) {
             loadStarted = true;
-            loadDynamicParser(builtinType).then((parser) => {
+            loadDynamicParser(builtinType).then((parserModule) => {
               // Discard if the override was torn down while the load was in-flight.
-              if (parser && overrideGeneration.get(builtinType) === gen) {
+              if (parserModule && overrideGeneration.get(builtinType) === gen) {
                 registerUIAdapter({
                   type: builtinType,
                   label,
-                  parseStdoutLine: parser,
+                  parseStdoutLine: parserModule.parseStdoutLine,
+                  createStdoutParser: parserModule.createStdoutParser,
                   ConfigFields: originalBuiltin.ConfigFields,
                   buildAdapterConfig: originalBuiltin.buildAdapterConfig,
                 });
@@ -232,12 +234,13 @@ export function syncExternalAdapters(
       parseStdoutLine: (line: string, ts: string) => {
         if (!loadStarted) {
           loadStarted = true;
-          loadDynamicParser(type).then((parser) => {
-            if (parser) {
+          loadDynamicParser(type).then((parserModule) => {
+            if (parserModule) {
               registerUIAdapter({
                 type,
                 label,
-                parseStdoutLine: parser,
+                parseStdoutLine: parserModule.parseStdoutLine,
+                createStdoutParser: parserModule.createStdoutParser,
                 ConfigFields: existing?.ConfigFields ?? SchemaConfigFields,
                 buildAdapterConfig: existing?.buildAdapterConfig ?? buildSchemaAdapterConfig,
               });

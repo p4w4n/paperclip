@@ -16,11 +16,16 @@
  */
 
 import type { TranscriptEntry } from "@paperclipai/adapter-utils";
-import type { StdoutLineParser } from "./types";
+import type { StatefulStdoutParser, StdoutLineParser, StdoutParserFactory } from "./types";
+
+interface DynamicParserModule {
+  parseStdoutLine: StdoutLineParser;
+  createStdoutParser?: StdoutParserFactory;
+}
 
 // Cache of dynamically loaded parsers by adapter type.
 // Once loaded, the parser is reused for all runs of that adapter type.
-const dynamicParserCache = new Map<string, StdoutLineParser>();
+const dynamicParserCache = new Map<string, DynamicParserModule>();
 
 // Track which types we've already attempted to load (to avoid repeat 404s).
 const failedLoads = new Set<string>();
@@ -33,7 +38,7 @@ const failedLoads = new Set<string>();
  *
  * @returns A StdoutLineParser function, or null if unavailable.
  */
-export async function loadDynamicParser(adapterType: string): Promise<StdoutLineParser | null> {
+export async function loadDynamicParser(adapterType: string): Promise<DynamicParserModule | null> {
   // Return cached parser if already loaded
   const cached = dynamicParserCache.get(adapterType);
   if (cached) return cached;
@@ -56,7 +61,7 @@ export async function loadDynamicParser(adapterType: string): Promise<StdoutLine
     const blob = new Blob([source], { type: "application/javascript" });
     const blobUrl = URL.createObjectURL(blob);
 
-    let parseFn: StdoutLineParser;
+    let parserModule: DynamicParserModule;
 
     try {
       const mod = await import(/* @vite-ignore */ blobUrl);
@@ -64,13 +69,24 @@ export async function loadDynamicParser(adapterType: string): Promise<StdoutLine
       // Prefer the factory function (stateful parser) if available,
       // fall back to the static parseStdoutLine function.
       if (typeof mod.createStdoutParser === "function") {
-        // Stateful parser — create one instance for the UI session.
-        // Each run creates its own transcript builder, so a single
-        // parser instance is sufficient per adapter type.
-        const parser = (mod.createStdoutParser as () => { parseLine: StdoutLineParser; reset: () => void })();
-        parseFn = parser.parseLine.bind(parser);
+        const createStdoutParser = mod.createStdoutParser as StdoutParserFactory;
+        parserModule = {
+          createStdoutParser,
+          // Fallback for callers that only know about parseStdoutLine.
+          parseStdoutLine:
+            typeof mod.parseStdoutLine === "function"
+              ? (mod.parseStdoutLine as StdoutLineParser)
+              : ((line: string, ts: string) => {
+                  const parser = createStdoutParser() as StatefulStdoutParser;
+                  const entries = parser.parseLine(line, ts);
+                  parser.reset();
+                  return entries;
+                }),
+        };
       } else if (typeof mod.parseStdoutLine === "function") {
-        parseFn = mod.parseStdoutLine as StdoutLineParser;
+        parserModule = {
+          parseStdoutLine: mod.parseStdoutLine as StdoutLineParser,
+        };
       } else {
         console.warn(`[adapter-ui-loader] Module for "${adapterType}" exports neither parseStdoutLine nor createStdoutParser`);
         failedLoads.add(adapterType);
@@ -81,9 +97,9 @@ export async function loadDynamicParser(adapterType: string): Promise<StdoutLine
     }
 
     // Cache for reuse
-    dynamicParserCache.set(adapterType, parseFn);
+    dynamicParserCache.set(adapterType, parserModule);
     console.info(`[adapter-ui-loader] Loaded dynamic UI parser for "${adapterType}"`);
-    return parseFn;
+    return parserModule;
   } catch (err) {
     console.warn(`[adapter-ui-loader] Failed to load UI parser for "${adapterType}":`, err);
     failedLoads.add(adapterType);

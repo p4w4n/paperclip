@@ -3,6 +3,7 @@ export {
   listAdapterModels,
   listServerAdapters,
   findServerAdapter,
+  findActiveServerAdapter,
   detectAdapterModel,
   registerServerAdapter,
   unregisterServerAdapter,
