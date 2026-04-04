@@ -550,7 +550,7 @@ export function AdapterManager() {
               // For overridden builtins, the power button controls the
               // override pause state (not server menu visibility).
               const effectiveAdapter: AdapterInfo = isBuiltinOverride
-                ? { ...adapter, disabled: overridePaused }
+                ? { ...adapter, disabled: overridePaused ?? false }
                 : adapter;
 
               return (
