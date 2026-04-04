@@ -9,11 +9,27 @@ import { openClawGatewayUIAdapter } from "./openclaw-gateway";
 import { hermesLocalUIAdapter } from "./hermes-local";
 import { processUIAdapter } from "./process";
 import { httpUIAdapter } from "./http";
-import { loadDynamicParser } from "./dynamic-loader";
+import { loadDynamicParser, invalidateDynamicParser } from "./dynamic-loader";
 import { SchemaConfigFields, buildSchemaAdapterConfig } from "./schema-config-fields";
 
 const uiAdapters: UIAdapterModule[] = [];
 const adaptersByType = new Map<string, UIAdapterModule>();
+
+// Types registered at module load time — allowed to be overridden by
+// external adapters that ship their own ui-parser.js via the server.
+const builtinTypes = new Set<string>();
+
+// Original builtin adapters stored for restoration when external overrides
+// are deactivated or removed.
+const builtinAdaptersByType = new Map<string, UIAdapterModule>();
+
+// Tracks which builtin types currently have an active external override.
+const activeExternalOverrides = new Set<string>();
+
+// Generation counter to discard stale dynamic parser loads. When an override
+// is deactivated while a load is in-flight, the generation is bumped and the
+// stale result is discarded in its .then() handler.
+const overrideGeneration = new Map<string, number>();
 
 // Subscriber list — components can register to be notified when adapters change
 // (e.g., when a dynamic parser replaces a placeholder).
@@ -42,6 +58,8 @@ function registerBuiltInUIAdapters() {
     processUIAdapter,
     httpUIAdapter,
   ]) {
+    builtinTypes.add(adapter.type);
+    builtinAdaptersByType.set(adapter.type, adapter);
     registerUIAdapter(adapter);
   }
 }
@@ -106,20 +124,108 @@ export function getUIAdapter(type: string): UIAdapterModule {
 }
 
 /**
- * Ensure external adapter types (from the server's /api/adapters response)
- * are registered in the UI adapter list so they appear in dropdowns.
+ * Keep the UI adapter registry in sync with the server's adapter list.
  *
- * For each type not already registered, creates a placeholder module that
- * uses the process adapter defaults and kicks off dynamic parser loading.
- * Once the parser resolves, the placeholder is replaced with the real one.
+ * Two concerns:
+ *
+ * 1. **Builtin overrides** — when an external adapter ships a ui-parser.js for a
+ *    builtin type, the external parser takes priority.  When the external is
+ *    disabled or removed the original builtin parser is restored transparently.
+ *    A generation counter guards against stale loads that resolve after the
+ *    override has been torn down.
+ *
+ * 2. **Non-builtin externals** — register a bridge adapter that lazily loads the
+ *    dynamic parser on first stdout line, falling back to the generic process
+ *    adapter.  Once the parser resolves the bridge is replaced.
  */
 export function syncExternalAdapters(
-  serverAdapters: { type: string; label: string }[],
+  serverAdapters: {
+    type: string;
+    label: string;
+    disabled?: boolean;
+    /** When true, the external override for a builtin type is client-side paused. */
+    overrideDisabled?: boolean;
+  }[],
 ): void {
+  const enabledExternalTypes = new Set(
+    serverAdapters.filter((a) => !a.disabled && !a.overrideDisabled).map((a) => a.type),
+  );
+  const allExternalTypes = new Set(
+    serverAdapters.map((a) => a.type),
+  );
+
+  // ── Builtin override lifecycle ──────────────────────────────────────────
+
+  for (const builtinType of builtinTypes) {
+    const originalBuiltin = builtinAdaptersByType.get(builtinType);
+    if (!originalBuiltin) continue;
+
+    const hasExternal = allExternalTypes.has(builtinType);
+    const externalEnabled = enabledExternalTypes.has(builtinType);
+    const wasOverridden = activeExternalOverrides.has(builtinType);
+
+    if (hasExternal && externalEnabled && !wasOverridden) {
+      // Activate: external just became active → replace builtin with bridge.
+      activeExternalOverrides.add(builtinType);
+
+      const gen = (overrideGeneration.get(builtinType) ?? 0) + 1;
+      overrideGeneration.set(builtinType, gen);
+
+      let loadStarted = false;
+      const fallbackParser = originalBuiltin.parseStdoutLine;
+      const externalEntry = serverAdapters.find((a) => a.type === builtinType);
+      const label = externalEntry?.label ?? builtinType;
+
+      registerUIAdapter({
+        type: builtinType,
+        label,
+        parseStdoutLine: (line: string, ts: string) => {
+          if (!loadStarted) {
+            loadStarted = true;
+            loadDynamicParser(builtinType).then((parser) => {
+              // Discard if the override was torn down while the load was in-flight.
+              if (parser && overrideGeneration.get(builtinType) === gen) {
+                registerUIAdapter({
+                  type: builtinType,
+                  label,
+                  parseStdoutLine: parser,
+                  ConfigFields: originalBuiltin.ConfigFields,
+                  buildAdapterConfig: originalBuiltin.buildAdapterConfig,
+                });
+              }
+            });
+          }
+          return fallbackParser(line, ts);
+        },
+        ConfigFields: originalBuiltin.ConfigFields,
+        buildAdapterConfig: originalBuiltin.buildAdapterConfig,
+      });
+    } else if ((!hasExternal || !externalEnabled) && wasOverridden) {
+      // Deactivate: external disabled or removed → restore builtin.
+      activeExternalOverrides.delete(builtinType);
+      overrideGeneration.delete(builtinType);
+      invalidateDynamicParser(builtinType);
+      registerUIAdapter(originalBuiltin);
+    }
+  }
+
+  // ── Non-builtin externals ───────────────────────────────────────────────
+
   for (const { type, label } of serverAdapters) {
-    if (adaptersByType.has(type)) continue;
+    if (builtinTypes.has(type)) continue; // handled above
+
+    const existing = adaptersByType.get(type);
+
+    // If this type already has an externally-loaded dynamic parser, skip —
+    // it was loaded from disk on a previous sync. Only re-trigger loading
+    // when the server returns a new external adapter that hasn't been loaded yet.
+    if (existing && existing !== processUIAdapter) continue;
 
     let loadStarted = false;
+    // Use the existing built-in parser as fallback (if any) so we don't
+    // regress to the generic process parser while the dynamic one loads.
+    const fallbackParser = existing?.parseStdoutLine ?? processUIAdapter.parseStdoutLine;
+
     registerUIAdapter({
       type,
       label,
@@ -132,16 +238,16 @@ export function syncExternalAdapters(
                 type,
                 label,
                 parseStdoutLine: parser,
-                ConfigFields: SchemaConfigFields,
-                buildAdapterConfig: buildSchemaAdapterConfig,
+                ConfigFields: existing?.ConfigFields ?? SchemaConfigFields,
+                buildAdapterConfig: existing?.buildAdapterConfig ?? buildSchemaAdapterConfig,
               });
             }
           });
         }
-        return processUIAdapter.parseStdoutLine(line, ts);
+        return fallbackParser(line, ts);
       },
-      ConfigFields: SchemaConfigFields,
-      buildAdapterConfig: buildSchemaAdapterConfig,
+      ConfigFields: existing?.ConfigFields ?? SchemaConfigFields,
+      buildAdapterConfig: existing?.buildAdapterConfig ?? buildSchemaAdapterConfig,
     });
   }
 }

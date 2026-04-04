@@ -437,8 +437,8 @@ export function adapterRoutes() {
 
     const type = req.params.type;
 
-    // Built-in adapters cannot be reloaded
-    if (BUILTIN_ADAPTER_TYPES.has(type)) {
+    // Built-in adapters cannot be reloaded unless overridden by an external one
+    if (BUILTIN_ADAPTER_TYPES.has(type) && !getAdapterPluginByType(type)) {
       res.status(400).json({ error: "Cannot reload built-in adapter." });
       return;
     }
@@ -489,7 +489,7 @@ export function adapterRoutes() {
 
     const type = req.params.type;
 
-    if (BUILTIN_ADAPTER_TYPES.has(type)) {
+    if (BUILTIN_ADAPTER_TYPES.has(type) && !getAdapterPluginByType(type)) {
       res.status(400).json({ error: "Cannot reinstall built-in adapter." });
       return;
     }

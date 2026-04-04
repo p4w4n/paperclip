@@ -4,7 +4,7 @@
  * Adapters are simpler than plugins: no workers, no events, no manifests.
  * They just register a ServerAdapterModule that provides model discovery and execution.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Cpu, Plus, Power, Trash2, FolderOpen, Package, RefreshCw, Download } from "lucide-react";
 import { useCompany } from "@/context/CompanyContext";
@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 import { ChoosePathButton } from "@/components/PathInstructionsModal";
 import { invalidateDynamicParser } from "@/adapters/dynamic-loader";
 import { invalidateConfigSchemaCache } from "@/adapters/schema-config-fields";
+import { isOverrideDisabled, setOverrideDisabled, subscribeToOverrides, getOverridesSnapshot } from "@/adapters/disabled-overrides-store";
 
 function AdapterRow({
   adapter,
@@ -43,6 +44,13 @@ function AdapterRow({
   isToggling,
   isReloading,
   isReinstalling,
+  overriddenBy,
+  /** Custom tooltip for the power button when adapter is enabled. */
+  toggleTitleEnabled,
+  /** Custom tooltip for the power button when adapter is disabled. */
+  toggleTitleDisabled,
+  /** Custom label for the disabled badge (defaults to "Hidden from menus"). */
+  disabledBadgeLabel,
 }: {
   adapter: AdapterInfo;
   canRemove: boolean;
@@ -53,6 +61,11 @@ function AdapterRow({
   isToggling: boolean;
   isReloading?: boolean;
   isReinstalling?: boolean;
+  /** When set, shows an "Overridden by …" badge (used for builtin entries). */
+  overriddenBy?: string;
+  toggleTitleEnabled?: string;
+  toggleTitleDisabled?: string;
+  disabledBadgeLabel?: string;
 }) {
   return (
     <li>
@@ -78,9 +91,14 @@ function AdapterRow({
                 Overrides built-in
               </Badge>
             )}
+            {overriddenBy && (
+              <Badge variant="secondary" className="text-blue-600 border-blue-400">
+                Overridden by {overriddenBy}
+              </Badge>
+            )}
             {adapter.disabled && (
               <Badge variant="secondary" className="text-amber-600 border-amber-400">
-                Hidden from menus
+                {disabledBadgeLabel ?? "Hidden from menus"}
               </Badge>
             )}
           </div>
@@ -121,7 +139,9 @@ function AdapterRow({
             variant="outline"
             size="icon-sm"
             className="h-8 w-8"
-            title={adapter.disabled ? "Show in agent menus" : "Hide from agent menus"}
+            title={adapter.disabled
+              ? (toggleTitleEnabled ?? "Show in agent menus")
+              : (toggleTitleDisabled ?? "Hide from agent menus")}
             disabled={isToggling}
             onClick={() => onToggle(adapter.type, !adapter.disabled)}
           >
@@ -238,6 +258,11 @@ export function AdapterManager() {
   const queryClient = useQueryClient();
   const { pushToast } = useToast();
 
+  // Subscribe to client-side override store so the component re-renders
+  // immediately when setOverrideDisabled() is called, even though the
+  // server query data hasn't changed.
+  useSyncExternalStore(subscribeToOverrides, getOverridesSnapshot);
+
   const [installPackage, setInstallPackage] = useState("");
   const [installVersion, setInstallVersion] = useState("");
   const [isLocalPath, setIsLocalPath] = useState(false);
@@ -284,7 +309,9 @@ export function AdapterManager() {
 
   const removeMutation = useMutation({
     mutationFn: (type: string) => adaptersApi.remove(type),
-    onSuccess: () => {
+    onSuccess: (_result, type) => {
+      // Clean up client-side override state when the external is removed.
+      setOverrideDisabled(type, false);
       invalidate();
       pushToast({ title: "Adapter removed", tone: "success" });
     },
@@ -340,6 +367,27 @@ export function AdapterManager() {
 
   const builtinAdapters = (adapters ?? []).filter((a) => a.source === "builtin");
   const externalAdapters = (adapters ?? []).filter((a) => a.source === "external");
+
+  // External adapters that override a builtin type.  The server only returns
+  // one entry per type (the external), so we synthesize a builtin row for
+  // the builtins section so users can see which builtins are affected.
+  // The virtual entry's disabled state reflects the TYPE's menu visibility
+  // (server-side disabled flag), NOT the external adapter's override state.
+  const overriddenBuiltins = (adapters ?? [])
+    .filter((a) => a.source === "external" && a.overriddenBuiltin)
+    .filter((a) => !builtinAdapters.some((b) => b.type === a.type))
+    .map((a) => ({
+      type: a.type,
+      label: getAdapterLabel(a.type),
+      overriddenBy: [
+        a.packageName,
+        a.version ? `v${a.version}` : undefined,
+      ].filter(Boolean).join(" "),
+      // The override-paused state is client-side and independent of
+      // the type's server-side menu visibility.
+      overridePaused: isOverrideDisabled(a.type),
+      menuDisabled: a.disabled ?? false,
+    }));
 
   if (isLoading) return <div className="p-4 text-sm text-muted-foreground">Loading adapters...</div>;
 
@@ -496,20 +544,44 @@ export function AdapterManager() {
           </Card>
         ) : (
           <ul className="divide-y rounded-md border bg-card">
-            {externalAdapters.map((adapter) => (
-              <AdapterRow
-                key={adapter.type}
-                adapter={adapter}
-                canRemove={true}
-                onToggle={(type, disabled) => toggleMutation.mutate({ type, disabled })}
-                onRemove={(type) => setRemoveType(type)}
-                onReload={(type) => reloadMutation.mutate(type)}
-                onReinstall={!adapter.isLocalPath ? (type) => setReinstallTarget(adapter) : undefined}
-                isToggling={toggleMutation.isPending}
-                isReloading={reloadMutation.isPending}
-                isReinstalling={reinstallMutation.isPending}
-              />
-            ))}
+            {externalAdapters.map((adapter) => {
+              const isBuiltinOverride = adapter.overriddenBuiltin;
+              const overridePaused = isBuiltinOverride && isOverrideDisabled(adapter.type);
+
+              // For overridden builtins, the power button controls the
+              // client-side override state (not server menu visibility).
+              const effectiveAdapter: AdapterInfo = isBuiltinOverride
+                ? { ...adapter, disabled: !!overridePaused }
+                : adapter;
+
+              return (
+                <AdapterRow
+                  key={adapter.type}
+                  adapter={effectiveAdapter}
+                  canRemove={true}
+                  onToggle={
+                    isBuiltinOverride
+                      ? (type, disabled) => {
+                          setOverrideDisabled(type, disabled);
+                          // useSyncExternalStore handles the re-render;
+                          // also invalidate so other components (e.g. menus)
+                          // eventually pick up the registry change.
+                          invalidate();
+                        }
+                      : (type, disabled) => toggleMutation.mutate({ type, disabled })
+                  }
+                  onRemove={(type) => setRemoveType(type)}
+                  onReload={(type) => reloadMutation.mutate(type)}
+                  onReinstall={!adapter.isLocalPath ? (type) => setReinstallTarget(adapter) : undefined}
+                  isToggling={isBuiltinOverride ? false : toggleMutation.isPending}
+                  isReloading={reloadMutation.isPending}
+                  isReinstalling={reinstallMutation.isPending}
+                  toggleTitleDisabled={isBuiltinOverride ? "Pause external override" : undefined}
+                  toggleTitleEnabled={isBuiltinOverride ? "Resume external override" : undefined}
+                  disabledBadgeLabel={isBuiltinOverride ? "Override paused" : undefined}
+                />
+              );
+            })}
           </ul>
         )}
       </section>
@@ -521,7 +593,7 @@ export function AdapterManager() {
           <h2 className="text-base font-semibold">Built-in Adapters</h2>
         </div>
 
-        {builtinAdapters.length === 0 ? (
+        {builtinAdapters.length === 0 && overriddenBuiltins.length === 0 ? (
           <div className="text-sm text-muted-foreground">No built-in adapters found.</div>
         ) : (
           <ul className="divide-y rounded-md border bg-card">
@@ -533,6 +605,24 @@ export function AdapterManager() {
                 onToggle={(type, disabled) => toggleMutation.mutate({ type, disabled })}
                 onRemove={() => {}}
                 isToggling={isMutating}
+              />
+            ))}
+            {overriddenBuiltins.map((virtual) => (
+              <AdapterRow
+                key={virtual.type}
+                adapter={{
+                  type: virtual.type,
+                  label: virtual.label,
+                  source: "builtin",
+                  modelsCount: 0,
+                  loaded: true,
+                  disabled: virtual.menuDisabled,
+                }}
+                canRemove={false}
+                onToggle={(type, disabled) => toggleMutation.mutate({ type, disabled })}
+                onRemove={() => {}}
+                isToggling={isMutating}
+                overriddenBy={virtual.overridePaused ? undefined : virtual.overriddenBy}
               />
             ))}
           </ul>
