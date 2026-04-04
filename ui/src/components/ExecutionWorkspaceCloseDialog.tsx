@@ -88,7 +88,7 @@ export function ExecutionWorkspaceCloseDialog({
     <Dialog open={open} onOpenChange={(nextOpen) => {
       if (!closeWorkspace.isPending) onOpenChange(nextOpen);
     }}>
-      <DialogContent className="max-h-[85vh] overflow-x-hidden overflow-y-auto p-4 sm:max-w-2xl sm:p-6">
+      <DialogContent className="max-h-[85vh] overflow-x-hidden overflow-y-auto p-4 sm:max-w-2xl sm:p-6 [&>*]:min-w-0">
         <DialogHeader>
           <DialogTitle>{actionLabel}</DialogTitle>
           <DialogDescription className="break-words text-xs sm:text-sm">
@@ -252,7 +252,7 @@ export function ExecutionWorkspaceCloseDialog({
                     <div className="font-medium">{action.label}</div>
                     <div className="mt-1 break-words text-muted-foreground">{action.description}</div>
                     {action.command ? (
-                      <pre className="mt-2 max-w-full overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-background px-3 py-2 font-mono text-xs text-foreground">
+                      <pre className="mt-2 whitespace-pre-wrap break-all rounded-lg bg-background px-3 py-2 font-mono text-xs text-foreground">
                         {action.command}
                       </pre>
                     ) : null}
@@ -291,7 +291,7 @@ export function ExecutionWorkspaceCloseDialog({
           </div>
         ) : null}
 
-        <DialogFooter className="sticky bottom-0 -mx-4 -mb-4 rounded-b-lg border-t border-border bg-background px-4 py-3 sm:-mx-6 sm:-mb-6 sm:px-6 sm:py-4">
+        <DialogFooter>
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
