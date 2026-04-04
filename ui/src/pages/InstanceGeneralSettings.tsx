@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PatchInstanceGeneralSettings } from "@paperclipai/shared";
-import { SlidersHorizontal } from "lucide-react";
+import { LogOut, SlidersHorizontal } from "lucide-react";
+import { authApi } from "@/api/auth";
 import { instanceSettingsApi } from "@/api/instanceSettings";
+import { Button } from "../components/ui/button";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
 import { cn } from "../lib/utils";
@@ -13,6 +15,16 @@ export function InstanceGeneralSettings() {
   const { setBreadcrumbs } = useBreadcrumbs();
   const queryClient = useQueryClient();
   const [actionError, setActionError] = useState<string | null>(null);
+
+  const signOutMutation = useMutation({
+    mutationFn: () => authApi.signOut(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.auth.session });
+    },
+    onError: (error) => {
+      setActionError(error instanceof Error ? error.message : "Failed to sign out.");
+    },
+  });
 
   useEffect(() => {
     setBreadcrumbs([
@@ -211,6 +223,26 @@ export function InstanceGeneralSettings() {
             <code>"prompt"</code>. Unset and <code>"prompt"</code> both mean no default has been
             chosen yet.
           </p>
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-border bg-card p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1.5">
+            <h2 className="text-sm font-semibold">Sign out</h2>
+            <p className="max-w-2xl text-sm text-muted-foreground">
+              Sign out of this Paperclip instance. You will be redirected to the login page.
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={signOutMutation.isPending}
+            onClick={() => signOutMutation.mutate()}
+          >
+            <LogOut className="size-4" />
+            {signOutMutation.isPending ? "Signing out..." : "Sign out"}
+          </Button>
         </div>
       </section>
     </div>
