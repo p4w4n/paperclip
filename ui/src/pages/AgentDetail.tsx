@@ -25,6 +25,7 @@ import { queryKeys } from "../lib/queryKeys";
 import { AgentConfigForm } from "../components/AgentConfigForm";
 import { PageTabBar } from "../components/PageTabBar";
 import { adapterLabels, roleLabels, help } from "../components/agent-config-primitives";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { MarkdownEditor } from "../components/MarkdownEditor";
 import { assetsApi } from "../api/assets";
 import { getUIAdapter, buildTranscript, onAdapterChange } from "../adapters";
@@ -1627,30 +1628,16 @@ function ConfigurationTab({
                 Lets this agent create or hire agents and implicitly assign tasks.
               </p>
             </div>
-            <button
-              type="button"
-              role="switch"
-              data-slot="toggle"
-              aria-checked={canCreateAgents}
-              className={cn(
-                "relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 disabled:cursor-not-allowed disabled:opacity-50",
-                canCreateAgents ? "bg-green-600" : "bg-muted",
-              )}
-              onClick={() =>
+            <ToggleSwitch
+              checked={canCreateAgents}
+              onCheckedChange={() =>
                 updatePermissions.mutate({
                   canCreateAgents: !canCreateAgents,
                   canAssignTasks: !canCreateAgents ? true : canAssignTasks,
                 })
               }
               disabled={updatePermissions.isPending}
-            >
-              <span
-                className={cn(
-                  "inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform",
-                  canCreateAgents ? "translate-x-4.5" : "translate-x-0.5",
-                )}
-              />
-            </button>
+            />
           </div>
           <div className="flex items-center justify-between gap-4 text-sm">
             <div className="space-y-1">
@@ -1659,30 +1646,16 @@ function ConfigurationTab({
                 {taskAssignHint}
               </p>
             </div>
-            <button
-              type="button"
-              role="switch"
-              data-slot="toggle"
-              aria-checked={canAssignTasks}
-              className={cn(
-                "relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 disabled:cursor-not-allowed disabled:opacity-50",
-                canAssignTasks ? "bg-green-600" : "bg-muted",
-              )}
-              onClick={() =>
+            <ToggleSwitch
+              checked={canAssignTasks}
+              onCheckedChange={() =>
                 updatePermissions.mutate({
                   canCreateAgents,
                   canAssignTasks: !canAssignTasks,
                 })
               }
               disabled={updatePermissions.isPending || taskAssignLocked}
-            >
-              <span
-                className={cn(
-                  "inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform",
-                  canAssignTasks ? "translate-x-4.5" : "translate-x-0.5",
-                )}
-              />
-            </button>
+            />
           </div>
         </div>
       </div>

@@ -11,6 +11,7 @@ import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useToast } from "../context/ToastContext";
 import { queryKeys } from "../lib/queryKeys";
 import { getRecentAssigneeIds, sortAgentsByRecency, trackRecentAssignee } from "../lib/recent-assignees";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
 import { AgentIcon } from "../components/AgentIconPicker";
@@ -640,29 +641,18 @@ export function Routines() {
                       </td>
                       <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center gap-3">
-                          <button
-                            type="button"
-                            role="switch"
-                            data-slot="toggle"
-                            aria-checked={enabled}
-                            aria-label={enabled ? `Disable ${routine.title}` : `Enable ${routine.title}`}
-                            disabled={isStatusPending || isArchived}
-                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                              enabled ? "bg-foreground" : "bg-muted"
-                            } ${isStatusPending || isArchived ? "cursor-not-allowed opacity-50" : ""}`}
-                            onClick={() =>
+                          <ToggleSwitch
+                            size="lg"
+                            checked={enabled}
+                            onCheckedChange={() =>
                               updateRoutineStatus.mutate({
                                 id: routine.id,
                                 status: nextRoutineStatus(routine.status, !enabled),
                               })
                             }
-                          >
-                            <span
-                              className={`inline-block h-5 w-5 rounded-full bg-background shadow-sm transition-transform ${
-                                enabled ? "translate-x-5" : "translate-x-0.5"
-                              }`}
-                            />
-                          </button>
+                            disabled={isStatusPending || isArchived}
+                            aria-label={enabled ? `Disable ${routine.title}` : `Enable ${routine.title}`}
+                          />
                           <span className="text-xs text-muted-foreground">
                             {isArchived ? "Archived" : enabled ? "On" : "Off"}
                           </span>

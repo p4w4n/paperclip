@@ -7,6 +7,7 @@ import { instanceSettingsApi } from "@/api/instanceSettings";
 import { Button } from "../components/ui/button";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { cn } from "../lib/utils";
 
 const FEEDBACK_TERMS_URL = import.meta.env.VITE_FEEDBACK_TERMS_URL?.trim() || "https://paperclip.ing/tos";
@@ -95,28 +96,12 @@ export function InstanceGeneralSettings() {
               default.
             </p>
           </div>
-          <button
-            type="button"
-            data-slot="toggle"
-            aria-label="Toggle username log censoring"
+          <ToggleSwitch
+            checked={censorUsernameInLogs}
+            onCheckedChange={() => updateGeneralMutation.mutate({ censorUsernameInLogs: !censorUsernameInLogs })}
             disabled={updateGeneralMutation.isPending}
-            className={cn(
-              "relative inline-flex h-5 w-9 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-              censorUsernameInLogs ? "bg-green-600" : "bg-muted",
-            )}
-            onClick={() =>
-              updateGeneralMutation.mutate({
-                censorUsernameInLogs: !censorUsernameInLogs,
-              })
-            }
-          >
-            <span
-              className={cn(
-                "inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform",
-                censorUsernameInLogs ? "translate-x-4.5" : "translate-x-0.5",
-              )}
-            />
-          </button>
+            aria-label="Toggle username log censoring"
+          />
         </div>
       </section>
 
@@ -129,24 +114,12 @@ export function InstanceGeneralSettings() {
               toggling panels. This is off by default.
             </p>
           </div>
-          <button
-            type="button"
-            data-slot="toggle"
-            aria-label="Toggle keyboard shortcuts"
+          <ToggleSwitch
+            checked={keyboardShortcuts}
+            onCheckedChange={() => updateGeneralMutation.mutate({ keyboardShortcuts: !keyboardShortcuts })}
             disabled={updateGeneralMutation.isPending}
-            className={cn(
-              "relative inline-flex h-5 w-9 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-              keyboardShortcuts ? "bg-green-600" : "bg-muted",
-            )}
-            onClick={() => updateGeneralMutation.mutate({ keyboardShortcuts: !keyboardShortcuts })}
-          >
-            <span
-              className={cn(
-                "inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform",
-                keyboardShortcuts ? "translate-x-4.5" : "translate-x-0.5",
-              )}
-            />
-          </button>
+            aria-label="Toggle keyboard shortcuts"
+          />
         </div>
       </section>
 
