@@ -8,7 +8,10 @@
 // process; the MIG instance autohealing brings it back up.
 
 import { staticBearerAuth } from "./auth-client.js";
-import { startWorkerClient } from "./client.js";
+import { startWorkerClient, type WorkerClientHandle } from "./client.js";
+import { handleRunDispatch } from "./run-handler.js";
+import { realizeWorkspace } from "./workspace.js";
+import { runAdapterOnWorker } from "./heartbeat-runner-shim.js";
 import { randomUUID } from "node:crypto";
 
 function required(name: string): string {
@@ -30,7 +33,11 @@ async function main() {
     .filter(Boolean);
   const maxConcurrent = Math.max(1, parseInt(process.env.PAPERCLIP_WORKER_MAX_CONCURRENT ?? "1", 10) || 1);
 
-  await startWorkerClient({
+  // Hold the client handle in an outer scope so onDispatch can call
+  // client.send to emit RunUsage / RunComplete / RunFailed back on the
+  // same stream the dispatch arrived on.
+  let client: WorkerClientHandle;
+  client = await startWorkerClient({
     controlPlaneAddress: addr,
     auth: staticBearerAuth(secret),
     // PAPERCLIP_WORKER_ID — set explicitly when running on a GCE MIG so
@@ -43,8 +50,27 @@ async function main() {
     adapters,
     maxConcurrent,
     version: "0.0.0",
-    onDispatch: () => {
-      // Wired in Task 9.
+    onDispatch: (msg) => {
+      if (msg.payload.case !== "runDispatch") return;
+      const dispatch = msg.payload.value;
+      // Run handler is fire-and-forget from the bidi stream's
+      // perspective — the handler emits RunComplete / RunFailed on the
+      // outbound side when done. Errors inside the handler turn into
+      // RunFailed frames; they should never escape unhandled.
+      void handleRunDispatch(dispatch, {
+        realizeWorkspace: (desc) => realizeWorkspace(desc),
+        runAdapter: (ctx) => runAdapterOnWorker(dispatch.adapterType, ctx),
+        // fetchSecrets stub for v1. Task 11 wires the real
+        // FetchSecrets unary RPC against the control plane — the
+        // adapter receives an empty env until then, which means
+        // adapters that need real credentials fail with a clear
+        // missing-secret error rather than running with bogus values.
+        fetchSecrets: async () => ({}),
+        send: (m) => client.send(m),
+      }).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("[worker] unexpected handler error for run", dispatch.runId, err);
+      });
     },
   });
 

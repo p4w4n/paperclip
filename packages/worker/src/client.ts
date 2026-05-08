@@ -39,6 +39,11 @@ export interface WorkerClientOpts {
 const SERVICE_PATH = "/paperclip.v1.Worker/Connect";
 
 export interface WorkerClientHandle {
+  // Sends an arbitrary WorkerToServer frame on the open bidi stream.
+  // Promise resolves once the frame is flushed to the underlying socket
+  // (or rejects with the gRPC write error). Used by run-handler.ts to
+  // emit RunUsage / RunComplete / RunFailed / RunLeaseRenew.
+  send: (msg: WorkerToServer) => Promise<void>;
   stop: () => Promise<void>;
 }
 
@@ -101,7 +106,26 @@ export async function startWorkerClient(opts: WorkerClientOpts): Promise<WorkerC
     opts.onDispatch(msg);
   });
 
+  // Promisified write so callers can await per-frame backpressure.
+  // The grpc-js stream's write callback fires once the frame is queued
+  // on the underlying http2 stream — that's the closest thing to "sent"
+  // we have without ack semantics in the proto itself.
+  const send = (m: WorkerToServer): Promise<void> =>
+    new Promise<void>((resolve, reject) => {
+      // grpc-js write returns boolean; pass a callback for completion.
+      const ok = call.write(m, (err?: Error | null) => {
+        if (err) reject(err);
+        else resolve();
+      });
+      // If write returned false (queue full), the callback still fires
+      // when the queue drains; nothing else to do.
+      if (!ok) {
+        /* grpc-js handles backpressure via the callback — no explicit drain */
+      }
+    });
+
   return {
+    send,
     async stop() {
       try {
         call.end();
