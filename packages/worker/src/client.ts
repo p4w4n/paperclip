@@ -45,6 +45,10 @@ export interface WorkerClientHandle {
   // emit RunUsage / RunComplete / RunFailed / RunLeaseRenew.
   send: (msg: WorkerToServer) => Promise<void>;
   stop: () => Promise<void>;
+  // Resolves when the underlying bidi stream has ended (server closed
+  // it, transport error, or local stop()). Plan 2 Task 5's reconnect
+  // loop awaits this to know when to back off and re-Hello.
+  closed: Promise<void>;
 }
 
 export async function startWorkerClient(opts: WorkerClientOpts): Promise<WorkerClientHandle> {
@@ -88,6 +92,24 @@ export async function startWorkerClient(opts: WorkerClientOpts): Promise<WorkerC
   call.on("error", () => {
     /* normal stream-close artifact; nothing to do */
   });
+
+  // Resolve `closed` exactly once on whichever stream-end event fires
+  // first. The reconnect loop awaits this — multiple resolutions are
+  // harmless but tracking a single resolved sentinel keeps the
+  // semantics obvious.
+  let resolveClosed!: () => void;
+  const closed = new Promise<void>((r) => {
+    resolveClosed = r;
+  });
+  let closedFired = false;
+  const fireClosed = () => {
+    if (closedFired) return;
+    closedFired = true;
+    resolveClosed();
+  };
+  call.on("end", fireClosed);
+  call.on("error", fireClosed);
+  call.on("close", fireClosed);
 
   call.on("data", (msg: ServerToWorker) => {
     if (msg.payload.case === "ping") {
@@ -133,6 +155,8 @@ export async function startWorkerClient(opts: WorkerClientOpts): Promise<WorkerC
         /* ignore — best-effort close */
       }
       client.close();
+      fireClosed();
     },
+    closed,
   };
 }
