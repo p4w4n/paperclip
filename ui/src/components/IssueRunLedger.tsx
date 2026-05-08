@@ -16,6 +16,7 @@ import { cn, relativeTime } from "../lib/utils";
 import { queryKeys } from "../lib/queryKeys";
 import { keepPreviousDataForSameQueryTail } from "../lib/query-placeholder-data";
 import { describeRunRetryState } from "../lib/runRetryState";
+import { useIsVisible } from "../hooks/useIsVisible";
 
 type IssueRunLedgerProps = {
   issueId: string;
@@ -414,24 +415,25 @@ export function IssueRunLedger({
     queryFn: () => accessApi.getCurrentBoardAccess(),
     retry: false,
   });
+  const visible = useIsVisible();
   const { data: runs } = useQuery({
     queryKey: queryKeys.issues.runs(issueId),
     queryFn: () => activityApi.runsForIssue(issueId),
-    refetchInterval: hasLiveRuns || issueStatus === "in_progress" ? 5000 : false,
+    refetchInterval: visible && (hasLiveRuns || issueStatus === "in_progress") ? 5000 : false,
     placeholderData: keepPreviousDataForSameQueryTail<RunForIssue[]>(issueId),
   });
   const { data: liveRuns } = useQuery({
     queryKey: queryKeys.issues.liveRuns(issueId),
     queryFn: () => heartbeatsApi.liveRunsForIssue(issueId),
     enabled: hasLiveRuns,
-    refetchInterval: 3000,
+    refetchInterval: visible ? 3000 : false,
     placeholderData: keepPreviousDataForSameQueryTail<LiveRunForIssue[]>(issueId),
   });
   const { data: activeRun = null } = useQuery({
     queryKey: queryKeys.issues.activeRun(issueId),
     queryFn: () => heartbeatsApi.activeRunForIssue(issueId),
     enabled: hasLiveRuns || issueStatus === "in_progress",
-    refetchInterval: hasLiveRuns ? false : 3000,
+    refetchInterval: visible && !hasLiveRuns ? 3000 : false,
     placeholderData: keepPreviousDataForSameQueryTail<ActiveRunForIssue | null>(issueId),
   });
   const watchdogDecision = useMutation({

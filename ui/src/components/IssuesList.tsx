@@ -8,6 +8,7 @@ import { executionWorkspacesApi } from "../api/execution-workspaces";
 import { issuesApi } from "../api/issues";
 import { authApi } from "../api/auth";
 import { instanceSettingsApi } from "../api/instanceSettings";
+import { useIsVisible } from "../hooks/useIsVisible";
 import { queryKeys } from "../lib/queryKeys";
 import {
   shouldBlurPageSearchOnEnter,
@@ -462,11 +463,12 @@ function SubIssueProgressSummaryStrip({
   // Refresh fast enough that the runtime ticks up while a sub-issue is still
   // running, but slow enough not to hammer the recursive CTE on idle trees.
   const hasInProgress = summary.inProgressCount > 0;
+  const visible = useIsVisible();
   const { data: costSummary } = useQuery({
     queryKey: queryKeys.issues.costSummary(parentIssueIdForCostSummary ?? "pending", { excludeRoot: true }),
     queryFn: () => issuesApi.getCostSummary(parentIssueIdForCostSummary!, { excludeRoot: true }),
     enabled: !!parentIssueIdForCostSummary,
-    refetchInterval: hasInProgress ? 5_000 : false,
+    refetchInterval: visible && hasInProgress ? 5_000 : false,
   });
 
   const totalTokens = costSummary

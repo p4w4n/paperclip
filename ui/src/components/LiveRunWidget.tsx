@@ -9,6 +9,7 @@ import { Identity } from "./Identity";
 import { RunChatSurface } from "./RunChatSurface";
 import { StatusBadge } from "./StatusBadge";
 import { useLiveRunTranscripts } from "./transcript/useLiveRunTranscripts";
+import { useIsVisible } from "../hooks/useIsVisible";
 
 interface LiveRunWidgetProps {
   issueId: string;
@@ -27,19 +28,20 @@ function isRunActive(status: string): boolean {
 export function LiveRunWidget({ issueId, companyId }: LiveRunWidgetProps) {
   const queryClient = useQueryClient();
   const [cancellingRunIds, setCancellingRunIds] = useState(new Set<string>());
+  const visible = useIsVisible();
 
   const { data: liveRuns } = useQuery({
     queryKey: queryKeys.issues.liveRuns(issueId),
     queryFn: () => heartbeatsApi.liveRunsForIssue(issueId),
     enabled: !!issueId,
-    refetchInterval: 3000,
+    refetchInterval: visible ? 3000 : false,
   });
 
   const { data: activeRun } = useQuery({
     queryKey: queryKeys.issues.activeRun(issueId),
     queryFn: () => heartbeatsApi.activeRunForIssue(issueId),
     enabled: !!issueId,
-    refetchInterval: 3000,
+    refetchInterval: visible ? 3000 : false,
   });
 
   const runs = useMemo(() => {

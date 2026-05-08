@@ -8,6 +8,7 @@ import { projectsApi } from "../api/projects";
 import { issuesApi } from "../api/issues";
 import { heartbeatsApi } from "../api/heartbeats";
 import { accessApi } from "../api/access";
+import { useIsVisible } from "../hooks/useIsVisible";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useToastActions } from "../context/ToastContext";
@@ -273,11 +274,12 @@ export function Routines() {
     queryFn: () => issuesApi.list(selectedCompanyId!, { originKind: "routine_execution" }),
     enabled: !!selectedCompanyId && activeTab === "runs",
   });
+  const visible = useIsVisible();
   const { data: liveRuns } = useQuery({
     queryKey: queryKeys.liveRuns(selectedCompanyId!),
     queryFn: () => heartbeatsApi.liveRunsForCompany(selectedCompanyId!),
     enabled: !!selectedCompanyId && activeTab === "runs",
-    refetchInterval: 5000,
+    refetchInterval: visible ? 5000 : false,
   });
 
   useEffect(() => {

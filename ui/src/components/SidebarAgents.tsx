@@ -20,6 +20,7 @@ import { SIDEBAR_SCROLL_RESET_STATE } from "../lib/navigation-scroll";
 import { queryKeys } from "../lib/queryKeys";
 import { cn, agentRouteRef, agentUrl } from "../lib/utils";
 import { useAgentOrder } from "../hooks/useAgentOrder";
+import { useIsVisible } from "../hooks/useIsVisible";
 import { AgentIcon } from "./AgentIconPicker";
 import { BudgetSidebarMarker } from "./BudgetSidebarMarker";
 import { Button } from "@/components/ui/button";
@@ -173,11 +174,12 @@ export function SidebarAgents() {
     queryFn: () => authApi.getSession(),
   });
 
+  const visible = useIsVisible();
   const { data: liveRuns } = useQuery({
     queryKey: queryKeys.liveRuns(selectedCompanyId!),
     queryFn: () => heartbeatsApi.liveRunsForCompany(selectedCompanyId!),
     enabled: !!selectedCompanyId,
-    refetchInterval: 10_000,
+    refetchInterval: visible ? 10_000 : false,
   });
 
   const liveCountByAgent = useMemo(() => {
