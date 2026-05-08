@@ -1,0 +1,13 @@
+{
+  "label": "05-ws-batching",
+  "sha": "c37e848f",
+  "finishedAt": "2026-05-08T06:19:21.787Z",
+  "scenarios": [
+    "cold-load",
+    "chat-scroll",
+    "idle-polling",
+    "tab-refocus",
+    "ws-burst"
+  ],
+  "failures": []
+}

@@ -1,0 +1,19 @@
+{
+  "scenario": "ws-burst",
+  "sha": "c37e848f",
+  "label": "05-ws-batching",
+  "timestamp": "2026-05-08T06:19:21.596Z",
+  "cpuThrottlingRate": 4,
+  "burstCount": 200,
+  "messagesFired": 200,
+  "timeToIdleAfterBurstMs": null,
+  "socketsObserved": 1,
+  "longTasksAfterBurst": {
+    "count": 9,
+    "totalMs": 1677,
+    "maxMs": 495
+  },
+  "droppedFramesAfterBurst": 6,
+  "fpsDuringSettle": 53,
+  "companyIdUsed": "REDACTED"
+}

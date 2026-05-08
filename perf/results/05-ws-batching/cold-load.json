@@ -1,0 +1,24 @@
+{
+  "scenario": "cold-load",
+  "sha": "c37e848f",
+  "label": "05-ws-batching",
+  "timestamp": "2026-05-08T06:17:01.516Z",
+  "cpuThrottlingRate": 4,
+  "loadEventMs": 2989,
+  "domContentLoadedMs": 2982.4,
+  "domInteractiveMs": 55.2,
+  "loadEventEndMs": 2983.7,
+  "transferSize": 2532,
+  "encodedBodySize": 2232,
+  "decodedBodySize": 2232,
+  "firstContentfulPaintMs": 3232,
+  "longTasks": {
+    "count": 6,
+    "totalMs": 2892,
+    "maxMs": 2379
+  },
+  "totalTransferBytes": 4008154,
+  "jsBytes": 3693280,
+  "jsResourceCount": 1,
+  "resourceCount": 8
+}

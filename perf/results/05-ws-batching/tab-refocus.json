@@ -1,0 +1,22 @@
+{
+  "scenario": "tab-refocus",
+  "sha": "c37e848f",
+  "label": "05-ws-batching",
+  "timestamp": "2026-05-08T06:18:59.976Z",
+  "cpuThrottlingRate": 4,
+  "blurSeconds": 30,
+  "refocusWindowSeconds": 5,
+  "apiRequestsAfterRefocus": 1,
+  "topPaths": [
+    {
+      "path": "/api/companies/:id/live-runs",
+      "count": 1
+    }
+  ],
+  "longTasksAfterRefocus": {
+    "count": 0,
+    "totalMs": 0,
+    "maxMs": 0
+  },
+  "refocusedAt": 1778221134927
+}
