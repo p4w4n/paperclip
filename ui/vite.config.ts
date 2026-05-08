@@ -8,6 +8,26 @@ export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss()],
   build: {
     minify: "esbuild",
+    // Split common vendor deps into their own chunks so they cache
+    // independently of route changes. Pre-split, the biggest offender was
+    // `index-FWfI3djl.js` at ~3.6 MB un-gzipped — a single mega-chunk that
+    // forced the browser to re-download the whole app on any change.
+    //
+    // Heavy domain libs (mermaid, cytoscape, katex, treemap) are already
+    // split by Rollup automatically because they are dynamically imported
+    // by their consumers. The lists here cover foundational deps that
+    // don't dynamically import — bundling them together is fine because
+    // every page uses them.
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ["react", "react-dom"],
+          "react-query": ["@tanstack/react-query"],
+          router: ["react-router-dom"],
+          markdown: ["react-markdown", "remark-gfm"],
+        },
+      },
+    },
   },
   esbuild:
     mode === "production"

@@ -1,57 +1,79 @@
+import { Suspense, lazy } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation, useParams } from "@/lib/router";
 import { Button } from "@/components/ui/button";
 import { Layout } from "./components/Layout";
 import { OnboardingWizard } from "./components/OnboardingWizard";
 import { CloudAccessGate } from "./components/CloudAccessGate";
-import { Dashboard } from "./pages/Dashboard";
-import { DashboardLive } from "./pages/DashboardLive";
-import { Companies } from "./pages/Companies";
-import { Agents } from "./pages/Agents";
-import { AgentDetail } from "./pages/AgentDetail";
-import { Projects } from "./pages/Projects";
-import { ProjectDetail } from "./pages/ProjectDetail";
-import { ProjectWorkspaceDetail } from "./pages/ProjectWorkspaceDetail";
-import { Workspaces } from "./pages/Workspaces";
-import { Issues } from "./pages/Issues";
-import { Search } from "./pages/Search";
-import { IssueDetail } from "./pages/IssueDetail";
-import { IssueChatLongThreadPerf } from "./pages/IssueChatLongThreadPerf";
-import { Routines } from "./pages/Routines";
-import { RoutineDetail } from "./pages/RoutineDetail";
-import { UserProfile } from "./pages/UserProfile";
-import { ExecutionWorkspaceDetail } from "./pages/ExecutionWorkspaceDetail";
-import { Goals } from "./pages/Goals";
-import { GoalDetail } from "./pages/GoalDetail";
-import { Approvals } from "./pages/Approvals";
-import { ApprovalDetail } from "./pages/ApprovalDetail";
-import { Costs } from "./pages/Costs";
-import { Activity } from "./pages/Activity";
-import { Inbox } from "./pages/Inbox";
-import { CompanySettings } from "./pages/CompanySettings";
-import { CompanyEnvironments } from "./pages/CompanyEnvironments";
-import { CompanyAccess } from "./pages/CompanyAccess";
-import { CompanyInvites } from "./pages/CompanyInvites";
-import { CompanySkills } from "./pages/CompanySkills";
-import { CompanyExport } from "./pages/CompanyExport";
-import { CompanyImport } from "./pages/CompanyImport";
-import { DesignGuide } from "./pages/DesignGuide";
-import { InstanceGeneralSettings } from "./pages/InstanceGeneralSettings";
-import { InstanceAccess } from "./pages/InstanceAccess";
-import { InstanceSettings } from "./pages/InstanceSettings";
-import { InstanceExperimentalSettings } from "./pages/InstanceExperimentalSettings";
-import { ProfileSettings } from "./pages/ProfileSettings";
-import { PluginManager } from "./pages/PluginManager";
-import { PluginSettings } from "./pages/PluginSettings";
-import { AdapterManager } from "./pages/AdapterManager";
-import { PluginPage } from "./pages/PluginPage";
-import { OrgChart } from "./pages/OrgChart";
-import { NewAgent } from "./pages/NewAgent";
-import { AuthPage } from "./pages/Auth";
-import { BoardClaimPage } from "./pages/BoardClaim";
-import { CliAuthPage } from "./pages/CliAuth";
-import { InviteLandingPage } from "./pages/InviteLanding";
-import { JoinRequestQueue } from "./pages/JoinRequestQueue";
-import { NotFoundPage } from "./pages/NotFound";
+
+// Each page is lazy-loaded so vite emits one chunk per route. The previous
+// eager imports collapsed the entire SPA into the main entry chunk
+// (`index-FWfI3djl.js`, ~3.6 MB un-gzipped). Splitting them lets the browser
+// fetch only what the active route needs and lets shared deps deduplicate
+// into smaller vendor chunks (configured in ui/vite.config.ts manualChunks).
+//
+// Routes use named exports, so we wrap the dynamic import to expose `default`
+// for React.lazy. The helper keeps the call sites compact.
+function lazyNamed<T, K extends keyof T>(
+  importer: () => Promise<T>,
+  name: K,
+): T[K] extends React.ComponentType<infer P>
+  ? React.LazyExoticComponent<React.ComponentType<P>>
+  : never {
+  return lazy(async () => {
+    const mod = await importer();
+    return { default: mod[name] as unknown as React.ComponentType };
+  }) as never;
+}
+
+const Dashboard = lazyNamed(() => import("./pages/Dashboard"), "Dashboard");
+const DashboardLive = lazyNamed(() => import("./pages/DashboardLive"), "DashboardLive");
+const Companies = lazyNamed(() => import("./pages/Companies"), "Companies");
+const Agents = lazyNamed(() => import("./pages/Agents"), "Agents");
+const AgentDetail = lazyNamed(() => import("./pages/AgentDetail"), "AgentDetail");
+const Projects = lazyNamed(() => import("./pages/Projects"), "Projects");
+const ProjectDetail = lazyNamed(() => import("./pages/ProjectDetail"), "ProjectDetail");
+const ProjectWorkspaceDetail = lazyNamed(() => import("./pages/ProjectWorkspaceDetail"), "ProjectWorkspaceDetail");
+const Workspaces = lazyNamed(() => import("./pages/Workspaces"), "Workspaces");
+const Issues = lazyNamed(() => import("./pages/Issues"), "Issues");
+const Search = lazyNamed(() => import("./pages/Search"), "Search");
+const IssueDetail = lazyNamed(() => import("./pages/IssueDetail"), "IssueDetail");
+const IssueChatLongThreadPerf = lazyNamed(() => import("./pages/IssueChatLongThreadPerf"), "IssueChatLongThreadPerf");
+const Routines = lazyNamed(() => import("./pages/Routines"), "Routines");
+const RoutineDetail = lazyNamed(() => import("./pages/RoutineDetail"), "RoutineDetail");
+const UserProfile = lazyNamed(() => import("./pages/UserProfile"), "UserProfile");
+const ExecutionWorkspaceDetail = lazyNamed(() => import("./pages/ExecutionWorkspaceDetail"), "ExecutionWorkspaceDetail");
+const Goals = lazyNamed(() => import("./pages/Goals"), "Goals");
+const GoalDetail = lazyNamed(() => import("./pages/GoalDetail"), "GoalDetail");
+const Approvals = lazyNamed(() => import("./pages/Approvals"), "Approvals");
+const ApprovalDetail = lazyNamed(() => import("./pages/ApprovalDetail"), "ApprovalDetail");
+const Costs = lazyNamed(() => import("./pages/Costs"), "Costs");
+const Activity = lazyNamed(() => import("./pages/Activity"), "Activity");
+const Inbox = lazyNamed(() => import("./pages/Inbox"), "Inbox");
+const CompanySettings = lazyNamed(() => import("./pages/CompanySettings"), "CompanySettings");
+const CompanyEnvironments = lazyNamed(() => import("./pages/CompanyEnvironments"), "CompanyEnvironments");
+const CompanyAccess = lazyNamed(() => import("./pages/CompanyAccess"), "CompanyAccess");
+const CompanyInvites = lazyNamed(() => import("./pages/CompanyInvites"), "CompanyInvites");
+const CompanySkills = lazyNamed(() => import("./pages/CompanySkills"), "CompanySkills");
+const CompanyExport = lazyNamed(() => import("./pages/CompanyExport"), "CompanyExport");
+const CompanyImport = lazyNamed(() => import("./pages/CompanyImport"), "CompanyImport");
+const DesignGuide = lazyNamed(() => import("./pages/DesignGuide"), "DesignGuide");
+const InstanceGeneralSettings = lazyNamed(() => import("./pages/InstanceGeneralSettings"), "InstanceGeneralSettings");
+const InstanceAccess = lazyNamed(() => import("./pages/InstanceAccess"), "InstanceAccess");
+const InstanceSettings = lazyNamed(() => import("./pages/InstanceSettings"), "InstanceSettings");
+const InstanceExperimentalSettings = lazyNamed(() => import("./pages/InstanceExperimentalSettings"), "InstanceExperimentalSettings");
+const ProfileSettings = lazyNamed(() => import("./pages/ProfileSettings"), "ProfileSettings");
+const PluginManager = lazyNamed(() => import("./pages/PluginManager"), "PluginManager");
+const PluginSettings = lazyNamed(() => import("./pages/PluginSettings"), "PluginSettings");
+const AdapterManager = lazyNamed(() => import("./pages/AdapterManager"), "AdapterManager");
+const PluginPage = lazyNamed(() => import("./pages/PluginPage"), "PluginPage");
+const OrgChart = lazyNamed(() => import("./pages/OrgChart"), "OrgChart");
+const NewAgent = lazyNamed(() => import("./pages/NewAgent"), "NewAgent");
+const AuthPage = lazyNamed(() => import("./pages/Auth"), "AuthPage");
+const BoardClaimPage = lazyNamed(() => import("./pages/BoardClaim"), "BoardClaimPage");
+const CliAuthPage = lazyNamed(() => import("./pages/CliAuth"), "CliAuthPage");
+const InviteLandingPage = lazyNamed(() => import("./pages/InviteLanding"), "InviteLandingPage");
+const JoinRequestQueue = lazyNamed(() => import("./pages/JoinRequestQueue"), "JoinRequestQueue");
+const NotFoundPage = lazyNamed(() => import("./pages/NotFound"), "NotFoundPage");
 import { useCompany } from "./context/CompanyContext";
 import { useDialogActions } from "./context/DialogContext";
 import { loadLastInboxTab } from "./lib/inbox";
@@ -258,9 +280,20 @@ function NoCompaniesStartPage() {
   );
 }
 
+// Minimal route fallback. Renders nothing visible — most pages reach
+// "interactive" within a frame or two of import resolution, so a flashy
+// spinner causes more layout flicker than it prevents. If a page's chunk is
+// genuinely slow to load, we want that visible in perf measurements rather
+// than masked by a placeholder. Routes that need a richer fallback can wrap
+// themselves in an inner <Suspense>.
+function RouteFallback() {
+  return null;
+}
+
 export function App() {
   return (
     <>
+      <Suspense fallback={<RouteFallback />}>
       <Routes>
         <Route path="auth" element={<AuthPage />} />
         <Route path="board-claim/:token" element={<BoardClaimPage />} />
@@ -318,6 +351,7 @@ export function App() {
           <Route path="*" element={<NotFoundPage scope="global" />} />
         </Route>
       </Routes>
+      </Suspense>
       <OnboardingWizard />
     </>
   );
