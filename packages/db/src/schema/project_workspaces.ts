@@ -29,6 +29,13 @@ export const projectWorkspaces = pgTable(
     remoteProvider: text("remote_provider"),
     remoteWorkspaceRef: text("remote_workspace_ref"),
     sharedWorkspaceKey: text("shared_workspace_key"),
+    // Plan 4 (filestore mode). When "on", every run on this workspace
+    // uses a shared filesystem path (NFS / GCP Filestore / any
+    // filesystem visible at PAPERCLIP_FILESTORE_ROOT on every worker)
+    // instead of being shallow-cloned per-run on the worker. Concurrent
+    // runs on a filestore-mode workspace are serialized via the
+    // workspace_leases table — only one writer at a time.
+    filestoreMode: text("filestore_mode").notNull().default("off"),
     metadata: jsonb("metadata").$type<Record<string, unknown>>(),
     isPrimary: boolean("is_primary").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
