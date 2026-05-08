@@ -887,6 +887,63 @@ export async function startServer(): Promise<StartedServer> {
         settleRunCompletion(runId, new Error("lease_expired"));
       }
     });
+
+    // Plan 2 Task 2: lease reaper. The in-memory setTimeout in
+    // RunDispatcher fires while the process is alive; this DB-backed
+    // sweep is the recovery path after a control-plane restart and the
+    // safety net for any timer that never fired (e.g., dispatch
+    // succeeded but the lease arming setTimeout was lost to GC).
+    const { reapExpiredLeases } = await import("./services/lease-reaper.js");
+    const { lt, isNotNull, inArray } = await import("drizzle-orm");
+    const reapTick = async () => {
+      try {
+        await reapExpiredLeases({
+          now: () => new Date(),
+          findExpired: async () => {
+            const rows = await db
+              .select({
+                runId: heartbeatRuns.id,
+                workerId: heartbeatRuns.dispatchedToWorkerId,
+                leaseExpiresAt: heartbeatRuns.leaseExpiresAt,
+              })
+              .from(heartbeatRuns)
+              .where(
+                and(
+                  inArray(heartbeatRuns.status, ["running", "pending_run"]),
+                  isNotNull(heartbeatRuns.leaseExpiresAt),
+                  lt(heartbeatRuns.leaseExpiresAt, new Date()),
+                ),
+              );
+            return rows
+              .filter((r) => r.leaseExpiresAt !== null)
+              .map((r) => ({
+                runId: r.runId,
+                workerId: r.workerId,
+                leaseExpiresAt: r.leaseExpiresAt as Date,
+              }));
+          },
+          settle: async ({ runId }) => {
+            // Fan into both signals: notifySettlement so any in-process
+            // awaiter rejects, and settleRunCompletion as the legacy hook
+            // covering dispatch-or-local awaiters that subscribed via
+            // run-completion-registry instead of the dispatcher's
+            // listener. handleLeaseExpiry (auto-replay) lands in Plan 2
+            // Task 3 — for now, a settled row stays failed until that
+            // task's heartbeat-service handler is wired here.
+            runDispatcher.notifySettlement(runId, { kind: "lease_expired" });
+            settleRunCompletion(runId, new Error("lease_expired"));
+          },
+        });
+      } catch (err) {
+        logger.warn({ err }, "lease reaper sweep failed");
+      }
+    };
+    const LEASE_REAP_INTERVAL_MS = 30_000;
+    const reapInterval = setInterval(reapTick, LEASE_REAP_INTERVAL_MS);
+    // Don't keep the event loop alive just for the reaper — the gRPC
+    // server and HTTP listen are what hold the process up.
+    if (typeof reapInterval.unref === "function") reapInterval.unref();
+    logger.info({ intervalMs: LEASE_REAP_INTERVAL_MS }, "lease reaper started");
   }
 
   await new Promise<void>((resolveListen, rejectListen) => {
