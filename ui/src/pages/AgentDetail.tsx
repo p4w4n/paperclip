@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useParams, useNavigate, Link, Navigate, useBeforeUnload } from "@/lib/router";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import {
   agentsApi,
   type AgentKey,
@@ -676,18 +676,25 @@ export function AgentDetail() {
     enabled: Boolean(resolvedAgentId) && needsDashboardData,
   });
 
-  // Cap the agent run fetch at 100 rows for components that genuinely need
-  // run rows (LatestRunCard, CostsSection, RunsTab list rendering).
-  // Previously this was unbounded, so an agent with thousands of runs
-  // would download every row on every visit to the agent detail page
-  // (issue #958). 100 is enough to populate RunsTab's initial view; a
-  // future RunsTab refactor should switch to useInfiniteQuery for
-  // "load more" semantics.
-  const { data: heartbeats } = useQuery({
-    queryKey: [...queryKeys.heartbeats(resolvedCompanyId!, agent?.id ?? undefined), "limit", 100],
-    queryFn: () => heartbeatsApi.list(resolvedCompanyId!, agent?.id ?? undefined, 100),
+  // Paginated agent run fetch via useInfiniteQuery. Previously this was
+  // unbounded (issue #958: download every run on every visit). First page
+  // is 100 rows; subsequent pages are offset-based, fetched when RunsTab
+  // scrolls near the bottom. AgentOverview's chart no longer depends on
+  // having every run row — it consumes server-aggregated /stats below.
+  const HEARTBEAT_PAGE_SIZE = 100;
+  const heartbeatsQuery = useInfiniteQuery({
+    queryKey: [...queryKeys.heartbeats(resolvedCompanyId!, agent?.id ?? undefined), "page", HEARTBEAT_PAGE_SIZE],
+    queryFn: ({ pageParam }) =>
+      heartbeatsApi.list(resolvedCompanyId!, agent?.id ?? undefined, HEARTBEAT_PAGE_SIZE, pageParam as number),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) =>
+      lastPage.length < HEARTBEAT_PAGE_SIZE ? undefined : allPages.length * HEARTBEAT_PAGE_SIZE,
     enabled: !!resolvedCompanyId && !!agent?.id && shouldLoadHeartbeats,
   });
+  const heartbeats = useMemo(
+    () => (heartbeatsQuery.data?.pages.flat() ?? null) as HeartbeatRun[] | null,
+    [heartbeatsQuery.data],
+  );
 
   // Per-day chart aggregates. Comes from the server-side /stats endpoint so
   // the chart no longer depends on having every run row downloaded —
@@ -1165,6 +1172,9 @@ export function AgentDetail() {
       {activeView === "runs" && (
         <RunsTab
           runs={heartbeats ?? []}
+          fetchNextPage={() => { void heartbeatsQuery.fetchNextPage(); }}
+          hasNextPage={!!heartbeatsQuery.hasNextPage}
+          isFetchingNextPage={heartbeatsQuery.isFetchingNextPage}
           companyId={resolvedCompanyId!}
           agentId={agent.id}
           agentRouteId={canonicalAgentRef}
@@ -2971,6 +2981,9 @@ function RunListItem({ run, isSelected, agentId }: { run: HeartbeatRun; isSelect
 
 function RunsTab({
   runs,
+  fetchNextPage,
+  hasNextPage,
+  isFetchingNextPage,
   companyId,
   agentId,
   agentRouteId,
@@ -2979,6 +2992,9 @@ function RunsTab({
   adapterConfig,
 }: {
   runs: HeartbeatRun[];
+  fetchNextPage: () => void;
+  hasNextPage: boolean;
+  isFetchingNextPage: boolean;
   companyId: string;
   agentId: string;
   agentRouteId: string;
@@ -2987,6 +3003,24 @@ function RunsTab({
   adapterConfig: Record<string, unknown>;
 }) {
   const { isMobile } = useSidebar();
+  // Sentinel ref watched by an IntersectionObserver. When the bottom
+  // sentinel scrolls into view, fetch the next page. The observer is
+  // cheap to set up and tears itself down on unmount.
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const node = sentinelRef.current;
+    if (!node || !hasNextPage) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting && !isFetchingNextPage) fetchNextPage();
+        }
+      },
+      { rootMargin: "320px" }, // Start loading well before the user reaches the bottom.
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   if (runs.length === 0) {
     return <p className="text-sm text-muted-foreground">No runs yet.</p>;
@@ -3022,6 +3056,11 @@ function RunsTab({
         {sorted.map((run) => (
           <RunListItem key={run.id} run={run} isSelected={false} agentId={agentRouteId} />
         ))}
+        {hasNextPage ? (
+          <div ref={sentinelRef} className="px-3 py-3 text-center text-xs text-muted-foreground border-t border-border">
+            {isFetchingNextPage ? "Loading more…" : "Scroll for more"}
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -3038,6 +3077,11 @@ function RunsTab({
         {sorted.map((run) => (
           <RunListItem key={run.id} run={run} isSelected={run.id === effectiveRunId} agentId={agentRouteId} />
         ))}
+        {hasNextPage ? (
+          <div ref={sentinelRef} className="px-3 py-3 text-center text-xs text-muted-foreground border-t border-border">
+            {isFetchingNextPage ? "Loading more…" : "Scroll for more"}
+          </div>
+        ) : null}
         </div>
       </div>
 

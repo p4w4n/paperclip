@@ -9440,9 +9440,9 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       return rows.map((r) => ({ date: r.date, status: r.status, count: Number(r.count) }));
     },
 
-    list: async (companyId: string, agentId?: string, limit?: number) => {
+    list: async (companyId: string, agentId?: string, limit?: number, offset?: number) => {
       const safeForLegacyEncoding = await hasUnsafeTextProjectionDatabase();
-      const query = db
+      const baseQuery = db
         .select(
           safeForLegacyEncoding
             ? {
@@ -9464,8 +9464,20 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         )
         .orderBy(desc(heartbeatRuns.createdAt));
 
-      const rows = limit ? await query.limit(limit) : await query;
-      return rows.map((row) => {
+      // Drizzle's chained-builder types don't union .limit() and .offset()
+      // cleanly, so explicitly fan out the four shapes. Pure execution path
+      // selection — semantics are: optional limit, optional offset, both
+      // applied when provided.
+      const finalRows = await (
+        limit !== undefined && offset !== undefined && offset > 0
+          ? baseQuery.limit(limit).offset(offset)
+          : limit !== undefined
+            ? baseQuery.limit(limit)
+            : offset !== undefined && offset > 0
+              ? baseQuery.offset(offset)
+              : baseQuery
+      );
+      return finalRows.map((row) => {
         const {
           contextIssueId,
           contextTaskId,
