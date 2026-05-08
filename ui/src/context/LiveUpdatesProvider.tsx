@@ -888,6 +888,98 @@ function closeSocketQuietly(target: LiveUpdatesSocketLike | null, reason: string
   }
 }
 
+/**
+ * Coalesces a burst of `invalidateQueries` calls into a single flush so that a
+ * server-side event storm does not cause one synchronous React commit per
+ * affected query key. Without batching, processing N WS events that each
+ * touch K query keys triggers N×K immediate invalidations and the same number
+ * of refetches, which is what made `ws-burst` measurements fail to settle in
+ * 15 seconds even for synthetic loads.
+ *
+ * Behaviour:
+ *  - `invalidateQueries({ queryKey, refetchType })` schedules a flush in
+ *    `debounceMs` (default 50 ms). Repeated calls within the window with the
+ *    same `(queryKey, refetchType)` tuple are deduplicated.
+ *  - `flush()` runs synchronously and replays each queued invalidation against
+ *    the wrapped QueryClient.
+ *  - `dispose()` cancels any pending flush and drops queued items — used at
+ *    provider unmount.
+ *
+ * Why exact-key dedup (rather than prefix-collapse): exact dedup is cheap and
+ * obviously correct. Prefix-collapse ("if `['issues']` is queued, drop
+ * `['issues','detail','X']`") would over-invalidate and is more
+ * involved to get right.
+ */
+class WsInvalidationBatcher {
+  private pending = new Map<string, { queryKey: unknown; refetchType?: "inactive" | "active" | "all" | "none" }>();
+  private flushHandle: ReturnType<typeof setTimeout> | null = null;
+
+  constructor(
+    private readonly queryClient: QueryClient,
+    private readonly debounceMs: number = 50,
+  ) {}
+
+  invalidateQueries(filters: { queryKey: unknown; refetchType?: "inactive" | "active" | "all" | "none" }) {
+    const dedupeKey = JSON.stringify([filters.queryKey, filters.refetchType ?? "default"]);
+    this.pending.set(dedupeKey, filters);
+    if (this.flushHandle == null) {
+      this.flushHandle = setTimeout(() => this.flush(), this.debounceMs);
+    }
+  }
+
+  flush() {
+    if (this.flushHandle != null) {
+      clearTimeout(this.flushHandle);
+      this.flushHandle = null;
+    }
+    if (this.pending.size === 0) return;
+    const items = [...this.pending.values()];
+    this.pending.clear();
+    for (const item of items) {
+      void this.queryClient.invalidateQueries(item as Parameters<QueryClient["invalidateQueries"]>[0]);
+    }
+  }
+
+  dispose() {
+    if (this.flushHandle != null) {
+      clearTimeout(this.flushHandle);
+      this.flushHandle = null;
+    }
+    this.pending.clear();
+  }
+}
+
+/**
+ * Wraps `queryClient` so that calls to `invalidateQueries` go through the
+ * batcher while every other method (getQueryData, setQueryData, etc.)
+ * passes through to the underlying client unchanged.
+ *
+ * We use a Proxy rather than touching the helper signatures because every
+ * downstream helper already takes `QueryClient`; threading a separate
+ * "invalidator" type through them would be a much larger refactor.
+ */
+function wrapQueryClientWithBatcher(
+  queryClient: QueryClient,
+  batcher: WsInvalidationBatcher,
+): QueryClient {
+  return new Proxy(queryClient, {
+    get(target, prop, receiver) {
+      if (prop === "invalidateQueries") {
+        return (filters: { queryKey: unknown; refetchType?: "inactive" | "active" | "all" | "none" }) => {
+          batcher.invalidateQueries(filters);
+          return Promise.resolve();
+        };
+      }
+      const value = Reflect.get(target, prop, receiver);
+      // Methods on QueryClient's prototype expect `this === queryClient`.
+      // Binding here avoids `this` referring to the proxy when downstream code
+      // does e.g. `qc.getQueryData(key)` and the method internally accesses
+      // private state.
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
 export const __liveUpdatesTestUtils = {
   buildAgentStatusToast,
   buildRunStatusToast,
@@ -910,6 +1002,20 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
   const gateRef = useRef<ToastGate>({ cooldownHits: new Map(), suppressUntil: 0 });
   const pathnameRef = useRef(location.pathname);
+
+  // Single batcher per provider mount. The wrapped queryClient passes through
+  // every method except invalidateQueries, which is coalesced for ~50 ms so
+  // that processing a burst of WS events triggers one flush rather than
+  // dozens of synchronous invalidations.
+  const batcherRef = useRef<WsInvalidationBatcher | null>(null);
+  if (batcherRef.current === null) {
+    batcherRef.current = new WsInvalidationBatcher(queryClient, 50);
+  }
+  const batchedQueryClientRef = useRef<QueryClient | null>(null);
+  if (batchedQueryClientRef.current === null) {
+    batchedQueryClientRef.current = wrapQueryClientWithBatcher(queryClient, batcherRef.current);
+  }
+  useEffect(() => () => batcherRef.current?.dispose(), []);
   const { data: session, status: sessionStatus } = useQuery({
     queryKey: queryKeys.auth.session,
     queryFn: () => authApi.getSession(),
@@ -984,7 +1090,7 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
 
         try {
           const parsed = JSON.parse(raw) as LiveEvent;
-          handleLiveEvent(queryClient, liveCompanyId, pathnameRef.current, parsed, pushToast, gateRef.current, {
+          handleLiveEvent(batchedQueryClientRef.current!, liveCompanyId, pathnameRef.current, parsed, pushToast, gateRef.current, {
             userId: currentActorRef.current.userId,
             agentId: currentActorRef.current.agentId,
           });
