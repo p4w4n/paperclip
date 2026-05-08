@@ -51,6 +51,14 @@ const projectWorkspaceFields = {
   remoteProvider: z.string().optional().nullable(),
   remoteWorkspaceRef: z.string().optional().nullable(),
   sharedWorkspaceKey: z.string().optional().nullable(),
+  // Plan 4: filestore mode opt-in. "off" (default) keeps the
+  // ephemeral-clone path; "on" routes runs through the
+  // workspace_leases lock and a shared filesystem at
+  // PAPERCLIP_FILESTORE_ROOT/sharedWorkspaceKey on every worker.
+  // Toggling while a run is in flight against the workspace is
+  // rejected at the route layer (defense in depth — the lease store
+  // also serializes via the partial unique index).
+  filestoreMode: z.enum(["off", "on"]).optional(),
   metadata: z.record(z.unknown()).optional().nullable(),
   runtimeConfig: projectWorkspaceRuntimeConfigSchema.optional().nullable(),
 };

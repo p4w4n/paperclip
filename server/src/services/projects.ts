@@ -47,6 +47,7 @@ type CreateWorkspaceInput = {
   remoteProvider?: string | null;
   remoteWorkspaceRef?: string | null;
   sharedWorkspaceKey?: string | null;
+  filestoreMode?: "off" | "on";
   metadata?: Record<string, unknown> | null;
   runtimeConfig?: Partial<ProjectWorkspaceRuntimeConfig> | null;
   isPrimary?: boolean;
@@ -870,6 +871,10 @@ export function projectService(db: Db) {
             remoteProvider: readNonEmptyString(data.remoteProvider),
             remoteWorkspaceRef,
             sharedWorkspaceKey: readNonEmptyString(data.sharedWorkspaceKey),
+            filestoreMode:
+              data.filestoreMode === "on" || data.filestoreMode === "off"
+                ? data.filestoreMode
+                : "off",
             metadata:
               data.runtimeConfig !== undefined
                 ? mergeProjectWorkspaceRuntimeConfig(
@@ -946,6 +951,28 @@ export function projectService(db: Db) {
       if (data.remoteProvider !== undefined) patch.remoteProvider = readNonEmptyString(data.remoteProvider);
       if (data.remoteWorkspaceRef !== undefined) patch.remoteWorkspaceRef = nextRemoteWorkspaceRef;
       if (data.sharedWorkspaceKey !== undefined) patch.sharedWorkspaceKey = readNonEmptyString(data.sharedWorkspaceKey);
+      if (data.filestoreMode === "on" || data.filestoreMode === "off") {
+        // Plan 4: idle-only toggle. If the workspace is currently
+        // claimed by an active lease, refuse the change so a flip
+        // can't yank the rug from a running adapter. Defense in
+        // depth — the lease store's partial unique would prevent
+        // direct concurrent runs, but the mode flip itself shouldn't
+        // race a live run.
+        const { workspaceLeases } = await import("@paperclipai/db");
+        const { isNull } = await import("drizzle-orm");
+        const activeLease = await db
+          .select({ id: workspaceLeases.id })
+          .from(workspaceLeases)
+          .where(
+            and(
+              eq(workspaceLeases.projectWorkspaceId, workspaceId),
+              isNull(workspaceLeases.releasedAt),
+            ),
+          )
+          .limit(1);
+        if (activeLease.length > 0) return null;
+        patch.filestoreMode = data.filestoreMode;
+      }
       if (data.metadata !== undefined || data.runtimeConfig !== undefined) {
         patch.metadata =
           data.runtimeConfig !== undefined
