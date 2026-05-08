@@ -1,0 +1,22 @@
+{
+  "scenario": "tab-refocus",
+  "sha": "9a916b6b",
+  "label": "02-rq-defaults",
+  "timestamp": "2026-05-08T09:18:28.839Z",
+  "cpuThrottlingRate": 4,
+  "blurSeconds": 30,
+  "refocusWindowSeconds": 5,
+  "apiRequestsAfterRefocus": 1,
+  "topPaths": [
+    {
+      "path": "/api/companies/:id/live-runs",
+      "count": 1
+    }
+  ],
+  "longTasksAfterRefocus": {
+    "count": 0,
+    "totalMs": 0,
+    "maxMs": 0
+  },
+  "refocusedAt": 1778231903819
+}

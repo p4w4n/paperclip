@@ -1,0 +1,18 @@
+{
+  "label": "02-rq-defaults",
+  "sha": "9a916b6b",
+  "finishedAt": "2026-05-08T09:18:49.407Z",
+  "scenarios": [
+    "cold-load",
+    "chat-scroll",
+    "idle-polling",
+    "tab-refocus",
+    "ws-burst"
+  ],
+  "failures": [
+    {
+      "scenario": "chat-scroll",
+      "code": 1
+    }
+  ]
+}

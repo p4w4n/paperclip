@@ -1,0 +1,58 @@
+{
+  "scenario": "idle-polling",
+  "sha": "9a916b6b",
+  "label": "02-rq-defaults",
+  "timestamp": "2026-05-08T09:17:45.688Z",
+  "cpuThrottlingRate": 4,
+  "idleSeconds": 60,
+  "actualIdleMs": 60006,
+  "apiRequestCount": 32,
+  "apiRequestsPerMinute": 32,
+  "topPaths": [
+    {
+      "path": "/api/companies/:id/live-runs",
+      "count": 7
+    },
+    {
+      "path": "/api/heartbeat-runs/:id/log",
+      "count": 4
+    },
+    {
+      "path": "/api/companies/:id/issues",
+      "count": 2
+    },
+    {
+      "path": "/api/health",
+      "count": 1
+    },
+    {
+      "path": "/api/adapters",
+      "count": 1
+    },
+    {
+      "path": "/api/auth/get-session",
+      "count": 1
+    },
+    {
+      "path": "/api/companies",
+      "count": 1
+    },
+    {
+      "path": "/api/companies/:id/skills",
+      "count": 1
+    },
+    {
+      "path": "/api/sidebar-preferences/me",
+      "count": 1
+    },
+    {
+      "path": "/api/plugins/ui-contributions",
+      "count": 1
+    }
+  ],
+  "longTasksDuringIdle": {
+    "count": 17,
+    "totalMs": 6307,
+    "maxMs": 2407
+  }
+}
