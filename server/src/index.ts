@@ -957,6 +957,29 @@ export async function startServer(): Promise<StartedServer> {
             // 1. Reject any in-process awaiter and signal listeners.
             runDispatcher.notifySettlement(runId, { kind: "lease_expired" });
             settleRunCompletion(runId, new Error("lease_expired"));
+            // 1a. Plan 3: any runtime services that were running on
+            //     the dead worker are gone with it. Flip their rows
+            //     to "stopped" so the UI doesn't show dead services
+            //     as live, and so a re-dispatched run starts fresh.
+            try {
+              const { workspaceRuntimeServices } = await import("@paperclipai/db");
+              await db
+                .update(workspaceRuntimeServices)
+                .set({
+                  status: "stopped",
+                  stoppedAt: new Date(),
+                  healthStatus: "unknown",
+                  updatedAt: new Date(),
+                })
+                .where(
+                  and(
+                    eq(workspaceRuntimeServices.startedByRunId, runId),
+                    inArray(workspaceRuntimeServices.status, ["starting", "running"]),
+                  ),
+                );
+            } catch (err) {
+              logger.warn({ err, runId }, "lease reaper service cleanup failed");
+            }
             // 2. Decide auto-replay vs terminal. Spec NOTE N8: lease
             //    expiry is the only signal that increments attempts;
             //    user-initiated retries (retry_of_run_id) take a
