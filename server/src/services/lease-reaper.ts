@@ -22,6 +22,11 @@ export interface ExpiredRun {
   // gate can match against it (Plan 2 Task 4).
   workerId: string | null;
   leaseExpiresAt: Date;
+  // Value of heartbeat_runs.attempts at the moment we found the row.
+  // Settle (Plan 2 Task 3) compares against maxAttempts to decide
+  // requeue vs terminal — keeping attempts in the projection saves a
+  // per-row roundtrip in the production sweep.
+  attempts: number;
 }
 
 export interface ReapDeps {
@@ -31,10 +36,15 @@ export interface ReapDeps {
   // AND lease_expires_at < now(). Tests stub a flat array.
   findExpired: () => Promise<ExpiredRun[]>;
   // Production fans this into runDispatcher.notifySettlement (so any
-  // dispatch-or-local awaiter rejects) PLUS the heartbeat-service
-  // handleLeaseExpiry path that increments attempts / re-queues
-  // (added in Plan 2 Task 3).
-  settle: (input: { runId: string; workerId: string | null; reason: "lease_expired" }) => Promise<void> | void;
+  // dispatch-or-local awaiter rejects) PLUS handleLeaseExpiry, which
+  // increments attempts / re-queues vs marks terminal based on
+  // maxAttempts.
+  settle: (input: {
+    runId: string;
+    workerId: string | null;
+    attempts: number;
+    reason: "lease_expired";
+  }) => Promise<void> | void;
 }
 
 export async function reapExpiredLeases(deps: ReapDeps): Promise<void> {
@@ -49,7 +59,12 @@ export async function reapExpiredLeases(deps: ReapDeps): Promise<void> {
   const expired = await deps.findExpired();
   for (const row of expired) {
     try {
-      await deps.settle({ runId: row.runId, workerId: row.workerId, reason: "lease_expired" });
+      await deps.settle({
+        runId: row.runId,
+        workerId: row.workerId,
+        attempts: row.attempts,
+        reason: "lease_expired",
+      });
     } catch {
       // One bad row must not freeze the rest of the sweep — the next
       // cycle will retry the row anyway because findExpired returns it

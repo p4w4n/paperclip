@@ -12,14 +12,14 @@ describe("reapExpiredLeases", () => {
 
   it("settles every run whose lease deadline has passed", async () => {
     const expired: ExpiredRun[] = [
-      { runId: "r1", workerId: "w-dead", leaseExpiresAt: new Date("2026-05-08T23:59:00Z") },
-      { runId: "r2", workerId: "w-dead-2", leaseExpiresAt: new Date("2026-05-08T23:50:00Z") },
+      { runId: "r1", workerId: "w-dead", leaseExpiresAt: new Date("2026-05-08T23:59:00Z"), attempts: 0 },
+      { runId: "r2", workerId: "w-dead-2", leaseExpiresAt: new Date("2026-05-08T23:50:00Z"), attempts: 0 },
     ];
     const settle = vi.fn();
     await reapExpiredLeases({ now, findExpired: async () => expired, settle });
     expect(settle).toHaveBeenCalledTimes(2);
-    expect(settle).toHaveBeenCalledWith({ runId: "r1", workerId: "w-dead", reason: "lease_expired" });
-    expect(settle).toHaveBeenCalledWith({ runId: "r2", workerId: "w-dead-2", reason: "lease_expired" });
+    expect(settle).toHaveBeenCalledWith({ runId: "r1", workerId: "w-dead", attempts: 0, reason: "lease_expired" });
+    expect(settle).toHaveBeenCalledWith({ runId: "r2", workerId: "w-dead-2", attempts: 0, reason: "lease_expired" });
   });
 
   it("is a no-op when no runs are expired", async () => {
@@ -32,8 +32,8 @@ describe("reapExpiredLeases", () => {
     // Production settler may throw (e.g., notifySettlement listener bug).
     // The reaper must not let one bad row freeze the whole sweep.
     const expired: ExpiredRun[] = [
-      { runId: "r-bad", workerId: "w1", leaseExpiresAt: new Date("2026-05-08T23:59:00Z") },
-      { runId: "r-good", workerId: "w2", leaseExpiresAt: new Date("2026-05-08T23:59:00Z") },
+      { runId: "r-bad", workerId: "w1", leaseExpiresAt: new Date("2026-05-08T23:59:00Z"), attempts: 0 },
+      { runId: "r-good", workerId: "w2", leaseExpiresAt: new Date("2026-05-08T23:59:00Z"), attempts: 0 },
     ];
     const settle = vi.fn(async (input: { runId: string }) => {
       if (input.runId === "r-bad") throw new Error("boom");

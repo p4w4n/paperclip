@@ -101,6 +101,10 @@ export interface Config {
   // the server passes it to OAuth2Client.verifyIdToken which rejects a
   // mismatch outright. Spec D2 publishes this to workers via config.
   workerGcpAudience: string | undefined;
+  // Total attempts a single run gets before lease-expiry maps to a
+  // terminal failure. 2 = one auto-replay after first expiry (default);
+  // 1 disables auto-replay entirely.
+  workerLeaseMaxAttempts: number;
 }
 
 function detectTailnetBindHost(): string | undefined {
@@ -357,5 +361,6 @@ export function loadConfig(): Config {
         .map((s) => s.trim())
         .filter(Boolean),
     workerGcpAudience: process.env.WORKER_GCP_AUDIENCE?.trim() || undefined,
+    workerLeaseMaxAttempts: Math.max(1, Number(process.env.WORKER_LEASE_MAX_ATTEMPTS) || 2),
   };
 }

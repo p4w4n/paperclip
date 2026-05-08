@@ -894,7 +894,9 @@ export async function startServer(): Promise<StartedServer> {
     // safety net for any timer that never fired (e.g., dispatch
     // succeeded but the lease arming setTimeout was lost to GC).
     const { reapExpiredLeases } = await import("./services/lease-reaper.js");
+    const { handleLeaseExpiry } = await import("./services/lease-replay.js");
     const { lt, isNotNull, inArray } = await import("drizzle-orm");
+    const leaseMaxAttempts = config.workerLeaseMaxAttempts;
     const reapTick = async () => {
       try {
         await reapExpiredLeases({
@@ -905,6 +907,7 @@ export async function startServer(): Promise<StartedServer> {
                 runId: heartbeatRuns.id,
                 workerId: heartbeatRuns.dispatchedToWorkerId,
                 leaseExpiresAt: heartbeatRuns.leaseExpiresAt,
+                attempts: heartbeatRuns.attempts,
               })
               .from(heartbeatRuns)
               .where(
@@ -920,18 +923,47 @@ export async function startServer(): Promise<StartedServer> {
                 runId: r.runId,
                 workerId: r.workerId,
                 leaseExpiresAt: r.leaseExpiresAt as Date,
+                attempts: r.attempts,
               }));
           },
-          settle: async ({ runId }) => {
-            // Fan into both signals: notifySettlement so any in-process
-            // awaiter rejects, and settleRunCompletion as the legacy hook
-            // covering dispatch-or-local awaiters that subscribed via
-            // run-completion-registry instead of the dispatcher's
-            // listener. handleLeaseExpiry (auto-replay) lands in Plan 2
-            // Task 3 — for now, a settled row stays failed until that
-            // task's heartbeat-service handler is wired here.
+          settle: async ({ runId, attempts }) => {
+            // 1. Reject any in-process awaiter and signal listeners.
             runDispatcher.notifySettlement(runId, { kind: "lease_expired" });
             settleRunCompletion(runId, new Error("lease_expired"));
+            // 2. Decide auto-replay vs terminal. Spec NOTE N8: lease
+            //    expiry is the only signal that increments attempts;
+            //    user-initiated retries (retry_of_run_id) take a
+            //    different path elsewhere in the heartbeat scheduler.
+            await handleLeaseExpiry({
+              runId,
+              currentAttempts: attempts,
+              maxAttempts: leaseMaxAttempts,
+              requeue: async ({ runId: id, nextAttempts }) => {
+                await db
+                  .update(heartbeatRuns)
+                  .set({
+                    status: "queued",
+                    attempts: nextAttempts,
+                    leaseExpiresAt: null,
+                    dispatchedToWorkerId: null,
+                    workerSessionId: null,
+                  })
+                  .where(eq(heartbeatRuns.id, id));
+                logger.info({ runId: id, nextAttempts }, "lease expired — requeued for auto-replay");
+              },
+              markTerminal: async ({ runId: id, finalAttempts, errorCode }) => {
+                await db
+                  .update(heartbeatRuns)
+                  .set({
+                    status: "failed",
+                    attempts: finalAttempts,
+                    errorCode,
+                    leaseExpiresAt: null,
+                  })
+                  .where(eq(heartbeatRuns.id, id));
+                logger.warn({ runId: id, finalAttempts }, "lease expired — terminal (auto-replay budget exhausted)");
+              },
+            });
           },
         });
       } catch (err) {
