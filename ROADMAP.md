@@ -50,7 +50,7 @@ Paperclip needs a clearer path from solo operator to real human teams. That mean
 
 ### 🚧 Cloud / Sandbox agents (e.g. Cursor / e2b agents)
 
-In progress. See `docs/superpowers/specs/2026-05-08-distributed-workers-design.md` and `docs/superpowers/plans/2026-05-08-distributed-workers-foundation.md`. Phase 1 (foundation): claude_local + gemini_local end-to-end via gRPC, ephemeral workspaces, scope-token-bound secret fetch, lease deadline + worker-initiated keepalive, shared-secret and GCP id-token auth strategies.
+In progress. See `docs/superpowers/specs/2026-05-08-distributed-workers-design.md` and the foundation + durability plans (`docs/superpowers/plans/2026-05-08-distributed-workers-foundation.md`, `docs/superpowers/plans/2026-05-09-distributed-workers-durability.md`). Phase 1 (foundation): claude_local + gemini_local end-to-end via gRPC, ephemeral workspaces, scope-token-bound secret fetch, lease deadline + worker-initiated keepalive, shared-secret and GCP id-token auth strategies. Phase 2 (durability): DB-backed lease + 30s reaper for control-plane-restart recovery, idempotent re-dispatch on lease expiry (spec NOTE N8), late-frame drop on re-dispatched runs, worker reconnect with exponential backoff, MIG-drain handling on the worker side.
 
 We want agents to run in more remote and sandboxed environments while preserving the same Paperclip control-plane model. This makes the system safer, more flexible, and more useful outside a single trusted local machine.
 
