@@ -831,9 +831,11 @@ export async function startServer(): Promise<StartedServer> {
         "WORKER_GRPC_ENABLED requires WORKER_AUTH_MODE=shared_secret and WORKER_SHARED_SECRET (gcp_id_token mode arrives in a later task)",
       );
     }
+    const { runDispatcher } = await import("./services/run-dispatcher.js");
     const workerPort = await startWorkerGrpcServer({
       auth: sharedSecretAuthStrategy({ secret: config.workerSharedSecret }),
       registry: workerRegistry,
+      dispatcher: runDispatcher,
       bindAddress: config.workerGrpcBindAddress,
     });
     logger.info({ port: workerPort, bindAddress: config.workerGrpcBindAddress }, "worker gRPC server listening");
@@ -843,7 +845,6 @@ export async function startServer(): Promise<StartedServer> {
     // the agent's run record settles instead of hanging until the heartbeat
     // scheduler reaper notices. The dispatcher's onSettlement is the
     // server-side hook for that — wire it once at boot.
-    const { runDispatcher } = await import("./services/run-dispatcher.js");
     const { settleRunCompletion } = await import("./adapters/run-completion-registry.js");
     runDispatcher.onSettlement((runId, reason) => {
       if (reason.kind === "lease_expired") {

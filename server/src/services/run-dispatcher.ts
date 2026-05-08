@@ -163,6 +163,15 @@ export class RunDispatcher {
     };
   }
 
+  /**
+   * Public fanout for callers that observe a settlement signal directly
+   * — currently the connect-handler when RunComplete or RunFailed lands.
+   * Lease-expiry settlement is fired internally by the lease timer.
+   */
+  notifySettlement(runId: string, reason: SettlementReason): void {
+    for (const l of this.listeners) l(runId, reason);
+  }
+
   // Called by the gRPC handler when it receives RunComplete / RunFailed
   // from the worker, OR by the lease arming code on lease expiry.
   // Idempotent — repeated calls for the same runId after the first are

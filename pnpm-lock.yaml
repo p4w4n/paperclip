@@ -628,6 +628,9 @@ importers:
       '@paperclipai/shared':
         specifier: workspace:*
         version: link:../packages/shared
+      '@paperclipai/worker':
+        specifier: workspace:^
+        version: link:../packages/worker
       '@paperclipai/worker-rpc':
         specifier: workspace:^
         version: link:../packages/worker-rpc

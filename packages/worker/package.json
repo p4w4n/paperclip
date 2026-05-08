@@ -4,6 +4,12 @@
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./client": "./dist/client.js",
+    "./auth-client": "./dist/auth-client.js",
+    "./run-handler": "./dist/run-handler.js"
+  },
   "bin": {
     "paperclip-worker": "./dist/index.js"
   },

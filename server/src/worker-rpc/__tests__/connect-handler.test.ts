@@ -7,6 +7,7 @@ import {
 import { startWorkerGrpcServer, stopWorkerGrpcServer } from "../server.js";
 import { sharedSecretAuthStrategy } from "../auth.js";
 import { WorkerRegistry } from "../../services/worker-registry.js";
+import { RunDispatcher } from "../../services/run-dispatcher.js";
 import { openClient } from "./test-client.js";
 
 describe("Worker.Connect handshake", () => {
@@ -17,6 +18,7 @@ describe("Worker.Connect handshake", () => {
     port = await startWorkerGrpcServer({
       auth: sharedSecretAuthStrategy({ secret: "s3cret" }),
       registry,
+      dispatcher: new RunDispatcher(registry),
       bindAddress: "127.0.0.1:0",
     });
   });

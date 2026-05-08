@@ -26,6 +26,7 @@ import {
 } from "@paperclipai/worker-rpc";
 import type { WorkerAuthStrategy } from "./auth.js";
 import type { WorkerRegistry } from "../services/worker-registry.js";
+import type { RunDispatcher } from "../services/run-dispatcher.js";
 import { handleConnect } from "./connect-handler.js";
 import { handleFetchSecrets } from "./secrets-handler.js";
 import { scopeTokenStore } from "./scope-token-store.js";
@@ -35,6 +36,11 @@ const SERVICE = "paperclip.v1.Worker";
 export interface StartGrpcServerOpts {
   auth: WorkerAuthStrategy;
   registry: WorkerRegistry;
+  // Dispatcher used by handleConnect to touchLease on inbound run frames
+  // and notify settlement on RunComplete/RunFailed. Threaded through
+  // explicitly (rather than imported as the singleton) so tests can
+  // pass their own dispatcher backed by the same registry.
+  dispatcher: RunDispatcher;
   bindAddress: string; // e.g. "0.0.0.0:50051" or "127.0.0.1:0" (test)
 }
 

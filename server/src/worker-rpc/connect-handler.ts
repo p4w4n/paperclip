@@ -16,7 +16,7 @@ import {
 import type { WorkerAuthStrategy } from "./auth.js";
 import type { WorkerRegistry, RegisteredWorker } from "../services/worker-registry.js";
 import { settleRunCompletion } from "../adapters/run-completion-registry.js";
-import { runDispatcher } from "../services/run-dispatcher.js";
+import type { RunDispatcher } from "../services/run-dispatcher.js";
 
 // gRPC keepalive guarantees the *transport* is alive; the application Ping
 // is a separate channel that proves the *application* is responsive (proto
@@ -26,7 +26,7 @@ const PONG_DEADLINE_MS = 60_000;
 
 export async function handleConnect(
   call: grpc.ServerDuplexStream<WorkerToServer, ServerToWorker>,
-  opts: { auth: WorkerAuthStrategy; registry: WorkerRegistry },
+  opts: { auth: WorkerAuthStrategy; registry: WorkerRegistry; dispatcher: RunDispatcher },
 ): Promise<void> {
   const headerValue = call.metadata.get("authorization")[0];
   const auth = await opts.auth.verify(typeof headerValue === "string" ? headerValue : undefined);
@@ -79,7 +79,7 @@ export async function handleConnect(
       p.case === "runLeaseRenew"
     ) {
       const runId = (p.value as { runId?: string }).runId;
-      if (runId) runDispatcher.touchLease(runId);
+      if (runId) opts.dispatcher.touchLease(runId);
     }
   };
 
@@ -138,20 +138,23 @@ export async function handleConnect(
     if (p.case === "runComplete") {
       // Settle the in-process promise the dispatch-or-local wrapper is
       // awaiting. The wrapper's `finally` then releases the worker's
-      // slot via dispatcher.markCompleted.
-      settleRunCompletion(p.value.runId, {
+      // slot via dispatcher.markCompleted. Also fire the dispatcher's
+      // settlement listeners so direct-dispatch callers (the e2e test
+      // path) observe completion without going through dispatch-or-local.
+      const result = {
         exitCode: p.value.exitCode,
         signal: p.value.signal || null,
         timedOut: false,
         summary: p.value.summary,
-      });
+      };
+      settleRunCompletion(p.value.runId, result);
+      opts.dispatcher.notifySettlement(p.value.runId, { kind: "complete", payload: result });
       return;
     }
     if (p.case === "runFailed") {
-      settleRunCompletion(
-        p.value.runId,
-        new Error(p.value.error || `run failed (${p.value.errorCode || "unknown"})`),
-      );
+      const err = new Error(p.value.error || `run failed (${p.value.errorCode || "unknown"})`);
+      settleRunCompletion(p.value.runId, err);
+      opts.dispatcher.notifySettlement(p.value.runId, { kind: "failed", payload: err });
       return;
     }
     if (p.case === "runLeaseRenew") {
