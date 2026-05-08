@@ -87,6 +87,15 @@ export interface Config {
   heartbeatSchedulerIntervalMs: number;
   companyDeletionEnabled: boolean;
   telemetryEnabled: boolean;
+  // Distributed-workers gRPC server configuration. Disabled by default;
+  // when on, requires an auth strategy and a bind address. Local-trusted
+  // dev should use shared_secret; gcp_id_token mode (Task 14) lights up
+  // for VPC deployments where workers carry GCE id-tokens.
+  workerGrpcEnabled: boolean;
+  workerGrpcBindAddress: string;
+  workerAuthMode: "shared_secret" | "gcp_id_token";
+  workerSharedSecret: string | undefined;
+  workerGcpSaAllowlist: string[];
 }
 
 function detectTailnetBindHost(): string | undefined {
@@ -333,5 +342,14 @@ export function loadConfig(): Config {
     heartbeatSchedulerIntervalMs: Math.max(10000, Number(process.env.HEARTBEAT_SCHEDULER_INTERVAL_MS) || 30000),
     companyDeletionEnabled,
     telemetryEnabled: fileConfig?.telemetry?.enabled ?? true,
+    workerGrpcEnabled: process.env.WORKER_GRPC_ENABLED === "true",
+    workerGrpcBindAddress: process.env.WORKER_GRPC_BIND_ADDRESS?.trim() || "0.0.0.0:50051",
+    workerAuthMode: process.env.WORKER_AUTH_MODE === "gcp_id_token" ? "gcp_id_token" : "shared_secret",
+    workerSharedSecret: process.env.WORKER_SHARED_SECRET?.trim() || undefined,
+    workerGcpSaAllowlist:
+      (process.env.WORKER_GCP_SA_ALLOWLIST ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
   };
 }

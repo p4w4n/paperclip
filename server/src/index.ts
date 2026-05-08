@@ -51,6 +51,9 @@ import { printStartupBanner } from "./startup-banner.js";
 import { getBoardClaimWarningUrl, initializeBoardClaimChallenge } from "./board-claim.js";
 import { maybePersistWorktreeRuntimePorts } from "./worktree-config.js";
 import { initTelemetry, getTelemetryClient } from "./telemetry.js";
+import { startWorkerGrpcServer, stopWorkerGrpcServer } from "./worker-rpc/server.js";
+import { sharedSecretAuthStrategy } from "./worker-rpc/auth.js";
+import { workerRegistry } from "./services/worker-registry.js";
 import { conflict } from "./errors.js";
 import type {
   InstanceDatabaseBackupRunResult,
@@ -817,6 +820,25 @@ export async function startServer(): Promise<StartedServer> {
   const { waitForExternalAdapters } = await import("./adapters/registry.js");
   await waitForExternalAdapters();
 
+  // Start the worker gRPC server before HTTP listen so workers connecting
+  // at boot time aren't racing the HTTP routes' availability. Disabled by
+  // default — only on when WORKER_GRPC_ENABLED=true plus a valid auth
+  // configuration. The Task 14 GCP id-token strategy lights up the
+  // gcp_id_token branch; for now shared_secret is the only path.
+  if (config.workerGrpcEnabled) {
+    if (config.workerAuthMode !== "shared_secret" || !config.workerSharedSecret) {
+      throw new Error(
+        "WORKER_GRPC_ENABLED requires WORKER_AUTH_MODE=shared_secret and WORKER_SHARED_SECRET (gcp_id_token mode arrives in a later task)",
+      );
+    }
+    const workerPort = await startWorkerGrpcServer({
+      auth: sharedSecretAuthStrategy({ secret: config.workerSharedSecret }),
+      registry: workerRegistry,
+      bindAddress: config.workerGrpcBindAddress,
+    });
+    logger.info({ port: workerPort, bindAddress: config.workerGrpcBindAddress }, "worker gRPC server listening");
+  }
+
   await new Promise<void>((resolveListen, rejectListen) => {
     const onError = (err: Error) => {
       server.off("error", onError);
@@ -889,6 +911,11 @@ export async function startServer(): Promise<StartedServer> {
       // Flush in-flight OTel spans so we don't drop traces on shutdown.
       // No-op when the SDK is disabled.
       await shutdownOpenTelemetry();
+
+      // Stop the worker gRPC server. tryShutdown drains in-flight RPCs
+      // gracefully; the 3s force fallback in stopWorkerGrpcServer keeps
+      // shutdown bounded so a wedged bidi stream can't block exit.
+      await stopWorkerGrpcServer();
 
       if (embeddedPostgres && embeddedPostgresStartedByThisProcess) {
         logger.info({ signal }, "Stopping embedded PostgreSQL");
