@@ -129,6 +129,7 @@ import {
   summarizeToolResult,
 } from "../lib/transcriptPresentation";
 import { cn, formatDateTime, formatShortDate } from "../lib/utils";
+import { CopyablePreBlock } from "./issue-chat/CopyablePreBlock";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
@@ -1063,31 +1064,9 @@ function IssueChatRollingToolPart({ toolParts }: { toolParts: ToolCallMessagePar
   );
 }
 
-function CopyablePreBlock({ children, className }: { children: string; className?: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="group/pre relative">
-      <pre className={className}>{children}</pre>
-      <button
-        type="button"
-        className={cn(
-          "absolute right-1.5 top-1.5 inline-flex h-6 w-6 items-center justify-center rounded-md bg-background/80 text-muted-foreground opacity-0 backdrop-blur-sm transition-opacity hover:text-foreground group-hover/pre:opacity-100",
-          copied && "opacity-100",
-        )}
-        title="Copy"
-        aria-label="Copy"
-        onClick={() => {
-          void navigator.clipboard.writeText(children).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-          });
-        }}
-      >
-        {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-      </button>
-    </div>
-  );
-}
+// CopyablePreBlock has been extracted to ./issue-chat/CopyablePreBlock.tsx
+// as the starter piece for the IssueChatThread split. See the file
+// header there for the planned follow-up extractions.
 
 const TOOL_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   // Extend with specific tool icons as they become known
