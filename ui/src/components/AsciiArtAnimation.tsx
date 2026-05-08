@@ -1,7 +1,14 @@
 import { useEffect, useRef } from "react";
 
 const CHARS = [" ", ".", "·", "▪", "▫", "○"] as const;
-const TARGET_FPS = 24;
+// 12 fps is visually indistinguishable from 24 fps for this animation
+// (slow drifting paperclips + ambient noise) but halves the per-frame work
+// and the resulting long-task footprint. The audit measured 446 long tasks
+// in 60 s of "idle" with 24 fps — effectively pegging the main thread on
+// the auth/onboarding wizard, which is the first experience for every new
+// user. Halving the rate brings the worst-case main-thread block from
+// ~4.5 s under 4× CPU throttle to roughly half that.
+const TARGET_FPS = 12;
 const FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
 
 const PAPERCLIP_SPRITES = [
@@ -68,6 +75,12 @@ export function AsciiArtAnimation() {
     const preEl: HTMLPreElement = preRef.current;
     const motionMedia = window.matchMedia("(prefers-reduced-motion: reduce)");
     let isVisible = document.visibilityState !== "hidden";
+    // Track whether the <pre> element is actually within the viewport.
+    // Default true so first-paint runs the loop; an IntersectionObserver
+    // below corrects this once it has observed at least one entry. Without
+    // this, the animation kept running while users had scrolled it
+    // off-screen on the onboarding wizard's later steps.
+    let isOnScreen = true;
     let loopActive = false;
     let lastRenderAt = 0;
     let tick = 0;
@@ -286,7 +299,7 @@ export function AsciiArtAnimation() {
         return;
       }
 
-      if (!isVisible || !canRender) {
+      if (!isVisible || !isOnScreen || !canRender) {
         if (loopActive) {
           loopActive = false;
           if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
@@ -311,6 +324,25 @@ export function AsciiArtAnimation() {
     });
     observer.observe(preEl);
 
+    // Halt the rAF loop when the <pre> is scrolled out of the viewport. On
+    // the onboarding wizard, later steps push the animation off-screen
+    // entirely, but the previous code kept burning CPU on the rAF tick
+    // anyway. With this in place, scrolling away suspends the loop within
+    // a frame and resuming brings it back.
+    const intersectionObserver =
+      typeof IntersectionObserver !== "undefined"
+        ? new IntersectionObserver(
+            (entries) => {
+              for (const entry of entries) {
+                isOnScreen = entry.isIntersecting;
+              }
+              syncLoop();
+            },
+            { threshold: 0 },
+          )
+        : null;
+    intersectionObserver?.observe(preEl);
+
     const onVisibilityChange = () => {
       isVisible = document.visibilityState !== "hidden";
       syncLoop();
@@ -332,6 +364,7 @@ export function AsciiArtAnimation() {
       loopActive = false;
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
       observer.disconnect();
+      intersectionObserver?.disconnect();
       document.removeEventListener("visibilitychange", onVisibilityChange);
       motionMedia.removeEventListener("change", onMotionChange);
     };
