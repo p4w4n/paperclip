@@ -29,6 +29,10 @@ message WorkerToServer {
     RunLeaseRenew run_lease_renew = 11;
     // Worker self-detected shutdown / preemption notice. See spec D3.
     DrainRequested drain_requested = 12;
+    // Plan 3: status updates for runtime services started on the worker
+    // (dev servers, embedded postgres, etc.). Server maps these to row
+    // updates on workspace_runtime_services so the UI sees live state.
+    ServiceStatus service_status = 13;
   }
 }
 
@@ -69,6 +73,46 @@ message RunDispatch {
   string secrets_scope_token = 6;         // exchange via FetchSecrets
   bytes session_restore = 7;              // optional adapter session blob
   uint32 lease_seconds = 8;
+  // Plan 3: runtime services to start before the adapter runs (dev
+  // servers, embedded postgres, etc.). Worker spawns each on the
+  // realized workspace, awaits readiness, then invokes the adapter.
+  // Empty list = no services for this run.
+  repeated RuntimeServiceSpec runtime_services = 9;
+}
+
+message RuntimeServiceSpec {
+  // Stable id from the workspace_runtime_services row; the worker
+  // echoes it back in every ServiceStatus so the server can match
+  // updates to the right row without re-resolving by name.
+  string runtime_service_id = 1;
+  string service_name = 2;
+  // Shell command line. Worker runs it via `/bin/sh -c <command>` in
+  // the realized workspace cwd.
+  string command = 3;
+  string cwd = 4;
+  map<string, string> env = 5;
+  // Readiness signal — at most one of ready_port / ready_healthcheck_url.
+  // Both empty → mark ready as soon as the process has a PID.
+  uint32 ready_port = 6;
+  string ready_healthcheck_url = 7;
+  // Default 60s in the worker if 0.
+  uint32 readiness_timeout_sec = 8;
+}
+
+message ServiceStatus {
+  string run_id = 1;
+  string runtime_service_id = 2;
+  // starting | running | failed | stopped
+  string state = 3;
+  // Populated once the worker confirms a port is bound (port_owner
+  // detection). Server uses this to build the URL the UI shows.
+  uint32 bound_port = 4;
+  string url = 5;
+  string error = 6;
+  string error_code = 7;
+  // Worker-local PID, useful for debugging in worker logs only — the
+  // server stores it but doesn't act on it.
+  uint32 pid = 8;
 }
 
 message RunCancel { string run_id = 1; string reason = 2; }
