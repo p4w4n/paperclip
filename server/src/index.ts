@@ -1156,6 +1156,31 @@ export async function startServer(): Promise<StartedServer> {
       // No-op when the SDK is disabled.
       await shutdownOpenTelemetry();
 
+      // Plan 5: drain every connected worker before stopping the
+      // gRPC server. workers finish their in-flight runs and end the
+      // stream; the lease reaper from Plan 2 catches anything that
+      // doesn't drain in time. Capped at 30s so a stuck worker
+      // doesn't block control-plane exit.
+      try {
+        const { drainAllWorkers } = await import("./services/server-drain.js");
+        await drainAllWorkers({
+          list: () => workerRegistry.list().map((w) => ({ workerId: w.workerId })),
+          requestDrain: (workerId) => workerRegistry.requestDrain(workerId),
+          // We don't have a per-worker stream-end promise on the
+          // registry yet. Approximate by polling .get(workerId) until
+          // it's null, capped by gracePeriodMs (above) — Promise.race
+          // in drainAllWorkers cuts the wait.
+          waitForUnregister: async (workerId) => {
+            while (workerRegistry.get(workerId)) {
+              await new Promise((r) => setTimeout(r, 250));
+            }
+          },
+          gracePeriodMs: 30_000,
+        });
+      } catch (err) {
+        logger.warn({ err }, "drainAllWorkers failed");
+      }
+
       // Stop the worker gRPC server. tryShutdown drains in-flight RPCs
       // gracefully; the 3s force fallback in stopWorkerGrpcServer keeps
       // shutdown bounded so a wedged bidi stream can't block exit.
