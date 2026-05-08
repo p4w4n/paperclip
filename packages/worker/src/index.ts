@@ -15,6 +15,8 @@ import { runAdapterOnWorker } from "./heartbeat-runner-shim.js";
 import { fetchSecretsFromControlPlane } from "./secret-fetcher.js";
 import { connectWithBackoff } from "./reconnect.js";
 import { createDrainGate } from "./drain.js";
+import { createServicesSupervisor } from "./services-supervisor.js";
+import { createServicesRunner, defaultProbe } from "./services-runner.js";
 import { randomUUID } from "node:crypto";
 
 function required(name: string): string {
@@ -65,6 +67,26 @@ async function main() {
   // callback always sends on the *current* stream; reconnects swap it
   // out on the way through.
   let client: WorkerClientHandle | null = null;
+
+  // Plan 3: services supervisor + runner are process-wide; runs come
+  // and go but the supervisor's child-process registry persists
+  // across reconnects (the gRPC stream drop doesn't kill running
+  // services). The runner's `send` reads `client` from the same
+  // outer closure as the dispatch callback so status frames flow on
+  // the current stream.
+  const servicesSupervisor = createServicesSupervisor();
+  const servicesRunner = createServicesRunner({
+    supervisor: servicesSupervisor,
+    probe: defaultProbe(),
+    send: async (m) => {
+      if (!client) return; // status drop is acceptable; the row update is best-effort
+      try {
+        await client.send(m);
+      } catch {
+        /* same — stream churn during reconnect; row update will be late but the reaper covers correctness */
+      }
+    },
+  });
 
   // Drain gate (Plan 2 Task 6). Server-pushed DrainRequested → finish
   // in-flight runs → end stream → abort the reconnect supervisor so
@@ -148,6 +170,7 @@ async function main() {
               if (!client) throw new Error("worker client not connected");
               return client.send(m);
             },
+            servicesRunner,
           })
             .catch((err) => {
               // eslint-disable-next-line no-console

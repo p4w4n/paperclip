@@ -51,6 +51,14 @@ export interface RunHandlerDeps {
   runAdapter: (ctx: AdapterInvocationContext) => Promise<AdapterOutcome>;
   fetchSecrets: (token: string) => Promise<Record<string, string>>;
   send: (msg: WorkerToServer) => Promise<void>;
+  // Plan 3: services-runner injected at the deps boundary so the
+  // tests can stub it. Production wiring in packages/worker/src/index.ts
+  // creates one services-runner per worker process and passes the same
+  // instance through to every handleRunDispatch call.
+  servicesRunner?: {
+    startAll: (runId: string, specs: RunDispatch["runtimeServices"]) => Promise<void>;
+    stopAllFor: (runId: string) => Promise<void>;
+  };
 }
 
 function decodeJson(bytes: Uint8Array | undefined): Record<string, unknown> {
@@ -95,9 +103,37 @@ export async function handleRunDispatch(
       }),
     );
   }, renewIntervalMs);
+  let servicesStarted = false;
   try {
     const secrets = await deps.fetchSecrets(d.secretsScopeToken);
     realized = await deps.realizeWorkspace(workspaceDesc);
+
+    // Plan 3: start any runtime services declared on the dispatch
+    // (dev servers, embedded postgres, etc.) before invoking the
+    // adapter. A failure to start signals the dispatch-or-local seam
+    // to fall back to local execution by emitting RunFailed with
+    // errorCode = "service_start_failed" — caller policy decides
+    // whether to retry on a different worker.
+    if (deps.servicesRunner && d.runtimeServices.length > 0) {
+      try {
+        await deps.servicesRunner.startAll(d.runId, d.runtimeServices);
+        servicesStarted = true;
+      } catch (err) {
+        await deps.send(
+          create(WorkerToServerSchema, {
+            payload: {
+              case: "runFailed",
+              value: create(RunFailedSchema, {
+                runId: d.runId,
+                error: err instanceof Error ? err.message : String(err),
+                errorCode: "service_start_failed",
+              }),
+            },
+          }),
+        );
+        return;
+      }
+    }
 
     const result = await deps.runAdapter({
       runId: d.runId,
@@ -160,6 +196,17 @@ export async function handleRunDispatch(
     // markCompleted (the server-side handler is idempotent, but this
     // keeps the wire clean).
     clearInterval(keepalive);
+    // Plan 3: stop runtime services for this run. Best-effort — a
+    // service that resists SIGTERM gets SIGKILL via the supervisor's
+    // grace timer; we don't block the cleanup pipeline on it.
+    if (servicesStarted && deps.servicesRunner) {
+      try {
+        await deps.servicesRunner.stopAllFor(d.runId);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("[worker] service stop failed for run", d.runId, err);
+      }
+    }
     // Cleanup runs even on failure — leaving an ephemeral workspace
     // around after a thrown adapter would leak disk on the worker over
     // time. Best-effort: a cleanup throw is logged but not propagated.

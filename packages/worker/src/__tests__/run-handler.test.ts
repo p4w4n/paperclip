@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
-import { RunDispatchSchema, type WorkerToServer } from "@paperclipai/worker-rpc";
+import {
+  RunDispatchSchema,
+  RuntimeServiceSpecSchema,
+  type WorkerToServer,
+} from "@paperclipai/worker-rpc";
 import { handleRunDispatch } from "../run-handler.js";
 
 describe("handleRunDispatch", () => {
@@ -141,6 +145,114 @@ describe("handleRunDispatch", () => {
     if (failed[0].payload.case === "runFailed") {
       expect(failed[0].payload.value.error).toContain("boom");
     }
+    expect(cleanup).toHaveBeenCalledOnce();
+  });
+
+  it("starts runtime services before adapter, stops them after, on success", async () => {
+    const sent: WorkerToServer[] = [];
+    const cleanup = vi.fn(async () => {});
+    const realize = vi.fn(async () => ({ cwd: "/tmp/fake", cleanup }));
+    const order: string[] = [];
+    const startAll = vi.fn(async () => {
+      order.push("startAll");
+    });
+    const stopAllFor = vi.fn(async () => {
+      order.push("stopAllFor");
+    });
+    const shim = vi.fn(async () => {
+      order.push("runAdapter");
+      return { exitCode: 0, signal: null, summary: "ok" };
+    });
+    const fetchSecrets = vi.fn(async () => ({}));
+
+    await handleRunDispatch(
+      create(RunDispatchSchema, {
+        runId: "r-srv-1",
+        agentId: "a-1",
+        adapterType: "claude_local",
+        adapterConfigJson: new TextEncoder().encode("{}"),
+        executionWorkspaceJson: new TextEncoder().encode("{}"),
+        secretsScopeToken: "tok",
+        sessionRestore: new Uint8Array(),
+        leaseSeconds: 300,
+        runtimeServices: [
+          create(RuntimeServiceSpecSchema, {
+            runtimeServiceId: "s1",
+            serviceName: "dev",
+            command: "noop",
+            cwd: "/tmp/fake",
+            env: {},
+            readyPort: 0,
+          }),
+        ],
+      }),
+      {
+        realizeWorkspace: realize,
+        runAdapter: shim,
+        fetchSecrets,
+        send: async (m) => {
+          sent.push(m);
+        },
+        servicesRunner: { startAll, stopAllFor },
+      },
+    );
+
+    expect(order).toEqual(["startAll", "runAdapter", "stopAllFor"]);
+    expect(stopAllFor).toHaveBeenCalledWith("r-srv-1");
+  });
+
+  it("emits RunFailed { service_start_failed } when services fail to start; adapter is not invoked", async () => {
+    const sent: WorkerToServer[] = [];
+    const cleanup = vi.fn(async () => {});
+    const realize = vi.fn(async () => ({ cwd: "/tmp/fake", cleanup }));
+    const shim = vi.fn();
+    const fetchSecrets = vi.fn(async () => ({}));
+    const startAll = vi.fn(async () => {
+      throw new Error("readiness timeout for service dev");
+    });
+    const stopAllFor = vi.fn(async () => {});
+
+    await handleRunDispatch(
+      create(RunDispatchSchema, {
+        runId: "r-srv-fail",
+        agentId: "a-1",
+        adapterType: "claude_local",
+        adapterConfigJson: new TextEncoder().encode("{}"),
+        executionWorkspaceJson: new TextEncoder().encode("{}"),
+        secretsScopeToken: "tok",
+        sessionRestore: new Uint8Array(),
+        leaseSeconds: 300,
+        runtimeServices: [
+          create(RuntimeServiceSpecSchema, {
+            runtimeServiceId: "s1",
+            serviceName: "dev",
+            command: "noop",
+            cwd: "/tmp/fake",
+            env: {},
+            readyPort: 3000,
+            readinessTimeoutSec: 1,
+          }),
+        ],
+      }),
+      {
+        realizeWorkspace: realize,
+        runAdapter: shim,
+        fetchSecrets,
+        send: async (m) => {
+          sent.push(m);
+        },
+        servicesRunner: { startAll, stopAllFor },
+      },
+    );
+
+    const failed = sent.filter((m) => m.payload.case === "runFailed");
+    expect(failed.length).toBe(1);
+    if (failed[0].payload.case === "runFailed") {
+      expect(failed[0].payload.value.errorCode).toBe("service_start_failed");
+    }
+    expect(shim).not.toHaveBeenCalled();
+    // Cleanup of services not necessary on start failure (rollback ran
+    // inside the runner's startAll); workspace cleanup still runs.
     expect(cleanup).toHaveBeenCalledOnce();
   });
 });
