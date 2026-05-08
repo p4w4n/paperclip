@@ -77,3 +77,41 @@ describe("workersRoutes — GET /_workers", () => {
     expect(w.disconnect).toBeUndefined();
   });
 });
+
+describe("workersRoutes — POST /_workers/:id/drain", () => {
+  let app: express.Express;
+  let registry: WorkerRegistry;
+
+  beforeEach(() => {
+    registry = new WorkerRegistry();
+    app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (req as any).actor = { type: "board", isInstanceAdmin: true };
+      next();
+    });
+    app.use(workersRoutes({ registry }));
+  });
+
+  it("404 when worker doesn't exist", async () => {
+    await request(app).post("/_workers/unknown/drain").expect(404);
+  });
+
+  it("202 + flips draining flag + sends Drain frame", async () => {
+    let drainSent = false;
+    registry.register(
+      fakeRegisteredWorker({
+        workerId: "w-target",
+        send: async (msg) => {
+          if (msg.payload.case === "drain") drainSent = true;
+        },
+      }),
+    );
+
+    const res = await request(app).post("/_workers/w-target/drain").expect(202);
+    expect(res.body.status).toBe("drain_requested");
+    expect(drainSent).toBe(true);
+    expect(registry.get("w-target")?.draining).toBe(true);
+  });
+});

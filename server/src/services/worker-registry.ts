@@ -67,6 +67,32 @@ export class WorkerRegistry {
     if (w) w.draining = true;
   }
 
+  /**
+   * Plan 5: manual drain trigger. Sends a Drain frame on the worker's
+   * bidi stream and flips the registry's draining flag so pickFor()
+   * stops considering it. Returns true if the worker was found.
+   * Stream-end happens later, when the worker side (Plan 2 Task 6
+   * drain gate) finishes its in-flight runs and calls stop().
+   */
+  async requestDrain(workerId: string): Promise<boolean> {
+    const w = this.workers.get(workerId);
+    if (!w) return false;
+    w.draining = true;
+    const { create } = await import("@bufbuild/protobuf");
+    const { ServerToWorkerSchema, DrainSchema } = await import("@paperclipai/worker-rpc");
+    try {
+      await w.send(
+        create(ServerToWorkerSchema, {
+          payload: { case: "drain", value: create(DrainSchema, {}) },
+        }),
+      );
+    } catch {
+      // Stream is already broken; the registry will unregister
+      // through normal stream-close cleanup.
+    }
+    return true;
+  }
+
   reserveSlot(workerId: string): void {
     const w = this.workers.get(workerId);
     if (!w) throw new Error(`unknown worker ${workerId}`);
