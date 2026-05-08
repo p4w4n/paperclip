@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import type { LiveEvent, LiveEventType } from "@paperclipai/shared";
+import { withSyncSpan, PaperclipAttr } from "../observability/spans.js";
 
 type LiveEventPayload = Record<string, unknown>;
 type LiveEventListener = (event: LiveEvent) => void;
@@ -29,18 +30,37 @@ export function publishLiveEvent(input: {
   type: LiveEventType;
   payload?: LiveEventPayload;
 }) {
-  const event = toLiveEvent(input);
-  emitter.emit(input.companyId, event);
-  return event;
+  return withSyncSpan(
+    "paperclip.live_events.publish",
+    () => {
+      const event = toLiveEvent(input);
+      emitter.emit(input.companyId, event);
+      return event;
+    },
+    {
+      [PaperclipAttr.CompanyId]: input.companyId,
+      [PaperclipAttr.EventType]: input.type,
+      "paperclip.live_events.subscriber_count": emitter.listenerCount(input.companyId),
+    },
+  );
 }
 
 export function publishGlobalLiveEvent(input: {
   type: LiveEventType;
   payload?: LiveEventPayload;
 }) {
-  const event = toLiveEvent({ companyId: "*", type: input.type, payload: input.payload });
-  emitter.emit("*", event);
-  return event;
+  return withSyncSpan(
+    "paperclip.live_events.publish_global",
+    () => {
+      const event = toLiveEvent({ companyId: "*", type: input.type, payload: input.payload });
+      emitter.emit("*", event);
+      return event;
+    },
+    {
+      [PaperclipAttr.EventType]: input.type,
+      "paperclip.live_events.subscriber_count": emitter.listenerCount("*"),
+    },
+  );
 }
 
 export function subscribeCompanyLiveEvents(companyId: string, listener: LiveEventListener) {

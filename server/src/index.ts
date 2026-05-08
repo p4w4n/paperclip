@@ -1,4 +1,12 @@
 /// <reference path="./types/express.d.ts" />
+// OpenTelemetry SDK init MUST happen before any auto-instrumented module
+// is imported. Keep this import at the very top of the file. The SDK is a
+// no-op unless PAPERCLIP_OTEL_ENABLED=true, so the runtime cost of leaving
+// it on is one boolean check.
+import { initOpenTelemetry, shutdownOpenTelemetry } from "./observability/otel.js";
+import { serverVersion as _serverVersion } from "./version.js";
+initOpenTelemetry(_serverVersion);
+
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import { resolve } from "node:path";
@@ -877,6 +885,10 @@ export async function startServer(): Promise<StartedServer> {
         telemetryClient.stop();
         await telemetryClient.flush();
       }
+
+      // Flush in-flight OTel spans so we don't drop traces on shutdown.
+      // No-op when the SDK is disabled.
+      await shutdownOpenTelemetry();
 
       if (embeddedPostgres && embeddedPostgresStartedByThisProcess) {
         logger.info({ signal }, "Stopping embedded PostgreSQL");
