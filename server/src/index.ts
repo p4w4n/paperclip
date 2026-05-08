@@ -849,6 +849,25 @@ export async function startServer(): Promise<StartedServer> {
       throw new Error(`unknown WORKER_AUTH_MODE: ${config.workerAuthMode}`);
     }
     const { runDispatcher } = await import("./services/run-dispatcher.js");
+    // Wire the singleton's persist callback so the lease reaper has a
+    // DB row to recover from after a control-plane restart. Errors get
+    // logged but never thrown — a single failed write is absorbed by
+    // the reaper's next scan.
+    const { heartbeatRuns } = await import("@paperclipai/db");
+    const { eq } = await import("drizzle-orm");
+    runDispatcher.setPersistLease(async (input) => {
+      try {
+        await db
+          .update(heartbeatRuns)
+          .set({
+            leaseExpiresAt: input.leaseExpiresAt,
+            dispatchedToWorkerId: input.workerId,
+          })
+          .where(eq(heartbeatRuns.id, input.runId));
+      } catch (err) {
+        logger.warn({ err, runId: input.runId }, "persistLease write failed");
+      }
+    });
     const workerPort = await startWorkerGrpcServer({
       auth,
       registry: workerRegistry,

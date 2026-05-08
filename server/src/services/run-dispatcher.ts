@@ -49,6 +49,31 @@ export type SettlementReason =
 
 export type SettlementListener = (runId: string, reason: SettlementReason) => void;
 
+// Hook the production wiring uses to write `lease_expires_at` and
+// `dispatched_to_worker_id` onto the heartbeat_runs row. Plan 2 Task 2's
+// lease reaper scans those columns after a control-plane restart, so
+// every dispatch + completion needs to be reflected on the row.
+//
+// Optional and called fire-and-forget on purpose: a failing DB write
+// must not stall the dispatch path. Errors get surfaced via the
+// callback's own error-handling (production wires a logger.warn); the
+// reaper tolerates a one-cycle drift if a write was lost because it
+// re-scans every 30s and lease windows default to 300s.
+//
+// We deliberately do NOT call this from touchLease/armLease keepalive
+// resets — that would be a row update per worker frame (every
+// leaseSeconds/3). The reaper's tolerance window absorbs the difference
+// between in-memory deadline and persisted deadline.
+export interface PersistLeaseInput {
+  runId: string;
+  workerId: string | null;
+  leaseExpiresAt: Date | null;
+}
+
+export interface RunDispatcherOpts {
+  persistLease?: (input: PersistLeaseInput) => Promise<void>;
+}
+
 export class RunDispatcher {
   // runId → workerId. Source of truth for "which worker did I send this
   // run to?" so markCompleted / markFailed know which slot to release.
@@ -65,7 +90,34 @@ export class RunDispatcher {
   private leaseWindowSec = new Map<string, number>();
   private listeners = new Set<SettlementListener>();
 
-  constructor(private readonly registry: WorkerRegistry) {}
+  constructor(
+    private readonly registry: WorkerRegistry,
+    private readonly opts: RunDispatcherOpts = {},
+  ) {}
+
+  private persistLeaseFn?: (input: PersistLeaseInput) => Promise<void>;
+
+  /**
+   * Boot-time hook so the singleton instance (constructed at module load
+   * before the DB handle exists) can be wired with the production
+   * persist callback once the server has its Drizzle handle. Tests that
+   * construct their own RunDispatcher pass `persistLease` via opts and
+   * never call this.
+   */
+  setPersistLease(persist: (input: PersistLeaseInput) => Promise<void>): void {
+    this.persistLeaseFn = persist;
+  }
+
+  private firePersist(input: PersistLeaseInput): void {
+    const p = this.opts.persistLease ?? this.persistLeaseFn;
+    if (!p) return;
+    // Fire-and-forget: errors must not stall the dispatch / completion
+    // path. The production wire passes a logger.warn-on-throw closure so
+    // failures are visible without crashing the request.
+    void p(input).catch(() => {
+      /* logged inside the closure */
+    });
+  }
 
   async tryDispatch(input: DispatchInput): Promise<DispatchReceipt> {
     const worker = this.registry.pickFor(input.adapterType);
@@ -112,6 +164,12 @@ export class RunDispatcher {
     // the connect handler. Missing the deadline triggers
     // lease_expired settlement and slot release.
     this.armLease(input.runId, input.leaseSeconds);
+
+    // Persist the deadline + assigned worker so the reaper can recover
+    // this run after a control-plane restart. Fire-and-forget — see
+    // RunDispatcherOpts for the rationale.
+    const leaseExpiresAt = new Date(Date.now() + input.leaseSeconds * 1000);
+    this.firePersist({ runId: input.runId, workerId: worker.workerId, leaseExpiresAt });
 
     return { dispatched: true, workerId: worker.workerId };
   }
@@ -189,6 +247,9 @@ export class RunDispatcher {
     if (!workerId) return;
     this.runToWorker.delete(runId);
     this.registry.releaseSlot(workerId);
+    // Clear the persisted lease so the reaper doesn't pick this row up.
+    // Same fire-and-forget contract as the dispatch-side write.
+    this.firePersist({ runId, workerId: null, leaseExpiresAt: null });
   }
 
   workerForRun(runId: string): string | undefined {
