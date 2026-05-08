@@ -17,7 +17,11 @@
 // is already reserved at that point.
 
 import { create } from "@bufbuild/protobuf";
-import { ServerToWorkerSchema, RunDispatchSchema } from "@paperclipai/worker-rpc";
+import {
+  ServerToWorkerSchema,
+  RunDispatchSchema,
+  type RuntimeServiceSpec,
+} from "@paperclipai/worker-rpc";
 import type { WorkerRegistry } from "./worker-registry.js";
 
 export interface DispatchInput {
@@ -29,6 +33,10 @@ export interface DispatchInput {
   secretsScopeToken: string;
   sessionRestore?: Uint8Array;
   leaseSeconds: number;
+  // Plan 3: runtime services to start on the worker before adapter
+  // execution. Already projected by buildRuntimeServiceSpecs (no DB
+  // resolution at dispatch time). Empty / omitted = no services.
+  runtimeServices?: RuntimeServiceSpec[];
 }
 
 export interface DispatchReceipt {
@@ -143,6 +151,7 @@ export class RunDispatcher {
           secretsScopeToken: input.secretsScopeToken,
           sessionRestore: input.sessionRestore ?? new Uint8Array(),
           leaseSeconds: input.leaseSeconds,
+          runtimeServices: input.runtimeServices ?? [],
         }),
       },
     });

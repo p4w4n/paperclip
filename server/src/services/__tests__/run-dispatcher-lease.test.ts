@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
+import { RuntimeServiceSpecSchema, type ServerToWorker } from "@paperclipai/worker-rpc";
 import { WorkerRegistry, type RegisteredWorker } from "../worker-registry.js";
 import { RunDispatcher, type PersistLeaseInput } from "../run-dispatcher.js";
 
@@ -189,5 +191,49 @@ describe("RunDispatcher lease persistence", () => {
       leaseSeconds: 60,
     });
     expect(r.dispatched).toBe(true);
+  });
+
+  it("includes runtimeServices on the RunDispatch frame when supplied (Plan 3)", async () => {
+    const sent: ServerToWorker[] = [];
+    const worker: RegisteredWorker = {
+      workerId: "w-rs",
+      instanceId: "i",
+      adapters: ["claude_local"],
+      maxConcurrent: 1,
+      inFlight: 0,
+      draining: false,
+      send: async (m) => {
+        sent.push(m);
+      },
+      disconnect: () => {},
+    };
+    registry.register(worker);
+    const dispatcher = new RunDispatcher(registry);
+    const spec = create(RuntimeServiceSpecSchema, {
+      runtimeServiceId: "s1",
+      serviceName: "dev",
+      command: "npm run dev",
+      cwd: "/tmp/wkspace",
+      env: { NODE_ENV: "development" },
+      readyPort: 3000,
+    });
+    const r = await dispatcher.tryDispatch({
+      runId: "r-with-services",
+      agentId: "a",
+      adapterType: "claude_local",
+      adapterConfig: {},
+      executionWorkspace: {},
+      secretsScopeToken: "tok",
+      leaseSeconds: 60,
+      runtimeServices: [spec],
+    });
+    expect(r.dispatched).toBe(true);
+    const dispatch = sent.find((m) => m.payload.case === "runDispatch");
+    expect(dispatch).toBeDefined();
+    if (dispatch?.payload.case === "runDispatch") {
+      expect(dispatch.payload.value.runtimeServices).toHaveLength(1);
+      expect(dispatch.payload.value.runtimeServices[0].serviceName).toBe("dev");
+      expect(dispatch.payload.value.runtimeServices[0].readyPort).toBe(3000);
+    }
   });
 });
