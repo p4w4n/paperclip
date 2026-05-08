@@ -1,0 +1,17 @@
+{
+  "name": "@paperclipai/perf",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Performance harness for measuring Paperclip UI before/after optimization changes. Not a workspace package — relies on @playwright/test from the repo root.",
+  "type": "module",
+  "scripts": {
+    "run-all": "node run-all.mjs",
+    "scenario:chat-scroll": "node scenarios/chat-scroll.mjs",
+    "scenario:cold-load": "node scenarios/cold-load.mjs",
+    "scenario:idle-polling": "node scenarios/idle-polling.mjs",
+    "scenario:tab-refocus": "node scenarios/tab-refocus.mjs",
+    "scenario:ws-burst": "node scenarios/ws-burst.mjs",
+    "bundle": "node bundle/analyze.mjs",
+    "compare": "node compare.mjs"
+  }
+}
