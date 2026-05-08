@@ -5,6 +5,10 @@ import type {
   ServerAdapterModule,
 } from "./types.js";
 import { getAdapterSessionManagement } from "@paperclipai/adapter-utils";
+import { createDispatchOrLocal } from "./dispatch-or-local.js";
+import { runDispatcher } from "../services/run-dispatcher.js";
+import { workerRegistry } from "../services/worker-registry.js";
+import { awaitRunCompletion } from "./run-completion-registry.js";
 import {
   execute as acpxExecute,
   testEnvironment as acpxTestEnvironment,
@@ -222,9 +226,22 @@ async function listAcpxModels(): Promise<AdapterModel[]> {
   ]);
 }
 
+// Wrap claudeExecute with the dispatch-or-local seam: when a worker is
+// registered for claude_local, the run is dispatched to the worker pool;
+// otherwise execution falls back to the in-process adapter exactly as
+// before. Spec rationale: "single key seam" — agent's adapterType stays
+// as written, no new adapter type exposed to user config.
+const claudeLocalDispatchWrapper = createDispatchOrLocal({
+  adapterType: "claude_local",
+  localExecute: claudeExecute,
+  dispatcher: runDispatcher,
+  registry: workerRegistry,
+  awaitCompletion: awaitRunCompletion,
+});
+
 const claudeLocalAdapter: ServerAdapterModule = {
   type: "claude_local",
-  execute: claudeExecute,
+  execute: claudeLocalDispatchWrapper.execute,
   testEnvironment: claudeTestEnvironment,
   listSkills: listClaudeSkills,
   syncSkills: syncClaudeSkills,
@@ -304,9 +321,17 @@ const cursorLocalAdapter: ServerAdapterModule = {
   agentConfigurationDoc: cursorAgentConfigurationDoc,
 };
 
+const geminiLocalDispatchWrapper = createDispatchOrLocal({
+  adapterType: "gemini_local",
+  localExecute: geminiExecute,
+  dispatcher: runDispatcher,
+  registry: workerRegistry,
+  awaitCompletion: awaitRunCompletion,
+});
+
 const geminiLocalAdapter: ServerAdapterModule = {
   type: "gemini_local",
-  execute: geminiExecute,
+  execute: geminiLocalDispatchWrapper.execute,
   testEnvironment: geminiTestEnvironment,
   listSkills: listGeminiSkills,
   syncSkills: syncGeminiSkills,

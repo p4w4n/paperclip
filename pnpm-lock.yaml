@@ -512,9 +512,12 @@ importers:
       '@grpc/grpc-js':
         specifier: ^1.12.0
         version: 1.14.3
-      '@paperclipai/adapter-pi-local':
+      '@paperclipai/adapter-claude-local':
         specifier: workspace:*
-        version: link:../adapters/pi-local
+        version: link:../adapters/claude-local
+      '@paperclipai/adapter-gemini-local':
+        specifier: workspace:*
+        version: link:../adapters/gemini-local
       '@paperclipai/adapter-utils':
         specifier: workspace:*
         version: link:../adapter-utils

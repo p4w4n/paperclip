@@ -16,7 +16,8 @@
   "dependencies": {
     "@bufbuild/protobuf": "^2.2.0",
     "@grpc/grpc-js": "^1.12.0",
-    "@paperclipai/adapter-pi-local": "workspace:*",
+    "@paperclipai/adapter-claude-local": "workspace:*",
+    "@paperclipai/adapter-gemini-local": "workspace:*",
     "@paperclipai/adapter-utils": "workspace:*",
     "@paperclipai/shared": "workspace:*",
     "@paperclipai/worker-rpc": "workspace:*"

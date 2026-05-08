@@ -27,7 +27,7 @@ function required(name: string): string {
 async function main() {
   const addr = required("PAPERCLIP_CONTROL_PLANE_ADDR");
   const secret = required("PAPERCLIP_WORKER_SHARED_SECRET");
-  const adapters = (process.env.PAPERCLIP_WORKER_ADAPTERS ?? "pi_local")
+  const adapters = (process.env.PAPERCLIP_WORKER_ADAPTERS ?? "claude_local,gemini_local")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);

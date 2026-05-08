@@ -15,6 +15,7 @@ import {
 } from "@paperclipai/worker-rpc";
 import type { WorkerAuthStrategy } from "./auth.js";
 import type { WorkerRegistry, RegisteredWorker } from "../services/worker-registry.js";
+import { settleRunCompletion } from "../adapters/run-completion-registry.js";
 
 // gRPC keepalive guarantees the *transport* is alive; the application Ping
 // is a separate channel that proves the *application* is responsive (proto
@@ -112,8 +113,27 @@ export async function handleConnect(
       // Liveness — lastSeen already updated above.
       return;
     }
+    if (p.case === "runComplete") {
+      // Settle the in-process promise the dispatch-or-local wrapper is
+      // awaiting. The wrapper's `finally` then releases the worker's
+      // slot via dispatcher.markCompleted.
+      settleRunCompletion(p.value.runId, {
+        exitCode: p.value.exitCode,
+        signal: p.value.signal || null,
+        timedOut: false,
+        summary: p.value.summary,
+      });
+      return;
+    }
+    if (p.case === "runFailed") {
+      settleRunCompletion(
+        p.value.runId,
+        new Error(p.value.error || `run failed (${p.value.errorCode || "unknown"})`),
+      );
+      return;
+    }
     // Other variants (LeaseAck/Nack, RunLog, RunUsage, RunSession,
-    // RunComplete/Failed, RunLeaseRenew, DrainRequested, Capacity) are
-    // handled in subsequent tasks.
+    // RunLeaseRenew, DrainRequested, Capacity) are handled in
+    // subsequent tasks.
   });
 }
