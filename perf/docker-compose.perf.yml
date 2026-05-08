@@ -1,0 +1,38 @@
+# Optional: spin up Paperclip in Docker for local perf runs without polluting
+# your dev PAPERCLIP_HOME. Use:
+#
+#   docker compose -f perf/docker-compose.perf.yml up --build -d
+#   PAPERCLIP_PERF_BASE_URL=http://localhost:3100 \
+#     PAPERCLIP_PERF_LABEL=baseline \
+#     node perf/run-all.mjs
+#   docker compose -f perf/docker-compose.perf.yml down -v
+#
+# This intentionally uses local_trusted mode so scenarios can hit the API
+# without an auth token, matching the e2e test setup. For perf runs against
+# an authenticated instance, skip docker-compose and use your real dev server
+# with PAPERCLIP_PERF_BEARER_TOKEN set.
+
+services:
+  paperclip:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    ports:
+      - "3100:3100"
+    environment:
+      HOST: "0.0.0.0"
+      PAPERCLIP_HOME: "/paperclip"
+      PAPERCLIP_DEPLOYMENT_MODE: "local_trusted"
+      PAPERCLIP_PUBLIC_URL: "http://localhost:3100"
+      # Required by the server even in local_trusted mode.
+      BETTER_AUTH_SECRET: "perf-secret-not-for-production"
+    volumes:
+      - paperclip-perf-home:/paperclip
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3100/api/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  paperclip-perf-home:

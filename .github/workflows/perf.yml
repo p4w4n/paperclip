@@ -1,0 +1,144 @@
+# Performance harness CI workflow.
+#
+# Runs the full perf/ scenario suite on every push to a `perf/*` branch, and on
+# manual dispatch. Two separate jobs:
+#   - bundle:    builds the UI and writes bundle.json (fast, no server needed)
+#   - scenarios: boots a throwaway Paperclip instance via `paperclipai onboard
+#                --yes --run`, then runs the headless scenarios.
+#
+# Both jobs upload their results/<label>/ folder as an artifact. A third job
+# downloads the artifact, runs compare.mjs vs the latest baseline-labelled
+# artifact (when available), and posts the table as a PR comment via gh CLI.
+#
+# Determinism notes:
+#   - GitHub Actions ubuntu-latest is consistent enough for relative
+#     comparisons within a single PR (head vs base on same runner). Absolute
+#     numbers vary across runners, so we always diff matched pairs.
+#   - We pin Playwright Chromium at the version installed by @playwright/test
+#     to avoid silent perf shifts when Chromium updates.
+
+name: perf
+
+on:
+  push:
+    branches:
+      - 'perf/**'
+  workflow_dispatch:
+    inputs:
+      label:
+        description: 'Label for results folder (default: short SHA)'
+        required: false
+      compare_against:
+        description: 'Existing label to diff against (e.g. baseline)'
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  bundle:
+    name: bundle size
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build UI and analyze
+        env:
+          PAPERCLIP_PERF_LABEL: ${{ github.event.inputs.label || github.sha }}
+        run: node perf/bundle/analyze.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: perf-bundle-${{ github.event.inputs.label || github.sha }}
+          path: perf/results/
+
+  scenarios:
+    name: playwright scenarios
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Boot Paperclip in background
+        env:
+          PAPERCLIP_HOME: /tmp/paperclip-perf-home
+          PAPERCLIP_DEPLOYMENT_MODE: local_trusted
+        run: |
+          mkdir -p "$PAPERCLIP_HOME"
+          pnpm paperclipai onboard --yes --run > /tmp/paperclip.log 2>&1 &
+          echo $! > /tmp/paperclip.pid
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3100/api/health > /dev/null; then
+              echo "Paperclip is up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Paperclip failed to come up; tail of log:"
+          tail -100 /tmp/paperclip.log
+          exit 1
+      - name: Run all scenarios
+        env:
+          PAPERCLIP_PERF_BASE_URL: http://localhost:3100
+          PAPERCLIP_PERF_LABEL: ${{ github.event.inputs.label || github.sha }}
+          PAPERCLIP_PERF_SHA: ${{ github.sha }}
+          # Bundle is run in its own job; skip here.
+          PAPERCLIP_PERF_SKIP: bundle
+        run: node perf/run-all.mjs
+      - name: Tear down Paperclip
+        if: always()
+        run: |
+          if [ -f /tmp/paperclip.pid ]; then kill "$(cat /tmp/paperclip.pid)" || true; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: perf-scenarios-${{ github.event.inputs.label || github.sha }}
+          path: perf/results/
+      - name: Tail server log on failure
+        if: failure()
+        run: tail -200 /tmp/paperclip.log || true
+
+  compare:
+    name: compare to baseline
+    needs: [bundle, scenarios]
+    if: github.event.inputs.compare_against != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: perf/results-incoming
+      - name: Reorganize artifacts
+        run: |
+          mkdir -p perf/results
+          # Each artifact has results/<label>/ inside; flatten into perf/results/.
+          for d in perf/results-incoming/*/; do
+            cp -R "$d"/* perf/results/ || true
+          done
+      - name: Run compare
+        run: |
+          node perf/compare.mjs ${{ github.event.inputs.compare_against }} ${{ github.event.inputs.label || github.sha }} --output /tmp/perf-table.md
+          cat /tmp/perf-table.md
+      - name: Comment on PR
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.compare_against != ''
+        run: |
+          if [ -n "${{ github.event.pull_request.number }}" ]; then
+            gh pr comment ${{ github.event.pull_request.number }} --body-file /tmp/perf-table.md
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
