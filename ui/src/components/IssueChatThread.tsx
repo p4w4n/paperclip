@@ -22,6 +22,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ChangeEvent,
   type DragEvent as ReactDragEvent,
   type ErrorInfo,
@@ -231,15 +232,63 @@ function findCoTSegmentIndex(
   return -1;
 }
 
+// Shared 1 Hz tick store. Every active `useLiveElapsed` consumer subscribes
+// here instead of running its own setInterval. With N visible run rows the
+// previous code ran N parallel 1-second timers and forced N independent
+// re-renders per second — under the chat-scroll fixture that meant the
+// 4,300-line IssueChatThread tree re-reconciled once per second per row,
+// which dominated commit duration in `chat-scroll`. With this store there
+// is at most one timer alive in the page regardless of how many rows
+// subscribe; React 18's useSyncExternalStore guarantees consistent batched
+// updates across all consumers in the same frame.
+const _liveElapsedListeners = new Set<() => void>();
+let _liveElapsedTimer: ReturnType<typeof setInterval> | null = null;
+let _liveElapsedNow = Date.now();
+
+function _ensureLiveElapsedTimer() {
+  if (_liveElapsedTimer != null) return;
+  _liveElapsedTimer = setInterval(() => {
+    _liveElapsedNow = Date.now();
+    for (const listener of _liveElapsedListeners) listener();
+  }, 1000);
+}
+
+function _stopLiveElapsedTimerIfIdle() {
+  if (_liveElapsedListeners.size === 0 && _liveElapsedTimer != null) {
+    clearInterval(_liveElapsedTimer);
+    _liveElapsedTimer = null;
+  }
+}
+
+function _subscribeLiveElapsed(listener: () => void): () => void {
+  _liveElapsedListeners.add(listener);
+  _ensureLiveElapsedTimer();
+  return () => {
+    _liveElapsedListeners.delete(listener);
+    _stopLiveElapsedTimerIfIdle();
+  };
+}
+
+function _getLiveElapsedSnapshot(): number {
+  return _liveElapsedNow;
+}
+
+// Stable no-op subscriber for the inactive case so React doesn't think the
+// subscription fn changed (which would re-run the subscription every render).
+const _liveElapsedNoopSubscribe = () => () => {};
+const _liveElapsedZeroSnapshot = () => 0;
+
 function useLiveElapsed(startMs: number | null | undefined, active: boolean): string | null {
-  const [, rerender] = useState(0);
-  useEffect(() => {
-    if (!active || !startMs) return;
-    const interval = setInterval(() => rerender((n) => n + 1), 1000);
-    return () => clearInterval(interval);
-  }, [active, startMs]);
-  if (!active || !startMs) return null;
-  return formatDurationWords(Date.now() - startMs);
+  const enabled = !!(active && startMs);
+  // When inactive we still call useSyncExternalStore (hooks-rules), but with
+  // a no-op subscriber and a constant snapshot — no timer, no re-renders.
+  const now = useSyncExternalStore(
+    enabled ? _subscribeLiveElapsed : _liveElapsedNoopSubscribe,
+    enabled ? _getLiveElapsedSnapshot : _liveElapsedZeroSnapshot,
+    _liveElapsedZeroSnapshot,
+  );
+  if (!enabled) return null;
+  return formatDurationWords(now - startMs!);
 }
 
 function useStableEvent<T extends (...args: never[]) => unknown>(callback: T | undefined): T | undefined {
