@@ -2,6 +2,11 @@
 // connect loop to the control plane, and holds the process open via
 // the reconnect supervisor so a stream drop transparently re-Hellos.
 
+import { create } from "@bufbuild/protobuf";
+import {
+  WorkerToServerSchema,
+  RunFailedSchema,
+} from "@paperclipai/worker-rpc";
 import { staticBearerAuth, gcpIdTokenAuth, type WorkerAuthClient } from "./auth-client.js";
 import { startWorkerClient, type WorkerClientHandle } from "./client.js";
 import { handleRunDispatch } from "./run-handler.js";
@@ -9,6 +14,7 @@ import { realizeWorkspace } from "./workspace.js";
 import { runAdapterOnWorker } from "./heartbeat-runner-shim.js";
 import { fetchSecretsFromControlPlane } from "./secret-fetcher.js";
 import { connectWithBackoff } from "./reconnect.js";
+import { createDrainGate } from "./drain.js";
 import { randomUUID } from "node:crypto";
 
 function required(name: string): string {
@@ -60,6 +66,20 @@ async function main() {
   // out on the way through.
   let client: WorkerClientHandle | null = null;
 
+  // Drain gate (Plan 2 Task 6). Server-pushed DrainRequested → finish
+  // in-flight runs → end stream → abort the reconnect supervisor so
+  // main() returns and the process exits 0. New dispatches arriving
+  // while draining get RunFailed { worker_draining } so the server's
+  // dispatch-or-local seam falls back to local execution.
+  const drain = createDrainGate({
+    onDrainComplete: () => {
+      // eslint-disable-next-line no-console
+      console.log("[worker] drain complete — disconnecting");
+      void client?.stop();
+      ctrl.abort();
+    },
+  });
+
   await connectWithBackoff({
     maxBackoffMs: 30_000,
     signal: ctrl.signal,
@@ -83,8 +103,30 @@ async function main() {
         maxConcurrent,
         version: "0.0.0",
         onDispatch: (msg) => {
+          if (msg.payload.case === "drain") {
+            drain.requestDrain();
+            return;
+          }
           if (msg.payload.case !== "runDispatch") return;
           const dispatch = msg.payload.value;
+          // Refuse new dispatches once we're draining: the run goes
+          // back to the dispatcher's local fallback so it isn't lost.
+          if (drain.shouldReject()) {
+            void client?.send(
+              create(WorkerToServerSchema, {
+                payload: {
+                  case: "runFailed",
+                  value: create(RunFailedSchema, {
+                    runId: dispatch.runId,
+                    error: "worker draining",
+                    errorCode: "worker_draining",
+                  }),
+                },
+              }),
+            );
+            return;
+          }
+          drain.recordStart(dispatch.runId);
           // Run handler is fire-and-forget from the bidi stream's
           // perspective — emits RunComplete / RunFailed on the outbound
           // side when done. Errors inside the handler turn into
@@ -106,10 +148,14 @@ async function main() {
               if (!client) throw new Error("worker client not connected");
               return client.send(m);
             },
-          }).catch((err) => {
-            // eslint-disable-next-line no-console
-            console.error("[worker] unexpected handler error for run", dispatch.runId, err);
-          });
+          })
+            .catch((err) => {
+              // eslint-disable-next-line no-console
+              console.error("[worker] unexpected handler error for run", dispatch.runId, err);
+            })
+            .finally(() => {
+              drain.recordEnd(dispatch.runId);
+            });
         },
       });
       client = fresh;
