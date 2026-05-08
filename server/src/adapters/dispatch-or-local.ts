@@ -41,6 +41,34 @@ export interface DispatchOrLocalOpts {
   // when the lease expires (Task 12).
   awaitCompletion: (runId: string) => Promise<AdapterExecutionResult>;
   leaseSeconds?: number;
+  // Plan 4 (filestore mode). When BOTH callbacks are provided, the
+  // wrapper acquires a workspace lease BEFORE tryDispatch and releases
+  // it on completion. If the lease is unavailable, the wrapper throws
+  // WorkspaceBusyError so the heartbeat scheduler retries on its next
+  // tick — natural serialization without an explicit queue. When
+  // omitted (the common ephemeral-mode case), the wrapper behaves
+  // exactly as Plans 1-3.
+  acquireWorkspaceLease?: (input: { runId: string; agentId: string; leaseSeconds: number }) => Promise<
+    | { acquired: true; leaseId: string }
+    | { acquired: false; currentHolderRunId: string | null; currentHolderWorkerId: string | null }
+  >;
+  releaseWorkspaceLease?: (input: { leaseId: string }) => Promise<void>;
+}
+
+export class WorkspaceBusyError extends Error {
+  constructor(public readonly currentHolder: { runId: string | null; workerId: string | null }) {
+    super(
+      `workspace_busy (currentHolder run=${currentHolder.runId ?? "?"} worker=${currentHolder.workerId ?? "?"})`,
+    );
+    this.name = "WorkspaceBusyError";
+  }
+}
+
+export class DispatchFailedError extends Error {
+  constructor(reason: string) {
+    super(`dispatch_failed (${reason})`);
+    this.name = "DispatchFailedError";
+  }
 }
 
 export interface DispatchOrLocalAdapter {
@@ -58,14 +86,45 @@ export function createDispatchOrLocal(opts: DispatchOrLocalOpts): DispatchOrLoca
       // Both fall back to local execution rather than returning an
       // error — keeps the OSS single-host story working unchanged.
       const worker = opts.registry.pickFor(opts.adapterType);
-      if (!worker) return opts.localExecute(ctx);
+      if (!worker) {
+        // No worker available. In filestore mode this is fatal — we
+        // can't fall back to local because the in-process path would
+        // race the lease holder on the same files. The heartbeat
+        // scheduler retries via its tick.
+        if (opts.acquireWorkspaceLease) {
+          throw new DispatchFailedError("no_worker_available");
+        }
+        return opts.localExecute(ctx);
+      }
+
+      const leaseSecondsForBoth = opts.leaseSeconds ?? 300;
+
+      // Plan 4: in filestore mode, the workspace lock is acquired
+      // before dispatch. Busy → throw; the scheduler's next tick
+      // retries naturally. Send-failure later in this function rolls
+      // back the lease.
+      let workspaceLeaseId: string | null = null;
+      if (opts.acquireWorkspaceLease) {
+        const r = await opts.acquireWorkspaceLease({
+          runId: ctx.runId,
+          agentId: ctx.agent.id,
+          leaseSeconds: leaseSecondsForBoth,
+        });
+        if (!r.acquired) {
+          throw new WorkspaceBusyError({
+            runId: r.currentHolderRunId,
+            workerId: r.currentHolderWorkerId,
+          });
+        }
+        workspaceLeaseId = r.leaseId;
+      }
 
       // Resolve the agent's secrets BEFORE minting the token so the
       // store entry carries the actual values. The worker's later
       // FetchSecrets call then becomes a pure lookup, no DB roundtrip.
       const resolveSecrets = opts.resolveSecretsForAgent ?? (async () => ({}));
       const secrets = await resolveSecrets(ctx.agent.id);
-      const leaseSeconds = opts.leaseSeconds ?? 300;
+      const leaseSeconds = leaseSecondsForBoth;
       const mint = opts.mintScopeToken ?? (() => `secrets-stub:${ctx.runId}`);
       const scopeToken = mint({
         runId: ctx.runId,
@@ -92,12 +151,28 @@ export function createDispatchOrLocal(opts: DispatchOrLocalOpts): DispatchOrLoca
         secretsScopeToken: scopeToken,
         leaseSeconds,
       });
-      if (!receipt.dispatched) return opts.localExecute(ctx);
+      if (!receipt.dispatched) {
+        // Filestore mode: dispatch send failed AFTER we acquired the
+        // workspace lease. Roll back so the next attempt can acquire.
+        if (workspaceLeaseId !== null && opts.releaseWorkspaceLease) {
+          await opts.releaseWorkspaceLease({ leaseId: workspaceLeaseId });
+        }
+        if (opts.acquireWorkspaceLease) {
+          throw new DispatchFailedError(receipt.reason ?? "unknown");
+        }
+        return opts.localExecute(ctx);
+      }
 
       try {
         return await opts.awaitCompletion(ctx.runId);
       } finally {
         opts.dispatcher.markCompleted(ctx.runId);
+        if (workspaceLeaseId !== null && opts.releaseWorkspaceLease) {
+          // Best-effort: a failing release is logged inside the
+          // production wire's closure; the workspace-lease reaper from
+          // P4-3 also catches stuck rows.
+          await opts.releaseWorkspaceLease({ leaseId: workspaceLeaseId }).catch(() => {});
+        }
       }
     },
   };
