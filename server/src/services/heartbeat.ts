@@ -9402,6 +9402,44 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       return rows.filter((r) => FAILURE_STATUSES.has(r.status));
     },
 
+    // Per-day per-status counts for the trailing N days (default 14). Replaces
+    // the AgentOverview / per-agent chart pattern of pulling the entire
+    // heartbeat_runs history for an agent and grouping by day in JS, which
+    // does not scale once an agent has thousands of runs (the case after the
+    // worker rollout in phase 3+).
+    //
+    // Mirrors the existing dashboard.ts groupBy approach for the company-wide
+    // chart so the UI gets a consistent shape for both. Indexed on
+    // (company_id, agent_id, started_at) — created_at scan still works
+    // because the index covers it; if pg ever picks a worse plan, add a
+    // covering index on (company_id, created_at).
+    stats: async (
+      companyId: string,
+      agentId?: string,
+      options?: { days?: number },
+    ) => {
+      const days = Math.max(1, Math.min(90, options?.days ?? 14));
+      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      const dayExpr = sql<string>`to_char(${heartbeatRuns.createdAt} at time zone 'UTC', 'YYYY-MM-DD')`;
+      const condition = agentId
+        ? and(
+            eq(heartbeatRuns.companyId, companyId),
+            eq(heartbeatRuns.agentId, agentId),
+            gt(heartbeatRuns.createdAt, since),
+          )
+        : and(eq(heartbeatRuns.companyId, companyId), gt(heartbeatRuns.createdAt, since));
+      const rows = await db
+        .select({
+          date: dayExpr,
+          status: heartbeatRuns.status,
+          count: sql<number>`count(*)`.as("count"),
+        })
+        .from(heartbeatRuns)
+        .where(condition)
+        .groupBy(dayExpr, heartbeatRuns.status);
+      return rows.map((r) => ({ date: r.date, status: r.status, count: Number(r.count) }));
+    },
+
     list: async (companyId: string, agentId?: string, limit?: number) => {
       const safeForLegacyEncoding = await hasUnsafeTextProjectionDatabase();
       const query = db

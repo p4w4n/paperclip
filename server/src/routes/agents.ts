@@ -3094,6 +3094,24 @@ export function agentRoutes(
     res.json(runs);
   });
 
+  // Per-day per-status counts for charts. Optional ?agentId scopes to a
+  // single agent. Optional ?days clamps to 1..90 (default 14). The body is
+  // an array of { date: "YYYY-MM-DD", status, count } shaped to feed the
+  // existing RunActivityChart / SuccessRateChart components without
+  // requiring the client to pull the underlying run rows. Becomes a hard
+  // prerequisite for worker-design phase 7 — without it, AgentOverview's
+  // chart pulls thousands of run rows once worker dispatch starts producing
+  // them at scale.
+  router.get("/companies/:companyId/heartbeat-runs/stats", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const agentId = typeof req.query.agentId === "string" ? req.query.agentId : undefined;
+    const daysParam = typeof req.query.days === "string" ? req.query.days : undefined;
+    const days = daysParam ? Math.max(1, Math.min(90, parseInt(daysParam, 10) || 14)) : undefined;
+    const stats = await heartbeat.stats(companyId, agentId, { days });
+    res.json(stats);
+  });
+
   router.get("/companies/:companyId/live-runs", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);

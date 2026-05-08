@@ -89,6 +89,20 @@ export const heartbeatsApi = {
       startedAt: string | null;
       finishedAt: string | null;
     }>>(`/companies/${companyId}/heartbeat-runs/latest-failed`),
+  // Per-day per-status counts for charts. Server-side aggregate; the
+  // response is an array shaped like dashboardApi.summary's runActivity so
+  // it slots into the same chart components. Optional agentId scopes to a
+  // single agent (use this in AgentOverview); omit for company-wide. days
+  // clamps to 1..90 server-side (default 14).
+  stats: (companyId: string, options?: { agentId?: string; days?: number }) => {
+    const params = new URLSearchParams();
+    if (options?.agentId) params.set("agentId", options.agentId);
+    if (options?.days) params.set("days", String(options.days));
+    const qs = params.toString();
+    return api.get<Array<{ date: string; status: string; count: number }>>(
+      `/companies/${companyId}/heartbeat-runs/stats${qs ? `?${qs}` : ""}`,
+    );
+  },
   get: (runId: string) => api.get<HeartbeatRun>(`/heartbeat-runs/${runId}`),
   events: (runId: string, afterSeq = 0, limit = 200) =>
     api.get<HeartbeatRunEvent[]>(
