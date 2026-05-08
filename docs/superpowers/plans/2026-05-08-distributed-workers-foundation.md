@@ -64,6 +64,24 @@
 
 ---
 
+## Perf prerequisites (must land before phase 3 of the design)
+
+The design's phases assume specific UI-side primitives exist. Without them, the worker model amplifies known failure modes the UI was already at the edge of. The list below maps each prerequisite to the phase in the design that requires it; all of these have shipped on this branch (`worker-prep`) before Task 1 of this implementation plan starts.
+
+| Perf item | Status | Worker-design phase that depends on it |
+|---|---|---|
+| `WsInvalidationBatcher` (50 ms event coalescing in `LiveUpdatesProvider`) | shipped (perf #5) | Phase 3 (all `*_local` adapters via worker) — every `RunLog` published as a `LiveEvent` triggers `invalidateQueries`. With many workers, batching is the difference between a snappy UI and a UI-side meltdown. |
+| `/heartbeat-runs/latest-failed` endpoint + `useInboxBadge` switchover | shipped (perf #4) | Phase 3 — workers create heartbeat-runs at higher rate; the badge query went from 250 KB → 2 KB so the inbox doesn't dominate per-mount cost. |
+| `staleTime: 60s`, `refetchOnWindowFocus: false` defaults | shipped (perf #2) | Phase 1+ — control plane is now in a separate VM, brief disconnects more common. The combo `staleTime` + `refetchOnReconnect: "always"` is the right shape for that topology. |
+| Shared elapsed-time tick store in `IssueChatThread` | shipped (perf #1) | Phase 3 — N concurrent worker runs = N timers under the old code; one shared interval under the new. |
+| Visibility-gated polling on `live-runs` | **planned** (perf #4 in audit, queued in this branch) | **Phase 5 (workspace runtime services on worker).** Idle dashboard tabs across the team multiply with workers; gating polling on `document.visibilityState` keeps idle tabs from hammering. |
+| `/heartbeat-runs/stats` endpoint for dashboard charts | **planned** (queued in this branch) | **Phase 7 (GCP polish).** Dashboard chart query downloads runs to compute aggregates client-side. With workers this stops fitting in the browser. |
+| `AgentDetail` infinite-scroll | **planned** (queued in this branch) | **Phase 7.** Agent detail page currently does an unbounded `heartbeatsApi.list(companyId, agentId)`. Workers grow run history faster, so this becomes the next thing to break. |
+
+**Operational rule:** if you're starting a worker-design phase that depends on a "planned" perf item, stop and land that item first. Phase 1-2 of the worker plan have no perf prerequisites; Phase 3 has the ones marked "shipped" already in place. The "planned" items become hard prerequisites at phases 5 and 7.
+
+---
+
 ## Conventions used in this plan
 
 - **Test framework:** Vitest. Run a single test file with `pnpm --filter <pkg> test <path>`. Run a single test by name with `-t "<name>"`.
