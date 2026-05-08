@@ -28,11 +28,28 @@ if ("serviceWorker" in navigator) {
   });
 }
 
+// Defaults are deliberately conservative for the dashboard's idle behaviour:
+//
+// - `staleTime: 60_000` — a query is considered fresh for one minute. Most
+//   dashboard data does not change every 30 seconds, and the previous 30 s
+//   default plus `refetchOnWindowFocus: true` made every tab focus dispatch
+//   a refetch storm. WebSocket-driven invalidations still trigger when real
+//   server-side changes happen (LiveUpdatesProvider).
+// - `refetchOnWindowFocus: false` — refetches now only happen on remount,
+//   on staleness, or in response to live events. Eliminates the focus-storm
+//   audit finding entirely.
+// - `refetchOnReconnect: "always"` — kept truthy because reconnecting after
+//   a network drop is a real signal that data may be stale.
+//
+// Per-query `staleTime: 5_000` on truly live data (live-runs, log tail) is
+// set at the call site and overrides these defaults.
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 30_000,
-      refetchOnWindowFocus: true,
+      staleTime: 60_000,
+      gcTime: 5 * 60_000,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: "always",
     },
   },
 });
