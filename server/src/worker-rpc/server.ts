@@ -45,6 +45,9 @@ export interface StartGrpcServerOpts {
   // HandleConnectOpts for the contract; production wires a Drizzle
   // select on heartbeat_runs.dispatched_to_worker_id.
   getCurrentDispatchedWorker?: (runId: string) => Promise<string | null>;
+  // Plan 3 — row updater for inbound ServiceStatus frames. Production
+  // wires a Drizzle update on workspace_runtime_services.
+  updateServiceStatus?: (runtimeServiceId: string, patch: Record<string, unknown>) => Promise<void>;
   bindAddress: string; // e.g. "0.0.0.0:50051" or "127.0.0.1:0" (test)
 }
 

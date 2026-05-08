@@ -885,6 +885,20 @@ export async function startServer(): Promise<StartedServer> {
           .limit(1);
         return rows[0]?.wid ?? null;
       },
+      // Plan 3 — ServiceStatus from the worker maps to a Drizzle
+      // update on workspace_runtime_services. Errors get logged but
+      // don't propagate; the next status frame absorbs the gap.
+      updateServiceStatus: async (runtimeServiceId, patch) => {
+        try {
+          const { workspaceRuntimeServices } = await import("@paperclipai/db");
+          await db
+            .update(workspaceRuntimeServices)
+            .set(patch)
+            .where(eq(workspaceRuntimeServices.id, runtimeServiceId));
+        } catch (err) {
+          logger.warn({ err, runtimeServiceId }, "ServiceStatus row update failed");
+        }
+      },
       bindAddress: config.workerGrpcBindAddress,
     });
     logger.info({ port: workerPort, bindAddress: config.workerGrpcBindAddress }, "worker gRPC server listening");

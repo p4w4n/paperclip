@@ -17,6 +17,7 @@ import type { WorkerAuthStrategy } from "./auth.js";
 import type { WorkerRegistry, RegisteredWorker } from "../services/worker-registry.js";
 import { settleRunCompletion } from "../adapters/run-completion-registry.js";
 import type { RunDispatcher } from "../services/run-dispatcher.js";
+import { handleServiceStatus } from "./service-status-handler.js";
 
 // gRPC keepalive guarantees the *transport* is alive; the application Ping
 // is a separate channel that proves the *application* is responsive (proto
@@ -37,6 +38,10 @@ export interface HandleConnectOpts {
   // (logged)". Optional — when omitted, the handler accepts every
   // frame (legacy / test behavior pre Plan 2).
   getCurrentDispatchedWorker?: (runId: string) => Promise<string | null>;
+  // Plan 3 — row updater for inbound ServiceStatus frames; production
+  // wires a Drizzle update on workspace_runtime_services. Optional —
+  // when omitted, status frames are silently dropped.
+  updateServiceStatus?: (runtimeServiceId: string, patch: Record<string, unknown>) => Promise<void>;
 }
 
 export async function handleConnect(
@@ -205,6 +210,29 @@ export async function handleConnect(
       // touchIfRun already reset the deadline above. Explicit case here
       // documents the keepalive contract and stops the no-op falling
       // through to "unknown frame" logging once we add it.
+      return;
+    }
+    if (p.case === "serviceStatus") {
+      // Plan 3: per-service status updates. Drop if the worker no
+      // longer owns the run (Plan 2 Task 4 gate applies). Async, so
+      // kick off without blocking subsequent frames.
+      if (!opts.updateServiceStatus || !registered) return;
+      const updateRow = opts.updateServiceStatus;
+      const senderWorkerId = registered.workerId;
+      const getOwner = opts.getCurrentDispatchedWorker;
+      void handleServiceStatus(p.value, {
+        senderWorkerId,
+        getCurrentDispatchedWorker: getOwner ? (runId) => getOwner(runId) : async () => null,
+        updateRow,
+        onDrop: (input) => {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[worker-rpc] dropped ServiceStatus from ${input.sender} for run ${input.runId} svc ${input.runtimeServiceId}; current owner is ${input.currentOwner}`,
+          );
+        },
+      }).catch(() => {
+        /* updateRow logs internally in production */
+      });
       return;
     }
     // Other variants (LeaseAck/Nack, RunLog, RunUsage, RunSession,
