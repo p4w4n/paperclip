@@ -90,8 +90,10 @@ export const heartbeatsApi = {
       finishedAt: string | null;
     }>>(`/companies/${companyId}/heartbeat-runs/latest-failed`),
   // Per-day per-status counts for charts. Server-side aggregate; the
-  // response is an array shaped like dashboardApi.summary's runActivity so
-  // it slots into the same chart components. Optional agentId scopes to a
+  // response shape `{ date, status, count }[]` is what the SQL groupBy
+  // returns directly. Use `aggregateStatsToActivityDays` (below) to
+  // collapse that into the `DashboardRunActivityDay[]` shape that the
+  // existing chart components consume. Optional agentId scopes to a
   // single agent (use this in AgentOverview); omit for company-wide. days
   // clamps to 1..90 server-side (default 14).
   stats: (companyId: string, options?: { agentId?: string; days?: number }) => {
@@ -147,3 +149,34 @@ export const heartbeatsApi = {
   listInstanceSchedulerAgents: () =>
     api.get<InstanceSchedulerHeartbeatAgent[]>("/instance/scheduler-heartbeats"),
 };
+
+// Collapse the raw `{ date, status, count }[]` returned by
+// /heartbeat-runs/stats into the `DashboardRunActivityDay[]` shape consumed
+// by RunActivityChart / SuccessRateChart. Mirrors the `aggregateRuns`
+// reducer in ActivityCharts.tsx but operates on pre-grouped server rows.
+export function aggregateStatsToActivityDays(
+  rows: Array<{ date: string; status: string; count: number }>,
+  options?: { days?: number },
+): Array<{ date: string; succeeded: number; failed: number; other: number; total: number }> {
+  const days = options?.days ?? 14;
+  const today = new Date();
+  const dayKeys: string[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(today);
+    d.setUTCDate(today.getUTCDate() - i);
+    dayKeys.push(d.toISOString().slice(0, 10));
+  }
+  const grouped = new Map<string, { date: string; succeeded: number; failed: number; other: number; total: number }>();
+  for (const day of dayKeys) {
+    grouped.set(day, { date: day, succeeded: 0, failed: 0, other: 0, total: 0 });
+  }
+  for (const row of rows) {
+    const entry = grouped.get(row.date);
+    if (!entry) continue;
+    if (row.status === "succeeded") entry.succeeded += row.count;
+    else if (row.status === "failed" || row.status === "timed_out") entry.failed += row.count;
+    else entry.other += row.count;
+    entry.total += row.count;
+  }
+  return Array.from(grouped.values());
+}

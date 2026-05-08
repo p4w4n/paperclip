@@ -9,7 +9,7 @@ import {
 } from "../api/agents";
 import { companySkillsApi } from "../api/companySkills";
 import { budgetsApi } from "../api/budgets";
-import { heartbeatsApi } from "../api/heartbeats";
+import { heartbeatsApi, aggregateStatsToActivityDays } from "../api/heartbeats";
 import { instanceSettingsApi } from "../api/instanceSettings";
 import { ApiError } from "../api/client";
 import { ChartCard, RunActivityChart, PriorityChart, IssueStatusChart, SuccessRateChart } from "../components/ActivityCharts";
@@ -676,20 +676,32 @@ export function AgentDetail() {
     enabled: Boolean(resolvedAgentId) && needsDashboardData,
   });
 
-  // Cap the agent run fetch at 100 rows. Previously this was unbounded, so
-  // an agent with thousands of runs would download every row on every visit
-  // to the agent detail page (issue #958). 100 is enough to populate
-  // RunsTab's initial view; a future PR should switch RunsTab to
-  // useInfiniteQuery for "load more" semantics, but the immediate bandwidth
-  // cap is what's required as a worker-design phase 3 prerequisite.
-  // For per-day charts, AgentOverview should switch to
-  // heartbeatsApi.stats({ agentId }) — server-side aggregation, no run rows
-  // needed at all. That migration is queued as a follow-up.
+  // Cap the agent run fetch at 100 rows for components that genuinely need
+  // run rows (LatestRunCard, CostsSection, RunsTab list rendering).
+  // Previously this was unbounded, so an agent with thousands of runs
+  // would download every row on every visit to the agent detail page
+  // (issue #958). 100 is enough to populate RunsTab's initial view; a
+  // future RunsTab refactor should switch to useInfiniteQuery for
+  // "load more" semantics.
   const { data: heartbeats } = useQuery({
     queryKey: [...queryKeys.heartbeats(resolvedCompanyId!, agent?.id ?? undefined), "limit", 100],
     queryFn: () => heartbeatsApi.list(resolvedCompanyId!, agent?.id ?? undefined, 100),
     enabled: !!resolvedCompanyId && !!agent?.id && shouldLoadHeartbeats,
   });
+
+  // Per-day chart aggregates. Comes from the server-side /stats endpoint so
+  // the chart no longer depends on having every run row downloaded —
+  // accurate even when the agent has thousands of historical runs that
+  // wouldn't fit in the 100-row run-list query above.
+  const { data: agentRunStats } = useQuery({
+    queryKey: [...queryKeys.heartbeats(resolvedCompanyId!, agent?.id ?? undefined), "stats", 14],
+    queryFn: () => heartbeatsApi.stats(resolvedCompanyId!, { agentId: agent?.id, days: 14 }),
+    enabled: !!resolvedCompanyId && !!agent?.id && shouldLoadHeartbeats,
+  });
+  const agentRunActivity = useMemo(
+    () => (agentRunStats ? aggregateStatsToActivityDays(agentRunStats, { days: 14 }) : null),
+    [agentRunStats],
+  );
 
   const { data: allIssues } = useQuery({
     queryKey: [...queryKeys.issues.list(resolvedCompanyId!), "participant-agent", resolvedAgentId ?? "__none__"],
@@ -1111,6 +1123,7 @@ export function AgentDetail() {
         <AgentOverview
           agent={agent}
           runs={heartbeats ?? []}
+          runActivity={agentRunActivity}
           assignedIssues={assignedIssues}
           runtimeState={runtimeState}
           agentId={agent.id}
@@ -1278,6 +1291,7 @@ function LatestRunCard({ runs, agentId }: { runs: HeartbeatRun[]; agentId: strin
 function AgentOverview({
   agent,
   runs,
+  runActivity,
   assignedIssues,
   runtimeState,
   agentId,
@@ -1285,11 +1299,16 @@ function AgentOverview({
 }: {
   agent: AgentDetailRecord;
   runs: HeartbeatRun[];
+  runActivity: import("@paperclipai/shared").DashboardRunActivityDay[] | null;
   assignedIssues: { id: string; title: string; status: string; priority: string; identifier?: string | null; createdAt: Date }[];
   runtimeState?: AgentRuntimeState;
   agentId: string;
   agentRouteId: string;
 }) {
+  // Charts prefer the server-aggregated activity (accurate even when runs[]
+  // is capped at 100 most-recent rows). Fall back to client-side aggregation
+  // from `runs` only when stats hasn't loaded yet — that branch matches the
+  // previous behaviour for the brief gap between mount and stats fetch.
   return (
     <div className="space-y-8">
       {/* Latest Run */}
@@ -1298,7 +1317,7 @@ function AgentOverview({
       {/* Charts */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <ChartCard title="Run Activity" subtitle="Last 14 days">
-          <RunActivityChart runs={runs} />
+          {runActivity ? <RunActivityChart activity={runActivity} /> : <RunActivityChart runs={runs} />}
         </ChartCard>
         <ChartCard title="Issues by Priority" subtitle="Last 14 days">
           <PriorityChart issues={assignedIssues} />
@@ -1307,7 +1326,7 @@ function AgentOverview({
           <IssueStatusChart issues={assignedIssues} />
         </ChartCard>
         <ChartCard title="Success Rate" subtitle="Last 14 days">
-          <SuccessRateChart runs={runs} />
+          {runActivity ? <SuccessRateChart activity={runActivity} /> : <SuccessRateChart runs={runs} />}
         </ChartCard>
       </div>
 
