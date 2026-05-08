@@ -33,6 +33,19 @@ export const heartbeatRuns = pgTable(
     externalRunId: text("external_run_id"),
     processPid: integer("process_pid"),
     processGroupId: integer("process_group_id"),
+    // Distributed-workers lease columns. `lease_expires_at` is the deadline
+    // by which the worker must send a renewing frame for an in-flight run;
+    // the lease-reaper marks runs failed and re-queues them when the
+    // deadline passes. `dispatched_to_worker_id` and `worker_session_id`
+    // record which worker received the dispatch (`worker_id` is durable
+    // across worker process restarts within the same instance; the session
+    // FK identifies the specific Connect stream that took the run).
+    // `attempts` increments only on lease-expiry-driven auto-replay (spec
+    // N8 — user-initiated retries create a new run with retry_of_run_id).
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    attempts: integer("attempts").notNull().default(0),
+    dispatchedToWorkerId: text("dispatched_to_worker_id"),
+    workerSessionId: uuid("worker_session_id"),
     processStartedAt: timestamp("process_started_at", { withTimezone: true }),
     lastOutputAt: timestamp("last_output_at", { withTimezone: true }),
     lastOutputSeq: integer("last_output_seq").notNull().default(0),
