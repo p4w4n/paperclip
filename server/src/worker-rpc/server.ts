@@ -28,6 +28,7 @@ import type { WorkerAuthStrategy } from "./auth.js";
 import type { WorkerRegistry } from "../services/worker-registry.js";
 import { handleConnect } from "./connect-handler.js";
 import { handleFetchSecrets } from "./secrets-handler.js";
+import { scopeTokenStore } from "./scope-token-store.js";
 
 const SERVICE = "paperclip.v1.Worker";
 
@@ -82,7 +83,12 @@ export async function startWorkerGrpcServer(opts: StartGrpcServerOpts): Promise<
         call: grpc.ServerUnaryCall<FetchSecretsRequest, FetchSecretsResponse>,
         cb: grpc.sendUnaryData<FetchSecretsResponse>,
       ) => {
-        handleFetchSecrets(call.request, opts).then(
+        // Wire the production scope-token store as the lookup
+        // dependency. Spec D2: token alone authenticates; no secondary
+        // auth header check on this RPC.
+        handleFetchSecrets(call.request, {
+          lookupAndInvalidate: (token) => scopeTokenStore.lookupAndInvalidate(token),
+        }).then(
           (resp) => cb(null, resp),
           (err) => cb(err as grpc.ServiceError),
         );

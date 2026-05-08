@@ -12,6 +12,7 @@ import { startWorkerClient, type WorkerClientHandle } from "./client.js";
 import { handleRunDispatch } from "./run-handler.js";
 import { realizeWorkspace } from "./workspace.js";
 import { runAdapterOnWorker } from "./heartbeat-runner-shim.js";
+import { fetchSecretsFromControlPlane } from "./secret-fetcher.js";
 import { randomUUID } from "node:crypto";
 
 function required(name: string): string {
@@ -60,12 +61,15 @@ async function main() {
       void handleRunDispatch(dispatch, {
         realizeWorkspace: (desc) => realizeWorkspace(desc),
         runAdapter: (ctx) => runAdapterOnWorker(dispatch.adapterType, ctx),
-        // fetchSecrets stub for v1. Task 11 wires the real
-        // FetchSecrets unary RPC against the control plane — the
-        // adapter receives an empty env until then, which means
-        // adapters that need real credentials fail with a clear
-        // missing-secret error rather than running with bogus values.
-        fetchSecrets: async () => ({}),
+        // Real FetchSecrets unary RPC against the control plane.
+        // Spec D2: scope_token alone authenticates; the server's
+        // scope-token store atomically invalidates on first lookup so
+        // a replay fails. Secrets reach the adapter as env without
+        // touching disk on the worker (tmpfs `.env` materialization
+        // happens once secrets actually carry sensitive data — for
+        // now the server resolves to {} pending per-agent secret
+        // resolution wiring, see registry.ts).
+        fetchSecrets: (token) => fetchSecretsFromControlPlane(addr, token),
         send: (m) => client.send(m),
       }).catch((err) => {
         // eslint-disable-next-line no-console

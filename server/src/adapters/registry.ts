@@ -9,6 +9,7 @@ import { createDispatchOrLocal } from "./dispatch-or-local.js";
 import { runDispatcher } from "../services/run-dispatcher.js";
 import { workerRegistry } from "../services/worker-registry.js";
 import { awaitRunCompletion } from "./run-completion-registry.js";
+import { scopeTokenStore } from "../worker-rpc/scope-token-store.js";
 import {
   execute as acpxExecute,
   testEnvironment as acpxTestEnvironment,
@@ -231,12 +232,25 @@ async function listAcpxModels(): Promise<AdapterModel[]> {
 // otherwise execution falls back to the in-process adapter exactly as
 // before. Spec rationale: "single key seam" — agent's adapterType stays
 // as written, no new adapter type exposed to user config.
+//
+// Closes over scopeTokenStore.mint with the resolved secrets — the
+// dispatch-or-local opts shape only carries (runId, agentId, leaseSeconds)
+// to mint, so the per-call closure captures `secrets` resolved upstream.
+// Per-agent secret resolution itself is queued — the existing per-agent
+// secret-service has the inputs (companyId, agentId), but threading them
+// through the dispatch path needs a refactor that's out of scope here.
+// For now resolveSecretsForAgent returns {} and the worker sees an
+// adapter env without scoped credentials. Adapters that need real
+// credentials fail loud rather than running with bogus values.
 const claudeLocalDispatchWrapper = createDispatchOrLocal({
   adapterType: "claude_local",
   localExecute: claudeExecute,
   dispatcher: runDispatcher,
   registry: workerRegistry,
   awaitCompletion: awaitRunCompletion,
+  resolveSecretsForAgent: async () => ({}),
+  mintScopeToken: ({ runId, agentId, leaseSeconds }) =>
+    scopeTokenStore.mint({ runId, agentId, secrets: {}, leaseSeconds }),
 });
 
 const claudeLocalAdapter: ServerAdapterModule = {
@@ -327,6 +341,9 @@ const geminiLocalDispatchWrapper = createDispatchOrLocal({
   dispatcher: runDispatcher,
   registry: workerRegistry,
   awaitCompletion: awaitRunCompletion,
+  resolveSecretsForAgent: async () => ({}),
+  mintScopeToken: ({ runId, agentId, leaseSeconds }) =>
+    scopeTokenStore.mint({ runId, agentId, secrets: {}, leaseSeconds }),
 });
 
 const geminiLocalAdapter: ServerAdapterModule = {
