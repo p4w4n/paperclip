@@ -872,6 +872,19 @@ export async function startServer(): Promise<StartedServer> {
       auth,
       registry: workerRegistry,
       dispatcher: runDispatcher,
+      // Plan 2 Task 4 — late-frame drop. After lease-expiry auto-replay
+      // a run can be dispatched to a different worker; if the original
+      // worker eventually delivers RunComplete, the connect-handler
+      // drops it via this lookup so we don't settle the new awaiter
+      // with the dead worker's result.
+      getCurrentDispatchedWorker: async (runId) => {
+        const rows = await db
+          .select({ wid: heartbeatRuns.dispatchedToWorkerId })
+          .from(heartbeatRuns)
+          .where(eq(heartbeatRuns.id, runId))
+          .limit(1);
+        return rows[0]?.wid ?? null;
+      },
       bindAddress: config.workerGrpcBindAddress,
     });
     logger.info({ port: workerPort, bindAddress: config.workerGrpcBindAddress }, "worker gRPC server listening");

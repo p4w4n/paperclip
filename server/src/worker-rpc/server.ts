@@ -41,6 +41,10 @@ export interface StartGrpcServerOpts {
   // explicitly (rather than imported as the singleton) so tests can
   // pass their own dispatcher backed by the same registry.
   dispatcher: RunDispatcher;
+  // Plan 2 Task 4 — late-frame drop gate. See connect-handler's
+  // HandleConnectOpts for the contract; production wires a Drizzle
+  // select on heartbeat_runs.dispatched_to_worker_id.
+  getCurrentDispatchedWorker?: (runId: string) => Promise<string | null>;
   bindAddress: string; // e.g. "0.0.0.0:50051" or "127.0.0.1:0" (test)
 }
 

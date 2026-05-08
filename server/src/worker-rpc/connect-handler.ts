@@ -24,9 +24,24 @@ import type { RunDispatcher } from "../services/run-dispatcher.js";
 const PING_INTERVAL_MS = 15_000;
 const PONG_DEADLINE_MS = 60_000;
 
+export interface HandleConnectOpts {
+  auth: WorkerAuthStrategy;
+  registry: WorkerRegistry;
+  dispatcher: RunDispatcher;
+  // Plan 2 Task 4 — late-frame drop gate. Returns the workerId that
+  // currently owns the run per heartbeat_runs.dispatched_to_worker_id,
+  // or null if the row has been cleared (lease expired + reaper
+  // requeued, or run already completed). On RunComplete/RunFailed, if
+  // this returns a different workerId than the sender, we drop the
+  // frame: spec failure-mode "first RunComplete wins, second dropped
+  // (logged)". Optional — when omitted, the handler accepts every
+  // frame (legacy / test behavior pre Plan 2).
+  getCurrentDispatchedWorker?: (runId: string) => Promise<string | null>;
+}
+
 export async function handleConnect(
   call: grpc.ServerDuplexStream<WorkerToServer, ServerToWorker>,
-  opts: { auth: WorkerAuthStrategy; registry: WorkerRegistry; dispatcher: RunDispatcher },
+  opts: HandleConnectOpts,
 ): Promise<void> {
   const headerValue = call.metadata.get("authorization")[0];
   const auth = await opts.auth.verify(typeof headerValue === "string" ? headerValue : undefined);
@@ -141,20 +156,49 @@ export async function handleConnect(
       // slot via dispatcher.markCompleted. Also fire the dispatcher's
       // settlement listeners so direct-dispatch callers (the e2e test
       // path) observe completion without going through dispatch-or-local.
+      const runId = p.value.runId;
       const result = {
         exitCode: p.value.exitCode,
         signal: p.value.signal || null,
         timedOut: false,
         summary: p.value.summary,
       };
-      settleRunCompletion(p.value.runId, result);
-      opts.dispatcher.notifySettlement(p.value.runId, { kind: "complete", payload: result });
+      // Late-frame drop gate (Plan 2 Task 4). Async, so kick the look-up
+      // off without blocking subsequent frames; if the row no longer
+      // points at this worker, drop without settling.
+      void (async () => {
+        if (opts.getCurrentDispatchedWorker && registered) {
+          const currentWid = await opts.getCurrentDispatchedWorker(runId);
+          if (currentWid !== null && currentWid !== registered.workerId) {
+            // eslint-disable-next-line no-console
+            console.warn(
+              `[worker-rpc] dropped RunComplete from ${registered.workerId} for run ${runId}; current owner is ${currentWid}`,
+            );
+            return;
+          }
+        }
+        settleRunCompletion(runId, result);
+        opts.dispatcher.notifySettlement(runId, { kind: "complete", payload: result });
+      })();
       return;
     }
     if (p.case === "runFailed") {
+      const runId = p.value.runId;
       const err = new Error(p.value.error || `run failed (${p.value.errorCode || "unknown"})`);
-      settleRunCompletion(p.value.runId, err);
-      opts.dispatcher.notifySettlement(p.value.runId, { kind: "failed", payload: err });
+      void (async () => {
+        if (opts.getCurrentDispatchedWorker && registered) {
+          const currentWid = await opts.getCurrentDispatchedWorker(runId);
+          if (currentWid !== null && currentWid !== registered.workerId) {
+            // eslint-disable-next-line no-console
+            console.warn(
+              `[worker-rpc] dropped RunFailed from ${registered.workerId} for run ${runId}; current owner is ${currentWid}`,
+            );
+            return;
+          }
+        }
+        settleRunCompletion(runId, err);
+        opts.dispatcher.notifySettlement(runId, { kind: "failed", payload: err });
+      })();
       return;
     }
     if (p.case === "runLeaseRenew") {
