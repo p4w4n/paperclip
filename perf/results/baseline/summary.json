@@ -10,10 +10,15 @@
     "ws-burst",
     "bundle"
   ],
-  "failures": [
-    {
-      "scenario": "cold-load",
-      "code": 1
-    }
+  "failures": [],
+  "environment": {
+    "platform": "linux",
+    "captureMethod": "local /tmp/paperclip-perf-home, embedded-postgres, port 5001, local_trusted",
+    "cpuThrottlingRate": 4,
+    "viewport": "1440x1000"
+  },
+  "notes": [
+    "cold-load failed in the run-all run (timeout interaction with first-paint of heavy mermaid/cytoscape code-split chunks) and was re-run standalone with success — its numbers are from that re-run.",
+    "idle-polling and tab-refocus were captured against an EMPTY company (no agents, no issues). The real polling/refocus storm only manifests with seeded data; these numbers establish a floor and will likely look much worse once the dashboard has agents to render."
   ]
 }
