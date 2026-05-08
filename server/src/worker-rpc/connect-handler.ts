@@ -114,6 +114,10 @@ export async function handleConnect(
         disconnect: () => call.end(),
       };
       opts.registry.register(registered);
+      // eslint-disable-next-line no-console
+      console.log(
+        `[worker-rpc] registered workerId=${registered.workerId} instance=${registered.instanceId} adapters=${registered.adapters.join(",")} maxConcurrent=${registered.maxConcurrent}`,
+      );
       void send(
         create(ServerToWorkerSchema, {
           payload: {
