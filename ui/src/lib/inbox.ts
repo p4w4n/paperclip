@@ -675,11 +675,16 @@ export function getInboxKeyboardSelectionIndex(
     : Math.max(previousIndex - 1, 0);
 }
 
-export function getLatestFailedRunsByAgent(runs: HeartbeatRun[]): HeartbeatRun[] {
+// The minimum surface this function needs from a run row. Lets callers pass
+// the trimmed shape returned by /heartbeat-runs/latest-failed (which omits
+// the ~30 columns of a full HeartbeatRun) without losing type safety.
+export type InboxBadgeRunFields = Pick<HeartbeatRun, "id" | "agentId" | "status" | "createdAt">;
+
+export function getLatestFailedRunsByAgent<T extends InboxBadgeRunFields>(runs: T[]): T[] {
   const sorted = [...runs].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
-  const latestByAgent = new Map<string, HeartbeatRun>();
+  const latestByAgent = new Map<string, T>();
 
   for (const run of sorted) {
     if (!latestByAgent.has(run.agentId)) {
@@ -1218,7 +1223,7 @@ export function computeInboxBadgeData({
   approvals: Approval[];
   joinRequests: JoinRequest[];
   dashboard: DashboardSummary | undefined;
-  heartbeatRuns: HeartbeatRun[];
+  heartbeatRuns: InboxBadgeRunFields[];
   mineIssues: Issue[];
   dismissedAlerts: Set<string>;
   dismissedAtByKey: ReadonlyMap<string, number>;

@@ -9362,6 +9362,46 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
   }
 
   return {
+    // For the sidebar inbox badge — returns just the latest *failed* run per
+    // agent, with only the columns the badge needs. The badge previously
+    // pulled 200 full HeartbeatRun objects (~250 KB on the wire) just to
+    // compute "is there a recent failure for any agent?". This endpoint
+    // returns ≤ N rows (one per agent that has a failed/timed_out run as
+    // its most recent terminal status) with ~10 fields each — typical
+    // response is < 5 KB.
+    //
+    // DISTINCT ON (agent_id) + ORDER BY agent_id, created_at DESC gets the
+    // most recent run per agent in a single index-friendly query. We then
+    // filter to the failed/timed_out subset in JS — this matches the
+    // semantics of the previous client-side computation (a "still failing"
+    // agent is one whose most recent run failed; an agent whose latest run
+    // succeeded after a prior failure does not count).
+    latestFailedPerAgent: async (companyId: string) => {
+      const rows = (await db.execute(sql`
+        SELECT DISTINCT ON (agent_id)
+          id, company_id AS "companyId", agent_id AS "agentId",
+          status, error, error_code AS "errorCode",
+          started_at AS "startedAt", finished_at AS "finishedAt",
+          created_at AS "createdAt"
+        FROM heartbeat_runs
+        WHERE company_id = ${companyId}
+        ORDER BY agent_id, created_at DESC
+      `)) as Array<{
+        id: string;
+        companyId: string;
+        agentId: string;
+        status: string;
+        error: string | null;
+        errorCode: string | null;
+        startedAt: string | null;
+        finishedAt: string | null;
+        createdAt: string;
+      }>;
+
+      const FAILURE_STATUSES = new Set(["failed", "timed_out", "adapter_failed"]);
+      return rows.filter((r) => FAILURE_STATUSES.has(r.status));
+    },
+
     list: async (companyId: string, agentId?: string, limit?: number) => {
       const safeForLegacyEncoding = await hasUnsafeTextProjectionDatabase();
       const query = db

@@ -3082,6 +3082,18 @@ export function agentRoutes(
     res.json(runs);
   });
 
+  // Lightweight endpoint for the sidebar inbox badge: returns just the latest
+  // failed run per agent (DISTINCT ON), with only the columns the badge needs.
+  // Replaces the previous useInboxBadge pattern of pulling 200 full
+  // HeartbeatRun objects (~250 KB) just to find the most recent failure.
+  // Issue #958 / upstream PR #959.
+  router.get("/companies/:companyId/heartbeat-runs/latest-failed", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const runs = await heartbeat.latestFailedPerAgent(companyId);
+    res.json(runs);
+  });
+
   router.get("/companies/:companyId/live-runs", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
