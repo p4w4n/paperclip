@@ -78,31 +78,15 @@ export interface DispatchOrLocalAdapter {
 export function createDispatchOrLocal(opts: DispatchOrLocalOpts): DispatchOrLocalAdapter {
   return {
     async execute(ctx: AdapterExecutionContext): Promise<AdapterExecutionResult> {
-      // Two fall-back-to-local paths:
-      //   1. No worker is registered for this adapterType.
-      //   2. A worker was picked but the dispatch send failed (stream
-      //      broke between pickFor and write). The dispatcher reports
-      //      `dispatched: false` in that case.
-      // Both fall back to local execution rather than returning an
-      // error — keeps the OSS single-host story working unchanged.
-      const worker = opts.registry.pickFor(opts.adapterType);
-      if (!worker) {
-        // No worker available. In filestore mode this is fatal — we
-        // can't fall back to local because the in-process path would
-        // race the lease holder on the same files. The heartbeat
-        // scheduler retries via its tick.
-        if (opts.acquireWorkspaceLease) {
-          throw new DispatchFailedError("no_worker_available");
-        }
-        return opts.localExecute(ctx);
-      }
-
       const leaseSecondsForBoth = opts.leaseSeconds ?? 300;
 
       // Plan 4: in filestore mode, the workspace lock is acquired
-      // before dispatch. Busy → throw; the scheduler's next tick
-      // retries naturally. Send-failure later in this function rolls
-      // back the lease.
+      // BEFORE picking a worker. Order matters: a busy workspace is a
+      // cheaper failure (one DB insert) than picking a worker only to
+      // find we can't actually run, and lease-first means
+      // WorkspaceBusyError reflects the actual contention reason.
+      // Busy → throw; the scheduler's next tick retries naturally.
+      // Send-failure later rolls back the lease.
       let workspaceLeaseId: string | null = null;
       if (opts.acquireWorkspaceLease) {
         const r = await opts.acquireWorkspaceLease({
@@ -117,6 +101,28 @@ export function createDispatchOrLocal(opts: DispatchOrLocalOpts): DispatchOrLoca
           });
         }
         workspaceLeaseId = r.leaseId;
+      }
+
+      // Two fall-back-to-local paths (ephemeral mode only):
+      //   1. No worker is registered for this adapterType.
+      //   2. A worker was picked but the dispatch send failed (stream
+      //      broke between pickFor and write). The dispatcher reports
+      //      `dispatched: false` in that case.
+      // Both fall back to local execution rather than returning an
+      // error — keeps the OSS single-host story working unchanged.
+      const worker = opts.registry.pickFor(opts.adapterType);
+      if (!worker) {
+        // No worker available. In filestore mode this is fatal — we
+        // can't fall back to local because the in-process path would
+        // race the lease holder on the same files. Roll back the lease
+        // and surface the error so the scheduler's next tick retries.
+        if (opts.acquireWorkspaceLease) {
+          if (workspaceLeaseId !== null && opts.releaseWorkspaceLease) {
+            await opts.releaseWorkspaceLease({ leaseId: workspaceLeaseId }).catch(() => {});
+          }
+          throw new DispatchFailedError("no_worker_available");
+        }
+        return opts.localExecute(ctx);
       }
 
       // Resolve the agent's secrets BEFORE minting the token so the
