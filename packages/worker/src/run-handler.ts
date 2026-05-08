@@ -11,8 +11,6 @@
 // What this DOES NOT yet do:
 // - RunLog streaming. Adapter stdout/stderr → server is queued for the
 //   adapter-shim work that lights up live log tails.
-// - Lease renewal frames. Task 12 wires the periodic RunLeaseRenew
-//   keepalive that survives long quiet runs (spec NOTE N2).
 // - RunCancel handling. Cancel mid-run wires through the run-handler in
 //   the same task that owns the cancellation pathway.
 
@@ -22,6 +20,7 @@ import {
   RunCompleteSchema,
   RunFailedSchema,
   RunUsageSchema,
+  RunLeaseRenewSchema,
   type RunDispatch,
   type WorkerToServer,
 } from "@paperclipai/worker-rpc";
@@ -79,6 +78,23 @@ export async function handleRunDispatch(
   const workspaceDesc = decodeJson(d.executionWorkspaceJson);
 
   let realized: RealizedWorkspace | null = null;
+  // Spec NOTE N2: server arms a lease deadline at lease_seconds; the
+  // worker is expected to send a renewing frame every lease_seconds/3
+  // (the third covers the case where two consecutive sends drop on a
+  // flapping connection). RunLog/RunUsage already touch the lease, but
+  // a quiet run with no adapter output would expire — so emit an
+  // explicit RunLeaseRenew on a timer regardless of run chatter.
+  const renewIntervalMs = Math.max(1000, Math.floor((d.leaseSeconds * 1000) / 3));
+  const keepalive = setInterval(() => {
+    void deps.send(
+      create(WorkerToServerSchema, {
+        payload: {
+          case: "runLeaseRenew",
+          value: create(RunLeaseRenewSchema, { runId: d.runId }),
+        },
+      }),
+    );
+  }, renewIntervalMs);
   try {
     const secrets = await deps.fetchSecrets(d.secretsScopeToken);
     realized = await deps.realizeWorkspace(workspaceDesc);
@@ -137,6 +153,13 @@ export async function handleRunDispatch(
       }),
     );
   } finally {
+    // Stop the keepalive before workspace cleanup — once the run is
+    // resolved, additional renews would mislead the server into
+    // thinking the run is still alive after RunComplete/RunFailed has
+    // been observed, which can race with the dispatcher's
+    // markCompleted (the server-side handler is idempotent, but this
+    // keeps the wire clean).
+    clearInterval(keepalive);
     // Cleanup runs even on failure — leaving an ephemeral workspace
     // around after a thrown adapter would leak disk on the worker over
     // time. Best-effort: a cleanup throw is logged but not propagated.

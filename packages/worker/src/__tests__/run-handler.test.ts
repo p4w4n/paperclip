@@ -47,6 +47,65 @@ describe("handleRunDispatch", () => {
     }
   });
 
+  it("emits RunLeaseRenew at lease_seconds/3 cadence and stops when run completes", async () => {
+    vi.useFakeTimers();
+    const sent: WorkerToServer[] = [];
+    const cleanup = vi.fn(async () => {});
+    const realize = vi.fn(async () => ({ cwd: "/tmp/fake", cleanup }));
+
+    // Adapter blocks until we resolve it manually so we can advance
+    // fake timers and observe keepalive frames mid-run.
+    let resolveAdapter!: () => void;
+    const adapterDone = new Promise<void>((r) => {
+      resolveAdapter = r;
+    });
+    const shim = vi.fn(async () => {
+      await adapterDone;
+      return { exitCode: 0, signal: null, summary: "ok" };
+    });
+    const fetchSecrets = vi.fn(async () => ({}));
+
+    const handlerDone = handleRunDispatch(
+      create(RunDispatchSchema, {
+        runId: "r-keep",
+        agentId: "a-keep",
+        adapterType: "claude_local",
+        adapterConfigJson: new TextEncoder().encode("{}"),
+        executionWorkspaceJson: new TextEncoder().encode("{}"),
+        secretsScopeToken: "tok",
+        sessionRestore: new Uint8Array(),
+        leaseSeconds: 9, // renew interval = 3000ms
+      }),
+      {
+        realizeWorkspace: realize,
+        runAdapter: shim,
+        fetchSecrets,
+        send: async (m) => {
+          sent.push(m);
+        },
+      },
+    );
+
+    // Let microtasks settle so the keepalive is armed.
+    await vi.advanceTimersByTimeAsync(3000);
+    let renews = sent.filter((m) => m.payload.case === "runLeaseRenew");
+    expect(renews.length).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(3000);
+    renews = sent.filter((m) => m.payload.case === "runLeaseRenew");
+    expect(renews.length).toBe(2);
+
+    resolveAdapter();
+    await vi.runAllTimersAsync();
+    await handlerDone;
+
+    const before = sent.filter((m) => m.payload.case === "runLeaseRenew").length;
+    await vi.advanceTimersByTimeAsync(10_000);
+    const after = sent.filter((m) => m.payload.case === "runLeaseRenew").length;
+    expect(after).toBe(before);
+    vi.useRealTimers();
+  });
+
   it("emits RunFailed on adapter throw, still cleans up", async () => {
     const sent: WorkerToServer[] = [];
     const cleanup = vi.fn(async () => {});

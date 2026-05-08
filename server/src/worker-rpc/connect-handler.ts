@@ -16,6 +16,7 @@ import {
 import type { WorkerAuthStrategy } from "./auth.js";
 import type { WorkerRegistry, RegisteredWorker } from "../services/worker-registry.js";
 import { settleRunCompletion } from "../adapters/run-completion-registry.js";
+import { runDispatcher } from "../services/run-dispatcher.js";
 
 // gRPC keepalive guarantees the *transport* is alive; the application Ping
 // is a separate channel that proves the *application* is responsive (proto
@@ -62,8 +63,29 @@ export async function handleConnect(
   call.on("error", cleanup);
   call.on("close", cleanup);
 
+  // Spec NOTE N2: ANY worker frame referencing a run_id resets that run's
+  // lease. Touching here (before the per-case dispatch) keeps the
+  // bookkeeping in one place instead of repeating runDispatcher.touchLease
+  // calls in each case branch — and crucially picks up future frame types
+  // like RunSession without requiring this handler to be edited.
+  const touchIfRun = (msg: WorkerToServer): void => {
+    const p = msg.payload;
+    if (
+      p.case === "runComplete" ||
+      p.case === "runFailed" ||
+      p.case === "runLog" ||
+      p.case === "runUsage" ||
+      p.case === "runSession" ||
+      p.case === "runLeaseRenew"
+    ) {
+      const runId = (p.value as { runId?: string }).runId;
+      if (runId) runDispatcher.touchLease(runId);
+    }
+  };
+
   call.on("data", (msg: WorkerToServer) => {
     lastSeen = Date.now();
+    touchIfRun(msg);
     const p = msg.payload;
     if (p.case === "hello") {
       // Spec NOTE N1: evict any prior registration for the same workerId.
@@ -132,8 +154,13 @@ export async function handleConnect(
       );
       return;
     }
+    if (p.case === "runLeaseRenew") {
+      // touchIfRun already reset the deadline above. Explicit case here
+      // documents the keepalive contract and stops the no-op falling
+      // through to "unknown frame" logging once we add it.
+      return;
+    }
     // Other variants (LeaseAck/Nack, RunLog, RunUsage, RunSession,
-    // RunLeaseRenew, DrainRequested, Capacity) are handled in
-    // subsequent tasks.
+    // DrainRequested, Capacity) are handled in subsequent tasks.
   });
 }

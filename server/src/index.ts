@@ -837,6 +837,19 @@ export async function startServer(): Promise<StartedServer> {
       bindAddress: config.workerGrpcBindAddress,
     });
     logger.info({ port: workerPort, bindAddress: config.workerGrpcBindAddress }, "worker gRPC server listening");
+
+    // Spec NOTE N2: lease expiry while the dispatch-or-local awaiter is
+    // still pending must be reflected as a rejection on the awaiter so
+    // the agent's run record settles instead of hanging until the heartbeat
+    // scheduler reaper notices. The dispatcher's onSettlement is the
+    // server-side hook for that — wire it once at boot.
+    const { runDispatcher } = await import("./services/run-dispatcher.js");
+    const { settleRunCompletion } = await import("./adapters/run-completion-registry.js");
+    runDispatcher.onSettlement((runId, reason) => {
+      if (reason.kind === "lease_expired") {
+        settleRunCompletion(runId, new Error("lease_expired"));
+      }
+    });
   }
 
   await new Promise<void>((resolveListen, rejectListen) => {

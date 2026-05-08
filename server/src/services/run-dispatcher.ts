@@ -37,13 +37,33 @@ export interface DispatchReceipt {
   reason?: string;
 }
 
+// Lease settlement signals. The dispatch-or-local wrapper subscribes via
+// onSettlement so a lease_expired result can be reflected back to the
+// dispatch-or-local awaiter as a thrown error (the wrapper's
+// awaitCompletion() rejects, in-process state cleans up, the agent's
+// run record is marked failed by the lease reaper in plan 2).
+export type SettlementReason =
+  | { kind: "complete"; payload?: unknown }
+  | { kind: "failed"; payload?: unknown }
+  | { kind: "lease_expired" };
+
+export type SettlementListener = (runId: string, reason: SettlementReason) => void;
+
 export class RunDispatcher {
   // runId → workerId. Source of truth for "which worker did I send this
   // run to?" so markCompleted / markFailed know which slot to release.
   // The DB's heartbeat_runs.dispatched_to_worker_id is the persistent
-  // companion (Task 10); this map covers in-process state for the
-  // duration of the dispatch lifecycle.
+  // companion; this map covers in-process state for the duration of
+  // the dispatch lifecycle.
   private runToWorker = new Map<string, string>();
+  // Per-run lease deadline timers. Cleared on markCompleted; rearmed by
+  // touchLease (worker frame referencing the run) and extendLease
+  // (server-issued grant extension).
+  private leaseTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  // Captured lease window per run so touchLease can reset to the
+  // original duration without callers having to remember it.
+  private leaseWindowSec = new Map<string, number>();
+  private listeners = new Set<SettlementListener>();
 
   constructor(private readonly registry: WorkerRegistry) {}
 
@@ -86,14 +106,76 @@ export class RunDispatcher {
       return { dispatched: false, reason: `send failed: ${(err as Error).message}` };
     }
 
+    // Arm the lease deadline. Spec NOTE N2: the worker is required to
+    // send a renewing frame (RunLog/Usage/Session/RunLeaseRenew) every
+    // lease_seconds/3 — any of those frames calls touchLease() via
+    // the connect handler. Missing the deadline triggers
+    // lease_expired settlement and slot release.
+    this.armLease(input.runId, input.leaseSeconds);
+
     return { dispatched: true, workerId: worker.workerId };
   }
 
+  private armLease(runId: string, seconds: number): void {
+    const old = this.leaseTimers.get(runId);
+    if (old) clearTimeout(old);
+    this.leaseWindowSec.set(runId, seconds);
+    const t = setTimeout(() => {
+      this.leaseTimers.delete(runId);
+      this.leaseWindowSec.delete(runId);
+      // markCompleted releases the worker's slot and clears the
+      // run→worker mapping. The settlement listeners (e.g., the
+      // run-completion-registry awaiter) get notified separately so a
+      // dispatch-or-local awaiter rejects instead of hanging.
+      this.markCompleted(runId);
+      for (const l of this.listeners) l(runId, { kind: "lease_expired" });
+    }, seconds * 1000);
+    this.leaseTimers.set(runId, t);
+  }
+
+  /**
+   * Spec NOTE N2: ANY frame referencing a run_id resets its lease to
+   * the original window. Called by the connect handler on RunLog,
+   * RunUsage, RunSession, RunLeaseRenew, etc. — independent of run
+   * output volume so a long quiet compile does not lose its lease.
+   */
+  touchLease(runId: string): void {
+    if (!this.runToWorker.has(runId)) return;
+    const win = this.leaseWindowSec.get(runId);
+    if (!win) return;
+    this.armLease(runId, win);
+  }
+
+  /**
+   * Server-initiated grant extension — used for budget-override grants
+   * (sends ServerToWorker.LeaseRenew). Distinct from touchLease which
+   * is worker-initiated keepalive.
+   */
+  extendLease(runId: string, newSeconds: number): void {
+    if (!this.runToWorker.has(runId)) return;
+    this.armLease(runId, newSeconds);
+  }
+
+  onSettlement(listener: SettlementListener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
   // Called by the gRPC handler when it receives RunComplete / RunFailed
-  // from the worker, OR by the lease reaper when the lease expires
-  // without resolution. Idempotent — repeated calls for the same runId
-  // after the first are no-ops.
+  // from the worker, OR by the lease arming code on lease expiry.
+  // Idempotent — repeated calls for the same runId after the first are
+  // no-ops. Cleans up the lease timer too so a markCompleted called
+  // because of a normal RunComplete doesn't leave the timer firing
+  // a phantom lease_expired settlement.
   markCompleted(runId: string): void {
+    const t = this.leaseTimers.get(runId);
+    if (t) {
+      clearTimeout(t);
+      this.leaseTimers.delete(runId);
+    }
+    this.leaseWindowSec.delete(runId);
     const workerId = this.runToWorker.get(runId);
     if (!workerId) return;
     this.runToWorker.delete(runId);
