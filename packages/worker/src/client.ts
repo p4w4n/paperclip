@@ -121,8 +121,14 @@ export async function startWorkerClient(opts: WorkerClientOpts): Promise<WorkerC
       return;
     }
     if (msg.payload.case === "welcome") {
-      // Handshake reply — nothing to do here. Future: cache the
-      // scoped JWT for unary RPCs (ReportEvent, etc.).
+      // Handshake reply — nothing to do here yet. Future: cache the
+      // scoped JWT for unary RPCs (ReportEvent, etc.). Single-line
+      // log so smoke runs and prod ops can confirm the worker actually
+      // joined the control plane (not just opened a TCP connection).
+      // eslint-disable-next-line no-console
+      console.log(
+        `[worker] joined control plane workerId=${msg.payload.value.workerId} configHash=${msg.payload.value.configHash}`,
+      );
       return;
     }
     opts.onDispatch(msg);

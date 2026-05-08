@@ -1,0 +1,122 @@
+# Multi-container test for the distributed-workers feature (worker plan
+# Phase 1 / Task 12 lease-deadline). Brings up postgres + control-plane
+# server + 2 worker containers, all sharing a docker network so the
+# worker.Connect bidi stream and FetchSecrets unary RPC can flow.
+#
+# Why this is separate from docker/docker-compose.yml: the production
+# compose runs the server in a single-node "everything in one process"
+# mode. This file deliberately exercises the worker rollout — server
+# acts as the control plane, workers carry the adapter binaries
+# (claude-code + gemini-cli) and the host's OAuth credentials.
+#
+# Usage:
+#   export WORKER_SHARED_SECRET=$(openssl rand -hex 32)
+#   export BETTER_AUTH_SECRET=$(openssl rand -hex 32)
+#   docker compose -f docker/docker-compose.workers.yml up --build
+#
+# Credentials: workers mount $HOME/.claude and $HOME/.gemini read-write
+# (rw is intentional — claude-code and gemini-cli refresh OAuth tokens
+# during long sessions; ro would break that path within an hour).
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: paperclip
+      POSTGRES_PASSWORD: paperclip
+      POSTGRES_DB: paperclip
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paperclip -d paperclip"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - workers-pgdata:/var/lib/postgresql/data
+
+  server:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    ports:
+      # Host ports remapped to 23100 / 50052 so this stack can co-exist
+      # with a local paperclip dev server (which holds 3100 + 13100).
+      - "23100:3100"
+      # Expose the worker gRPC port to the host for ad-hoc grpcurl
+      # debugging. The workers themselves reach it via the docker
+      # network on `server:50051`, NOT via this published port.
+      - "50052:50051"
+    environment:
+      DATABASE_URL: postgres://paperclip:paperclip@db:5432/paperclip
+      PORT: "3100"
+      SERVE_UI: "true"
+      # authenticated mode is required because local_trusted is bound to
+      # loopback only (server/src/config.ts:285) — incompatible with the
+      # docker network bridge that workers reach over. The smoke driver
+      # uses the bootstrap-ceo CLI (cli/src/commands/auth-bootstrap-ceo.ts)
+      # to seed an instance-admin invite for API calls.
+      PAPERCLIP_DEPLOYMENT_MODE: "authenticated"
+      PAPERCLIP_DEPLOYMENT_EXPOSURE: "private"
+      PAPERCLIP_PUBLIC_URL: "${PAPERCLIP_PUBLIC_URL:-http://localhost:23100}"
+      BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET must be set}"
+      # Worker plumbing — shared_secret is the only auth mode the v1
+      # path supports. gcp_id_token mode lights up in Task 14.
+      WORKER_GRPC_ENABLED: "true"
+      WORKER_AUTH_MODE: "shared_secret"
+      WORKER_SHARED_SECRET: "${WORKER_SHARED_SECRET:?WORKER_SHARED_SECRET must be set}"
+      WORKER_GRPC_BIND_ADDRESS: "0.0.0.0:50051"
+    volumes:
+      - workers-server-data:/paperclip
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Two workers so we can verify worker selection / load balancing and
+  # prove that workerId reuse semantics (spec NOTE N1) don't accidentally
+  # evict the wrong session under concurrent registration.
+  worker-1:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: ["node", "packages/worker/dist/index.js"]
+    environment:
+      PAPERCLIP_CONTROL_PLANE_ADDR: "server:50051"
+      PAPERCLIP_WORKER_SHARED_SECRET: "${WORKER_SHARED_SECRET:?WORKER_SHARED_SECRET must be set}"
+      # PAPERCLIP_WORKER_ID set explicitly so a container restart preserves
+      # workerId (matches what GCE instance_id gives us in production).
+      PAPERCLIP_WORKER_ID: "worker-1"
+      PAPERCLIP_WORKER_ADAPTERS: "claude_local,gemini_local"
+      PAPERCLIP_WORKER_MAX_CONCURRENT: "1"
+      HOME: "/paperclip"
+    volumes:
+      # OAuth credentials from the host — claude-code reads
+      # $HOME/.claude/.credentials.json and gemini-cli reads
+      # $HOME/.gemini/oauth_creds.json. Mounted rw so token refresh
+      # still works.
+      - ${HOME}/.claude:/paperclip/.claude
+      - ${HOME}/.gemini:/paperclip/.gemini
+    depends_on:
+      server:
+        condition: service_started
+
+  worker-2:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: ["node", "packages/worker/dist/index.js"]
+    environment:
+      PAPERCLIP_CONTROL_PLANE_ADDR: "server:50051"
+      PAPERCLIP_WORKER_SHARED_SECRET: "${WORKER_SHARED_SECRET:?WORKER_SHARED_SECRET must be set}"
+      PAPERCLIP_WORKER_ID: "worker-2"
+      PAPERCLIP_WORKER_ADAPTERS: "claude_local,gemini_local"
+      PAPERCLIP_WORKER_MAX_CONCURRENT: "1"
+      HOME: "/paperclip"
+    volumes:
+      - ${HOME}/.claude:/paperclip/.claude
+      - ${HOME}/.gemini:/paperclip/.gemini
+    depends_on:
+      server:
+        condition: service_started
+
+volumes:
+  workers-pgdata:
+  workers-server-data:
