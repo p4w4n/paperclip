@@ -1,0 +1,26 @@
+{
+  "name": "@paperclipai/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": { "paperclip-worker": "./dist/index.js" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.12.0",
+    "@bufbuild/protobuf": "^2.2.0",
+    "@paperclipai/worker-rpc": "workspace:*",
+    "@paperclipai/adapter-pi-local": "workspace:*",
+    "@paperclipai/adapter-utils": "workspace:*",
+    "@paperclipai/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}
