@@ -71,13 +71,18 @@ message RunDispatch {
   bytes adapter_config_json = 4;          // serialized adapter config
   bytes execution_workspace_json = 5;     // serialized ExecutionWorkspaceInput
   string secrets_scope_token = 6;         // exchange via FetchSecrets
-  bytes session_restore = 7;              // optional adapter session blob
+  bytes session_restore = 7;              // optional adapter session blob (inline; small)
   uint32 lease_seconds = 8;
   // Plan 3: runtime services to start before the adapter runs (dev
   // servers, embedded postgres, etc.). Worker spawns each on the
   // realized workspace, awaits readiness, then invokes the adapter.
   // Empty list = no services for this run.
   repeated RuntimeServiceSpec runtime_services = 9;
+  // Plan 5: signed URL the worker fetches with HTTP GET to recover a
+  // large adapter session. Set when session_restore would exceed the
+  // gRPC inline-blob threshold (~1MB default). The worker prefers
+  // session_restore_uri when both fields are populated.
+  string session_restore_uri = 10;
 }
 
 message RuntimeServiceSpec {
