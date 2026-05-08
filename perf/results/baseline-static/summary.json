@@ -1,0 +1,14 @@
+{
+  "label": "baseline-static",
+  "sha": "c3a6f27c",
+  "finishedAt": "2026-05-08T05:40:09.500Z",
+  "scenarios": [
+    "cold-load",
+    "chat-scroll",
+    "idle-polling",
+    "tab-refocus",
+    "ws-burst",
+    "bundle"
+  ],
+  "failures": []
+}

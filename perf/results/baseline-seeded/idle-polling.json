@@ -1,0 +1,58 @@
+{
+  "scenario": "idle-polling",
+  "sha": "c3a6f27c",
+  "label": "baseline-seeded",
+  "timestamp": "2026-05-08T05:46:54.076Z",
+  "cpuThrottlingRate": 4,
+  "idleSeconds": 60,
+  "actualIdleMs": 60003,
+  "apiRequestCount": 23,
+  "apiRequestsPerMinute": 23,
+  "topPaths": [
+    {
+      "path": "/api/companies/:id/live-runs",
+      "count": 7
+    },
+    {
+      "path": "/api/companies/:id/issues",
+      "count": 2
+    },
+    {
+      "path": "/api/sidebar-preferences/me",
+      "count": 1
+    },
+    {
+      "path": "/api/plugins/ui-contributions",
+      "count": 1
+    },
+    {
+      "path": "/api/companies/:id/projects",
+      "count": 1
+    },
+    {
+      "path": "/api/companies/:id/sidebar-preferences/me",
+      "count": 1
+    },
+    {
+      "path": "/api/companies/:id/agents",
+      "count": 1
+    },
+    {
+      "path": "/api/companies/:id/inbox-dismissals",
+      "count": 1
+    },
+    {
+      "path": "/api/companies/:id/approvals",
+      "count": 1
+    },
+    {
+      "path": "/api/companies/:id/join-requests",
+      "count": 1
+    }
+  ],
+  "longTasksDuringIdle": {
+    "count": 9,
+    "totalMs": 3503,
+    "maxMs": 1792
+  }
+}

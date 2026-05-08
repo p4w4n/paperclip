@@ -1,0 +1,18 @@
+{
+  "scenario": "ws-burst",
+  "sha": "c3a6f27c",
+  "label": "baseline-static",
+  "timestamp": "2026-05-08T05:36:20.277Z",
+  "cpuThrottlingRate": 4,
+  "burstCount": 200,
+  "messagesFired": 0,
+  "timeToIdleAfterBurstMs": null,
+  "longTasksAfterBurst": {
+    "count": 74,
+    "totalMs": 10886,
+    "maxMs": 439
+  },
+  "droppedFramesAfterBurst": 76,
+  "fpsDuringSettle": 20,
+  "note": "No WebSocket connections were observed — see scenario header for setup notes."
+}

@@ -1,0 +1,13 @@
+{
+  "label": "baseline-seeded",
+  "sha": "c3a6f27c",
+  "finishedAt": "2026-05-08T05:47:57.806Z",
+  "scenarios": [
+    "cold-load",
+    "chat-scroll",
+    "idle-polling",
+    "tab-refocus",
+    "ws-burst"
+  ],
+  "failures": []
+}

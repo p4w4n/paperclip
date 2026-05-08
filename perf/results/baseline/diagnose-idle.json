@@ -1,0 +1,241 @@
+{
+  "scenario": "diagnose-idle",
+  "sha": "c3a6f27c",
+  "label": "baseline",
+  "timestamp": "2026-05-08T05:30:58.690Z",
+  "cpuThrottlingRate": 4,
+  "idleSeconds": 60,
+  "longTaskCount": 407,
+  "longTaskTotalMs": 37795,
+  "longTaskMaxMs": 1239,
+  "interTaskGapBuckets": {
+    "<50ms": 0,
+    "50-100ms": 280,
+    "100-250ms": 82,
+    "250-500ms": 24,
+    "500ms-1s": 14,
+    "1-2s": 6,
+    ">2s": 0
+  },
+  "interTaskGapsMs": [
+    1239.9,
+    1223.2,
+    120.7,
+    234.2,
+    261.7,
+    252.8,
+    238,
+    234.7,
+    233.2,
+    217.8,
+    211.9,
+    217.3,
+    248.7,
+    221.8,
+    357.9,
+    115.4,
+    102.7,
+    281.9,
+    235.7,
+    1063.9,
+    67.5,
+    83.1,
+    77.9,
+    84.2,
+    83.1,
+    72,
+    67.4,
+    71.8,
+    73.5,
+    71.3,
+    149.3,
+    265.7,
+    1182.7,
+    55.7,
+    181.4,
+    63.5,
+    73.8,
+    71.4,
+    65.9,
+    65.9,
+    65.1,
+    65.4,
+    61.7,
+    158.8,
+    81.1,
+    72.9,
+    133.2,
+    73.7,
+    101.5,
+    80,
+    74.9,
+    70.6,
+    59.6,
+    65.2,
+    77.6,
+    63.5,
+    70.8,
+    72.6,
+    77.4,
+    223.9,
+    56.6,
+    65,
+    100.6,
+    74.6,
+    78.7,
+    314.8,
+    62.2,
+    66.9,
+    64.7,
+    71.3,
+    64.2,
+    69.4,
+    70.3,
+    67.9,
+    71.1,
+    93.1,
+    79.2,
+    65.4,
+    74.5,
+    136.9,
+    70,
+    64,
+    75.6,
+    67.2,
+    75.2,
+    80,
+    77.8,
+    85.3,
+    93.8,
+    96.5,
+    79.5,
+    95.6,
+    86.5,
+    72.1,
+    76.6,
+    168.1,
+    78.3,
+    517.4,
+    63.7,
+    60.1
+  ],
+  "intervalCount": 1,
+  "intervalByMs": {
+    "30000": 1
+  },
+  "intervalSample": [
+    {
+      "id": 1,
+      "ms": 30000,
+      "stack": "    at Object.connect (http://localhost:5001/@vite/client:472:24) |     at async Object.connect (http://localhost:5001/@vite/client:811:11) |     at async Object.connect (http://localhost:5001/@vite/client:392:11)",
+      "createdAt": 221
+    }
+  ],
+  "timeoutCount": 15,
+  "timeoutSample": [
+    {
+      "id": 2,
+      "ms": 0,
+      "stack": "    at updateStyle (http://localhost:5001/@vite/client:1103:7) |     at http://localhost:5001/@fs/tmp/paperclip/node_modules/.pnpm/@mdxeditor+editor@3.52.4_@codemirror+language@6.12.1_@lezer+highlight@1.2.3_@types+react-dom@_pzhotnbszb5q3cxok3ldaus4se/node_modules/@mdxeditor/editor/dist/style.css:4:",
+      "createdAt": 5481.5
+    },
+    {
+      "id": 10,
+      "ms": 1,
+      "stack": "    at Object.setTimeout (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:51:36) |     at _a.setTimeout (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:86:42) |     at _a6.updateStaleTimeout_fn (http://localhost:5001/node_modules/.",
+      "createdAt": 7040.200000286102
+    },
+    {
+      "id": 11,
+      "ms": 1,
+      "stack": "    at Object.setTimeout (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:51:36) |     at _a.setTimeout (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:86:42) |     at _a6.updateStaleTimeout_fn (http://localhost:5001/node_modules/.",
+      "createdAt": 7041.400000095367
+    },
+    {
+      "id": 12,
+      "ms": 1,
+      "stack": "    at Object.setTimeout (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:51:36) |     at _a.setTimeout (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:86:42) |     at _a6.updateStaleTimeout_fn (http://localhost:5001/node_modules/.",
+      "createdAt": 7046.800000190735
+    },
+    {
+      "id": 13,
+      "ms": 1,
+      "stack": "    at Object.setTimeout (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:51:36) |     at _a.setTimeout (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:86:42) |     at _a6.updateStaleTimeout_fn (http://localhost:5001/node_modules/.",
+      "createdAt": 7050.300000190735
+    },
+    {
+      "id": 14,
+      "ms": 0,
+      "stack": "    at systemSetTimeoutZero (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:103:3) |     at flush (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:637:7) |     at Object.batch (http://localhost:5001/node_modules/.vite/deps/@tanstac",
+      "createdAt": 7051
+    },
+    {
+      "id": 15,
+      "ms": 1,
+      "stack": "    at Object.setTimeout (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:51:36) |     at _a.setTimeout (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:86:42) |     at _a6.updateStaleTimeout_fn (http://localhost:5001/node_modules/.",
+      "createdAt": 7056.300000190735
+    },
+    {
+      "id": 23,
+      "ms": 1,
+      "stack": "    at Object.setTimeout (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:51:36) |     at _a.setTimeout (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:86:42) |     at _a6.updateStaleTimeout_fn (http://localhost:5001/node_modules/.",
+      "createdAt": 7073.5
+    },
+    {
+      "id": 24,
+      "ms": 1,
+      "stack": "    at Object.setTimeout (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:51:36) |     at _a.setTimeout (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:86:42) |     at _a6.updateStaleTimeout_fn (http://localhost:5001/node_modules/.",
+      "createdAt": 7075.400000095367
+    },
+    {
+      "id": 25,
+      "ms": 1,
+      "stack": "    at Object.setTimeout (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:51:36) |     at _a.setTimeout (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:86:42) |     at _a6.updateStaleTimeout_fn (http://localhost:5001/node_modules/.",
+      "createdAt": 7076.900000095367
+    },
+    {
+      "id": 26,
+      "ms": 1,
+      "stack": "    at Object.setTimeout (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:51:36) |     at _a.setTimeout (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:86:42) |     at _a6.updateStaleTimeout_fn (http://localhost:5001/node_modules/.",
+      "createdAt": 7079.200000286102
+    },
+    {
+      "id": 28,
+      "ms": 0,
+      "stack": "    at systemSetTimeoutZero (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:103:3) |     at flush (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:637:7) |     at Object.batch (http://localhost:5001/node_modules/.vite/deps/@tanstac",
+      "createdAt": 7503.200000286102
+    },
+    {
+      "id": 32,
+      "ms": 0,
+      "stack": "    at systemSetTimeoutZero (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:103:3) |     at flush (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:637:7) |     at Object.batch (http://localhost:5001/node_modules/.vite/deps/@tanstac",
+      "createdAt": 7503.800000190735
+    },
+    {
+      "id": 36,
+      "ms": 0,
+      "stack": "    at systemSetTimeoutZero (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:103:3) |     at flush (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:637:7) |     at Object.batch (http://localhost:5001/node_modules/.vite/deps/@tanstac",
+      "createdAt": 7511.200000286102
+    },
+    {
+      "id": 39,
+      "ms": 0,
+      "stack": "    at systemSetTimeoutZero (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:103:3) |     at flush (http://localhost:5001/node_modules/.vite/deps/@tanstack_react-query.js?v=75f15b5c:637:7) |     at Object.batch (http://localhost:5001/node_modules/.vite/deps/@tanstac",
+      "createdAt": 7512.200000286102
+    }
+  ],
+  "rafCount": 1616,
+  "wsFramesSent": 2,
+  "wsFramesReceived": 0,
+  "wsSentSamples": [
+    {
+      "t": 30231.900000095367,
+      "data": "{\"type\":\"ping\"}"
+    },
+    {
+      "t": 60220.90000009537,
+      "data": "{\"type\":\"ping\"}"
+    }
+  ],
+  "wsReceivedSamples": []
+}
