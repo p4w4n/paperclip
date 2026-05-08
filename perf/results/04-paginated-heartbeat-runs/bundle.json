@@ -1,0 +1,51 @@
+{
+  "scenario": "bundle",
+  "label": "04-paginated-heartbeat-runs",
+  "timestamp": "2026-05-08T09:09:21.346Z",
+  "cpuThrottlingRate": 4,
+  "totalBytes": 8014767,
+  "jsBytes": 7635991,
+  "jsFileCount": 169,
+  "topJsChunks": [
+    {
+      "path": "assets/index-DqBpIUdY.js",
+      "size": 3692284
+    },
+    {
+      "path": "assets/mermaid.core-LNeV1u0l.js",
+      "size": 497758
+    },
+    {
+      "path": "assets/treemap-GDKQZRPO-zyyT3t-i.js",
+      "size": 453202
+    },
+    {
+      "path": "assets/cytoscape.esm-jbPEKk2Y.js",
+      "size": 441205
+    },
+    {
+      "path": "assets/katex-B95LWT_Q.js",
+      "size": 257689
+    },
+    {
+      "path": "assets/architectureDiagram-VXUJARFQ-C2sZyVwQ.js",
+      "size": 148861
+    },
+    {
+      "path": "assets/index-BSyu9V_2.js",
+      "size": 100553
+    },
+    {
+      "path": "assets/sequenceDiagram-WL72ISMW-DIh8QrV7.js",
+      "size": 98138
+    },
+    {
+      "path": "assets/index-DkYv7zvO.js",
+      "size": 97859
+    },
+    {
+      "path": "assets/index-D-kpkZgF.js",
+      "size": 86632
+    }
+  ]
+}

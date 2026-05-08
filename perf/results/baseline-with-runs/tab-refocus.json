@@ -1,0 +1,42 @@
+{
+  "scenario": "tab-refocus",
+  "sha": "f77575a0",
+  "label": "baseline-with-runs",
+  "timestamp": "2026-05-08T08:56:25.660Z",
+  "cpuThrottlingRate": 4,
+  "blurSeconds": 30,
+  "refocusWindowSeconds": 5,
+  "apiRequestsAfterRefocus": 10,
+  "topPaths": [
+    {
+      "path": "/api/heartbeat-runs/:id/log",
+      "count": 4
+    },
+    {
+      "path": "/api/companies/:id/live-runs",
+      "count": 2
+    },
+    {
+      "path": "/api/companies/:id/heartbeat-runs",
+      "count": 1
+    },
+    {
+      "path": "/api/companies/:id/agents",
+      "count": 1
+    },
+    {
+      "path": "/api/companies/:id/dashboard",
+      "count": 1
+    },
+    {
+      "path": "/api/companies/:id/activity",
+      "count": 1
+    }
+  ],
+  "longTasksAfterRefocus": {
+    "count": 0,
+    "totalMs": 0,
+    "maxMs": 0
+  },
+  "refocusedAt": 1778230580618
+}

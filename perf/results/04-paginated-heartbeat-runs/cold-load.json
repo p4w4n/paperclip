@@ -1,0 +1,24 @@
+{
+  "scenario": "cold-load",
+  "sha": "9a916b6b",
+  "label": "04-paginated-heartbeat-runs",
+  "timestamp": "2026-05-08T09:06:35.458Z",
+  "cpuThrottlingRate": 4,
+  "loadEventMs": 2946,
+  "domContentLoadedMs": 2940.6,
+  "domInteractiveMs": 56.8,
+  "loadEventEndMs": 2941.8,
+  "transferSize": 2532,
+  "encodedBodySize": 2232,
+  "decodedBodySize": 2232,
+  "firstContentfulPaintMs": 3216,
+  "longTasks": {
+    "count": 5,
+    "totalMs": 2924,
+    "maxMs": 2395
+  },
+  "totalTransferBytes": 4007158,
+  "jsBytes": 3692284,
+  "jsResourceCount": 1,
+  "resourceCount": 8
+}

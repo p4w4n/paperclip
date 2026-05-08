@@ -1,0 +1,13 @@
+{
+  "label": "04-paginated-heartbeat-runs",
+  "sha": "9a916b6b",
+  "finishedAt": "2026-05-08T09:08:57.927Z",
+  "scenarios": [
+    "cold-load",
+    "chat-scroll",
+    "idle-polling",
+    "tab-refocus",
+    "ws-burst"
+  ],
+  "failures": []
+}

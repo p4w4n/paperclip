@@ -1,0 +1,26 @@
+{
+  "scenario": "chat-scroll",
+  "sha": "9a916b6b",
+  "label": "04-paginated-heartbeat-runs",
+  "timestamp": "2026-05-08T09:06:48.168Z",
+  "cpuThrottlingRate": 4,
+  "renderReadyMs": 8706,
+  "virtualCount": 487,
+  "rowCount": 15,
+  "markdownRows": 150,
+  "commitCount": 1,
+  "mountActualDurationMs": 3659.4,
+  "latestActualDurationMs": 3659.4,
+  "maxActualDurationMs": 3659.4,
+  "totalActualDurationMs": 3659.4,
+  "scrollResponsiveMs": 460.7,
+  "scrollDeltaPx": 115713,
+  "documentHeightPx": 116713,
+  "scrollDroppedFrames": 11,
+  "scrollFps": 3,
+  "longTasks": {
+    "count": 9,
+    "totalMs": 8846,
+    "maxMs": 4526
+  }
+}

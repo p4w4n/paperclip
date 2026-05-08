@@ -189,9 +189,15 @@ export function useInboxBadge(companyId: string | null | undefined) {
   const mineIssues = useMemo(() => getRecentTouchedIssues(mineIssuesRaw), [mineIssuesRaw]);
   const currentUserId = session?.user.id ?? session?.session.userId ?? null;
 
+  // Fetch only the latest failed run per agent from the server rather than
+  // the previous "list 200 full rows and find latest-failed in JS" pattern.
+  // The server filters via DISTINCT ON (agent_id), so the typical response
+  // is a handful of rows totalling a few KB instead of ~250 KB. The badge
+  // computation downstream only reads `id` and `createdAt`, both of which
+  // are present in the trimmed shape returned by /heartbeat-runs/latest-failed.
   const { data: heartbeatRuns = [] } = useQuery({
-    queryKey: [...queryKeys.heartbeats(companyId!), "limit", INBOX_BADGE_HEARTBEAT_RUN_LIMIT],
-    queryFn: () => heartbeatsApi.list(companyId!, undefined, INBOX_BADGE_HEARTBEAT_RUN_LIMIT),
+    queryKey: [...queryKeys.heartbeats(companyId!), "latest-failed"],
+    queryFn: () => heartbeatsApi.latestFailedPerAgent(companyId!),
     enabled: !!companyId,
   });
 

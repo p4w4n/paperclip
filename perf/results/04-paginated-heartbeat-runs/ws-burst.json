@@ -1,0 +1,18 @@
+{
+  "scenario": "ws-burst",
+  "sha": "9a916b6b",
+  "label": "04-paginated-heartbeat-runs",
+  "timestamp": "2026-05-08T09:08:57.885Z",
+  "cpuThrottlingRate": 4,
+  "burstCount": 200,
+  "messagesFired": 0,
+  "timeToIdleAfterBurstMs": null,
+  "longTasksAfterBurst": {
+    "count": 14,
+    "totalMs": 3133,
+    "maxMs": 589
+  },
+  "droppedFramesAfterBurst": 9,
+  "fpsDuringSettle": 48,
+  "note": "No WebSocket connections were observed — see scenario header for setup notes."
+}

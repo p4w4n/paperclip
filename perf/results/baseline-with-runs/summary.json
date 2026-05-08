@@ -1,0 +1,13 @@
+{
+  "label": "baseline-with-runs",
+  "sha": "f77575a0",
+  "finishedAt": "2026-05-08T08:56:45.366Z",
+  "scenarios": [
+    "cold-load",
+    "chat-scroll",
+    "idle-polling",
+    "tab-refocus",
+    "ws-burst"
+  ],
+  "failures": []
+}
