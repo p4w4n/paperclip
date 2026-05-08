@@ -1,0 +1,42 @@
+{
+  "scenario": "idle-polling",
+  "sha": "f77575a0",
+  "label": "baseline-with-runs",
+  "timestamp": "2026-05-08T08:55:47.209Z",
+  "cpuThrottlingRate": 4,
+  "idleSeconds": 60,
+  "actualIdleMs": 60000,
+  "apiRequestCount": 36,
+  "apiRequestsPerMinute": 36,
+  "topPaths": [
+    {
+      "path": "/api/heartbeat-runs/:id/log",
+      "count": 20
+    },
+    {
+      "path": "/api/companies/:id/live-runs",
+      "count": 8
+    },
+    {
+      "path": "/api/companies/:id/heartbeat-runs",
+      "count": 2
+    },
+    {
+      "path": "/api/companies/:id/agents",
+      "count": 2
+    },
+    {
+      "path": "/api/companies/:id/dashboard",
+      "count": 2
+    },
+    {
+      "path": "/api/companies/:id/activity",
+      "count": 2
+    }
+  ],
+  "longTasksDuringIdle": {
+    "count": 6,
+    "totalMs": 1024,
+    "maxMs": 612
+  }
+}
