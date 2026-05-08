@@ -1,0 +1,26 @@
+{
+  "scenario": "chat-scroll",
+  "sha": "a4b55d7a",
+  "label": "baseline",
+  "timestamp": "2026-05-08T05:19:32.096Z",
+  "cpuThrottlingRate": 4,
+  "renderReadyMs": 23076,
+  "virtualCount": 487,
+  "rowCount": 11,
+  "markdownRows": 150,
+  "commitCount": 0,
+  "mountActualDurationMs": null,
+  "latestActualDurationMs": null,
+  "maxActualDurationMs": 0,
+  "totalActualDurationMs": 0,
+  "scrollResponsiveMs": 1198.3,
+  "scrollDeltaPx": 115713,
+  "documentHeightPx": 116713,
+  "scrollDroppedFrames": 72,
+  "scrollFps": 3,
+  "longTasks": {
+    "count": 10,
+    "totalMs": 16898,
+    "maxMs": 8726
+  }
+}

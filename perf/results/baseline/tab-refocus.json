@@ -1,0 +1,17 @@
+{
+  "scenario": "tab-refocus",
+  "sha": "a4b55d7a",
+  "label": "baseline",
+  "timestamp": "2026-05-08T05:21:29.231Z",
+  "cpuThrottlingRate": 4,
+  "blurSeconds": 30,
+  "refocusWindowSeconds": 5,
+  "apiRequestsAfterRefocus": 0,
+  "topPaths": [],
+  "longTasksAfterRefocus": {
+    "count": 31,
+    "totalMs": 2840,
+    "maxMs": 244
+  },
+  "refocusedAt": 1778217684040
+}

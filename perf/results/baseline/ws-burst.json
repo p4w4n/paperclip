@@ -1,0 +1,17 @@
+{
+  "scenario": "ws-burst",
+  "sha": "a4b55d7a",
+  "label": "baseline",
+  "timestamp": "2026-05-08T05:21:55.329Z",
+  "cpuThrottlingRate": 4,
+  "burstCount": 200,
+  "messagesFired": 200,
+  "timeToIdleAfterBurstMs": null,
+  "longTasksAfterBurst": {
+    "count": 87,
+    "totalMs": 8558,
+    "maxMs": 1109
+  },
+  "droppedFramesAfterBurst": 93,
+  "fpsDuringSettle": 25
+}
