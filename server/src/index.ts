@@ -922,7 +922,7 @@ export async function startServer(): Promise<StartedServer> {
     // succeeded but the lease arming setTimeout was lost to GC).
     const { reapExpiredLeases } = await import("./services/lease-reaper.js");
     const { handleLeaseExpiry } = await import("./services/lease-replay.js");
-    const { lt, isNotNull, inArray } = await import("drizzle-orm");
+    const { lt, isNotNull, inArray, isNull } = await import("drizzle-orm");
     const leaseMaxAttempts = config.workerLeaseMaxAttempts;
     const reapTick = async () => {
       try {
@@ -1026,6 +1026,61 @@ export async function startServer(): Promise<StartedServer> {
     // server and HTTP listen are what hold the process up.
     if (typeof reapInterval.unref === "function") reapInterval.unref();
     logger.info({ intervalMs: LEASE_REAP_INTERVAL_MS }, "lease reaper started");
+
+    // Plan 4: workspace-lease reaper. Identical pattern; releases
+    // orphaned workspace_leases rows so a re-dispatch on the same
+    // workspace can acquire fresh after a worker death.
+    const { reapExpiredWorkspaceLeases } = await import("./services/workspace-lease-reaper.js");
+    const { workspaceLeases } = await import("@paperclipai/db");
+    const wsReapTick = async () => {
+      try {
+        await reapExpiredWorkspaceLeases({
+          now: () => new Date(),
+          findExpired: async () => {
+            const rows = await db
+              .select({
+                leaseId: workspaceLeases.id,
+                projectWorkspaceId: workspaceLeases.projectWorkspaceId,
+                expiresAt: workspaceLeases.expiresAt,
+              })
+              .from(workspaceLeases)
+              .where(
+                and(
+                  isNotNull(workspaceLeases.expiresAt),
+                  // Drizzle's lt/isNull combinator covers the partial-
+                  // unique semantics we care about.
+                  lt(workspaceLeases.expiresAt, new Date()),
+                ),
+              );
+            return rows
+              .filter((r) => r.expiresAt !== null)
+              .map((r) => ({
+                leaseId: r.leaseId,
+                projectWorkspaceId: r.projectWorkspaceId,
+                expiresAt: r.expiresAt as Date,
+              }));
+          },
+          release: async ({ leaseId }) => {
+            await db
+              .update(workspaceLeases)
+              .set({ releasedAt: new Date() })
+              .where(
+                and(
+                  eq(workspaceLeases.id, leaseId),
+                  // Re-check released_at IS NULL to avoid a write race
+                  // with an explicit dispatch-or-local release.
+                  isNull(workspaceLeases.releasedAt),
+                ),
+              );
+          },
+        });
+      } catch (err) {
+        logger.warn({ err }, "workspace-lease reaper sweep failed");
+      }
+    };
+    const wsReapInterval = setInterval(wsReapTick, LEASE_REAP_INTERVAL_MS);
+    if (typeof wsReapInterval.unref === "function") wsReapInterval.unref();
+    logger.info({ intervalMs: LEASE_REAP_INTERVAL_MS }, "workspace-lease reaper started");
   }
 
   await new Promise<void>((resolveListen, rejectListen) => {
