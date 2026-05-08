@@ -52,7 +52,7 @@ import { getBoardClaimWarningUrl, initializeBoardClaimChallenge } from "./board-
 import { maybePersistWorktreeRuntimePorts } from "./worktree-config.js";
 import { initTelemetry, getTelemetryClient } from "./telemetry.js";
 import { startWorkerGrpcServer, stopWorkerGrpcServer } from "./worker-rpc/server.js";
-import { sharedSecretAuthStrategy } from "./worker-rpc/auth.js";
+import { sharedSecretAuthStrategy, gcpIdTokenAuthStrategy, type WorkerAuthStrategy } from "./worker-rpc/auth.js";
 import { workerRegistry } from "./services/worker-registry.js";
 import { conflict } from "./errors.js";
 import type {
@@ -826,14 +826,31 @@ export async function startServer(): Promise<StartedServer> {
   // configuration. The Task 14 GCP id-token strategy lights up the
   // gcp_id_token branch; for now shared_secret is the only path.
   if (config.workerGrpcEnabled) {
-    if (config.workerAuthMode !== "shared_secret" || !config.workerSharedSecret) {
-      throw new Error(
-        "WORKER_GRPC_ENABLED requires WORKER_AUTH_MODE=shared_secret and WORKER_SHARED_SECRET (gcp_id_token mode arrives in a later task)",
-      );
+    let auth: WorkerAuthStrategy;
+    if (config.workerAuthMode === "shared_secret") {
+      if (!config.workerSharedSecret) {
+        throw new Error("WORKER_AUTH_MODE=shared_secret requires WORKER_SHARED_SECRET");
+      }
+      auth = sharedSecretAuthStrategy({ secret: config.workerSharedSecret });
+    } else if (config.workerAuthMode === "gcp_id_token") {
+      if (!config.workerGcpAudience) {
+        throw new Error("WORKER_AUTH_MODE=gcp_id_token requires WORKER_GCP_AUDIENCE");
+      }
+      if (config.workerGcpSaAllowlist.length === 0) {
+        throw new Error(
+          "WORKER_AUTH_MODE=gcp_id_token requires WORKER_GCP_SA_ALLOWLIST (comma-separated SA emails)",
+        );
+      }
+      auth = gcpIdTokenAuthStrategy({
+        audience: config.workerGcpAudience,
+        saAllowlist: config.workerGcpSaAllowlist,
+      });
+    } else {
+      throw new Error(`unknown WORKER_AUTH_MODE: ${config.workerAuthMode}`);
     }
     const { runDispatcher } = await import("./services/run-dispatcher.js");
     const workerPort = await startWorkerGrpcServer({
-      auth: sharedSecretAuthStrategy({ secret: config.workerSharedSecret }),
+      auth,
       registry: workerRegistry,
       dispatcher: runDispatcher,
       bindAddress: config.workerGrpcBindAddress,

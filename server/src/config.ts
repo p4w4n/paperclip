@@ -96,6 +96,11 @@ export interface Config {
   workerAuthMode: "shared_secret" | "gcp_id_token";
   workerSharedSecret: string | undefined;
   workerGcpSaAllowlist: string[];
+  // The audience claim the gcp_id_token strategy expects on each
+  // worker's id-token. Workers mint their token with this exact string;
+  // the server passes it to OAuth2Client.verifyIdToken which rejects a
+  // mismatch outright. Spec D2 publishes this to workers via config.
+  workerGcpAudience: string | undefined;
 }
 
 function detectTailnetBindHost(): string | undefined {
@@ -351,5 +356,6 @@ export function loadConfig(): Config {
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean),
+    workerGcpAudience: process.env.WORKER_GCP_AUDIENCE?.trim() || undefined,
   };
 }
