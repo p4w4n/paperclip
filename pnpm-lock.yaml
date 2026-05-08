@@ -588,6 +588,9 @@ importers:
       '@paperclipai/shared':
         specifier: workspace:*
         version: link:../packages/shared
+      '@paperclipai/worker-rpc':
+        specifier: workspace:^
+        version: link:../packages/worker-rpc
       ajv:
         specifier: ^8.18.0
         version: 8.18.0
