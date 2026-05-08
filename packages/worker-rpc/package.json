@@ -13,7 +13,7 @@
     "build": "pnpm generate && tsc -p tsconfig.json",
     "clean": "rm -rf dist src/generated",
     "typecheck": "pnpm generate && tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "echo \"(no tests in @paperclipai/worker-rpc)\""
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.2.0"
