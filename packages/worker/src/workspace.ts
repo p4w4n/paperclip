@@ -25,6 +25,10 @@ export interface WorkspaceDescriptor {
   mode?: "ephemeral" | "filestore";
   repoUrl?: string;
   ref?: string;
+  // Plan 4 filestore-mode: the workspace-side identifier. The path
+  // resolves to filestoreRoot/sharedWorkspaceKey at the worker;
+  // filestoreRoot is per-worker via PAPERCLIP_FILESTORE_ROOT env.
+  sharedWorkspaceKey?: string;
 }
 
 export async function realizeEphemeralWorkspace(
@@ -51,11 +55,27 @@ export async function realizeEphemeralWorkspace(
   };
 }
 
-// Routes on `mode`. v1 only supports ephemeral; filestore throws
-// explicitly so a misconfigured workspace surfaces as a clear RunFailed
-// rather than silently degrading.
+// Routes on `mode`. Plan 1 wired ephemeral; Plan 4 adds filestore.
+// filestore expects PAPERCLIP_FILESTORE_ROOT in env; the descriptor
+// carries the per-workspace key (sharedWorkspaceKey).
 export async function realizeWorkspace(desc: WorkspaceDescriptor): Promise<RealizedWorkspace> {
   const mode = desc.mode ?? "ephemeral";
   if (mode === "ephemeral") return realizeEphemeralWorkspace(desc);
-  throw new Error(`workspace mode ${mode} not supported in v1`);
+  if (mode === "filestore") {
+    const filestoreRoot = process.env.PAPERCLIP_FILESTORE_ROOT?.trim();
+    if (!filestoreRoot) {
+      throw new Error(
+        "filestore mode requires PAPERCLIP_FILESTORE_ROOT env on the worker",
+      );
+    }
+    if (!desc.sharedWorkspaceKey) {
+      throw new Error("filestore mode requires sharedWorkspaceKey on the workspace descriptor");
+    }
+    const { realizeFilestoreWorkspace } = await import("./workspace-filestore.js");
+    return realizeFilestoreWorkspace({
+      filestoreRoot,
+      sharedWorkspaceKey: desc.sharedWorkspaceKey,
+    });
+  }
+  throw new Error(`workspace mode ${mode} not supported`);
 }
