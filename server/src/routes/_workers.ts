@@ -65,12 +65,13 @@ export function workersRoutes(opts: WorkersRoutesOpts): Router {
   // as a stream-end event, not a synchronous response.
   router.post("/_workers/:workerId/drain", async (req: Request, res: Response) => {
     assertInstanceAdmin(req);
-    const ok = await opts.registry.requestDrain(req.params.workerId);
+    const workerId = req.params.workerId as string;
+    const ok = await opts.registry.requestDrain(workerId);
     if (!ok) {
       res.status(404).json({ error: "worker not found" });
       return;
     }
-    res.status(202).json({ status: "drain_requested", workerId: req.params.workerId });
+    res.status(202).json({ status: "drain_requested", workerId });
   });
 
   return router;
