@@ -130,6 +130,16 @@ For each `RunDispatch`:
 
 ## Auth and secrets
 
+Three credentials are at play. They are easy to conflate; each authenticates a different request and has a different lifetime.
+
+| Layer | What it authenticates | Lifetime | Where used |
+|---|---|---|---|
+| GCP id-token | Worker → control-plane registration; attests instance identity (`instance_id`, `zone`) | Per `Connect` call | `Worker.Connect` handshake only |
+| Paperclip-scoped JWT | Worker stream identity for non-secret unary RPCs | 15 min, refreshed via stream frame | `ReportEvent` and any future non-secret unary RPC |
+| `scope_token` | Per-run secret authorization | Run lease window, one-time-use | `FetchSecrets` only |
+
+The id-token is checked once at registration; the JWT is reserved-but-unused on `FetchSecrets` (see D2); the `scope_token` is the only credential a `FetchSecrets` caller needs.
+
 ### Worker auth handshake
 
 - Worker reads its GCP service-account identity token from the metadata server with `audience = https://paperclip.<your-domain>/workers`.
@@ -153,7 +163,7 @@ For each `RunDispatch`:
 ## Observability
 
 - Existing `heartbeatRunEvents` table and run log store stay; gRPC frames map 1:1 onto existing event types.
-- New control-plane metrics: `worker_connected_total`, `worker_inflight_runs{worker}`, `dispatch_wait_seconds{adapter}`. Drives MIG autoscaler via Cloud Monitoring custom metric (`dispatch_queue_depth = dispatched − completed`).
+- New control-plane metrics: `worker_connected_total`, `worker_inflight_runs{worker}`, `dispatch_wait_seconds{adapter}`. Drives MIG autoscaler via Cloud Monitoring custom metric. Queue depth excludes draining workers from available capacity, since they will not accept new dispatches: `dispatch_queue_depth = pending_dispatches − sum(inFlight on non-draining workers)`. Otherwise the autoscaler reads "I have N workers" while `M` of them are draining and won't take work, and the signal under-provisions.
 - New admin-only UI route `/_workers`: live workers, capacity, current runs.
 
 ## Failure modes
@@ -204,7 +214,11 @@ Logs flow worker → control plane on the existing bidi stream and are persisted
 
 This keeps a single auth path and a single observable channel for v1. The protocol carves out a forward-compat slot: when stream-volume becomes a real bottleneck, the server can answer a worker's first `RunLog` for a run with a (future) `LogUploadUrl` server→worker frame redirecting bulk chunks to a pre-signed GCS URL. We do not implement that frame in v1; we only commit to keeping the protocol open to it.
 
-**Operational guideline:** size the control-plane host to handle aggregate worker log throughput. As a back-of-envelope sanity check, 8 workers × 1 MB/s sustained = 64 Mbps egress on the receive side, well within a single VM. If a deployment routinely exceeds that, switch to the side-channel path.
+**Operational guideline:** size the control-plane host to handle aggregate worker log throughput. As a back-of-envelope sanity check, 8 workers × 1 MB/s sustained = 64 Mbps egress on the receive side, well within a single VM.
+
+The UI side of this throughput is absorbed by `LiveUpdatesProvider`'s 50 ms invalidation batcher (`WsInvalidationBatcher`, perf #5 in the optimization series). Without that batcher in place, every `RunLog` arriving at the control plane would publish a `LiveEvent` and trigger an immediate `invalidateQueries` cascade in the UI — at multi-worker rates the UI is the actual bottleneck, not the network. The batcher must ship before phase 3 (all `*_local` adapters via worker), or the worker model amplifies a known UI-side failure mode (upstream PR #4747's "2 agents = 140 GETs/sec" is exactly this regime).
+
+If a deployment routinely exceeds that, switch to the (future) side-channel path.
 
 ### D2. FetchSecrets authenticates by scope token alone
 
@@ -218,6 +232,8 @@ The unary `FetchSecrets(scope_token, scoped_jwt)` RPC authenticates only by `sco
 
 The 15-min paperclip-scoped JWT is only used for non-secret unary RPCs added in later plans (e.g., `ReportEvent`).
 
+**Scope-token state durability.** `scope_token` rows are written in the same DB transaction that creates the `RunDispatch`, so they survive control-plane restarts for the lease window. If the control plane restarts after `RunDispatch` is sent but before the worker calls `FetchSecrets`, the token still validates on the new control-plane process. (If the worker was stopped during the restart and missed the dispatch, the lease-reaper handles re-dispatch with a fresh token; the worker never sees a half-lived token.)
+
 ### D3. MIG drain covers both rolling-update and autoscale-down
 
 The same `Drain` server→worker frame applies to both cases. Implementation uses two GCE signals:
@@ -229,6 +245,7 @@ The same `Drain` server→worker frame applies to both cases. Implementation use
 - Instance template `goalConfig.shutdownTimeoutSec` must be ≥ longest expected run duration (default proposal: 1800s — 30 minutes — overridable via env).
 - Instance template `terminationAction: STOP` (not `DELETE`) so the OS-level shutdown hook has time to send the `DrainRequested` frame.
 - `Autohealing` policy must use a health check that does *not* fail during drain (`/healthz` returns 200 while draining, 503 only when fully detached).
+- Autohealing config: `unhealthyThreshold × checkInterval > shutdownTimeoutSec`. Otherwise a worker that is genuinely draining for ~25 minutes can be killed by autohealing after `unhealthyThreshold × checkInterval` seconds of degraded status, even with the right health-check semantics. The constraint exists so the health-check regime cannot win a race against the drain timer.
 
 The dispatcher refuses to send `RunDispatch` to a worker that has signaled drain (drained workers stay registered with `inFlight > 0` until their last run finishes; `pickFor()` excludes them via a new `draining` flag).
 
@@ -245,12 +262,22 @@ The following were raised in review and are not blockers for Phase 1, but record
 | N5 | Burst cold-start tax (e.g., 200 issues triggered at once). | **Phase 5.** Two-lever mitigation: (a) bare-repo cache on local SSD per worker (already in spec); (b) a configurable warm-pool of pre-cloned workspaces on each worker, refilled on completion. Don't build (b) until measurements show (a) is insufficient. |
 | N6 | Plugin adapters: built-in vs plugin boundary is load-bearing. | **v1.1.** Decision: plugin adapters on workers will use the same dispatch boundary, but the worker image needs a plugin loader. Defer the design to v1.1 spec; surface impact when a plugin user reports the gap. If `paperclip` trajectory turns out to be plugin-first, escalate to v1 critical-path. |
 | N7 | Quota / fairness across companies. | **v1.5.** Single-tenant assumption for v1. Multi-tenant deployments need a per-company queue or fair-share scheduling at the dispatcher; defer until a multi-tenant deployment exists. Document the gap. |
-| N8 | Run cost during instance-replacement (double-billing on retry). | **Phase 4 (lease-reaper).** Add `replay_count` integer to `heartbeat_runs`. Dashboard shows it next to cost. Don't change billing math; surface the truth so users can audit. |
-| N9 | Concrete sizing assumptions. | **Phase 5 (GCP polish).** Publish a sizing table. Working assumption pending measurement: `n2-standard-2` per worker, ~1 concurrent run per worker for code-heavy adapters; control plane on `n2-standard-4` handles ≤ 16 connected workers with proxy-mode logs. |
+| N8 | Run cost during instance-replacement (double-billing on retry). | **Phase 4 (lease-reaper).** Add `replay_count` integer to `heartbeat_runs`. Dashboard shows it next to cost. Don't change billing math; surface the truth so users can audit. **Increment rule:** `replay_count` increments only on lease-expiry-driven auto-replay (worker died, network partitioned, etc.). User-initiated retries create a new run with `replay_count: 0` and a `retry_of_run_id` link to the original. The two cases ("paperclip auto-retried me and billed twice" vs "I retried it on purpose") have different user-facing meaning. |
+| N9 | Concrete sizing assumptions. | **Phase 5 (GCP polish).** Publish a sizing table. Working assumption pending measurement: `n2-standard-2` per worker, ~1 concurrent run per worker for code-heavy adapters; control plane on `n2-standard-4` handles ≤ 16 connected workers with proxy-mode logs. The 16-worker headroom on the UI side assumes the perf prerequisites have shipped — specifically `WsInvalidationBatcher` (50 ms event coalescing) and `/heartbeat-runs/latest-failed` (replaces a 250 KB poll with a 2 KB poll). Without those, the UI bottlenecks well before the network does, and the same `n2-standard-4` will only support roughly 4 connected workers before the dashboard starts dropping frames during event bursts. |
 | N10 | Lease state-machine test scenarios. | **Phase 4 (lease-reaper).** Enumerate explicitly: (a) lease expires while RunLog is mid-flight; (b) control plane reassigns then original worker reconnects with stale state; (c) two RunCompletes racing for the same `run_id`; (d) Drain mid-run; (e) FetchSecrets after the run was already reassigned. Each gets a fault-injection test. |
+
+### D4. Control plane runs on a single GCE VM in v1
+
+Promoted from open-question to decision because the rest of the design now depends on it. Specifically:
+
+- **D3** subscribes to MIG instance lifecycle events via Cloud Pub/Sub. That requires a stable subscriber process, not a Cloud Run instance that may be torn down between requests.
+- **N9**'s sizing assumes a VM-shaped resource (`n2-standard-4`).
+- **D1**'s log proxy assumes sustained inbound throughput on a long-lived process.
+
+GKE pod is also acceptable (same VM-shaped semantics) but adds operational surface area without v1 benefit. Cloud Run is rejected for v1 because gRPC bidirectional streaming under Cloud Run has request-deadline caveats that complicate the bidi-stream lifetime assumed everywhere in this spec. Re-evaluate for v2 if Cloud Run streaming guarantees improve.
 
 ## Open questions
 
-- Where exactly does the control plane run? GCE VM, GKE pod, or Cloud Run? Cloud Run supports gRPC bidirectional streaming but with timeout caveats; GCE/GKE has no such limit. Defaulting to GCE VM in the same VPC for v1.
+- ~~Where exactly does the control plane run?~~ Resolved by D4.
 - Should we expose the worker registry's state in the existing instance-settings UI, or only via a new admin route?
 - Do we want a worker-side "self-update" path, or rely solely on MIG image rollouts?
