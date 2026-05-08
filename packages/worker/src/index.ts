@@ -7,7 +7,7 @@
 // connection cycles. For v1 of this scaffold a stream drop kills the
 // process; the MIG instance autohealing brings it back up.
 
-import { staticBearerAuth } from "./auth-client.js";
+import { staticBearerAuth, gcpIdTokenAuth, type WorkerAuthClient } from "./auth-client.js";
 import { startWorkerClient, type WorkerClientHandle } from "./client.js";
 import { handleRunDispatch } from "./run-handler.js";
 import { realizeWorkspace } from "./workspace.js";
@@ -27,12 +27,26 @@ function required(name: string): string {
 
 async function main() {
   const addr = required("PAPERCLIP_CONTROL_PLANE_ADDR");
-  const secret = required("PAPERCLIP_WORKER_SHARED_SECRET");
   const adapters = (process.env.PAPERCLIP_WORKER_ADAPTERS ?? "claude_local,gemini_local")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
   const maxConcurrent = Math.max(1, parseInt(process.env.PAPERCLIP_WORKER_MAX_CONCURRENT ?? "1", 10) || 1);
+
+  // Auth strategy mirrors the server's. shared_secret is the default so
+  // existing local docker-compose setups don't need a config change;
+  // gcp_id_token mode is what the production MIG rolls out with.
+  const authMode = process.env.PAPERCLIP_WORKER_AUTH_MODE ?? "shared_secret";
+  let auth: WorkerAuthClient;
+  if (authMode === "shared_secret") {
+    auth = staticBearerAuth(required("PAPERCLIP_WORKER_SHARED_SECRET"));
+  } else if (authMode === "gcp_id_token") {
+    auth = gcpIdTokenAuth({ audience: required("PAPERCLIP_WORKER_AUDIENCE") });
+  } else {
+    // eslint-disable-next-line no-console
+    console.error(`unknown PAPERCLIP_WORKER_AUTH_MODE: ${authMode}`);
+    process.exit(2);
+  }
 
   // Hold the client handle in an outer scope so onDispatch can call
   // client.send to emit RunUsage / RunComplete / RunFailed back on the
@@ -40,7 +54,7 @@ async function main() {
   let client: WorkerClientHandle;
   client = await startWorkerClient({
     controlPlaneAddress: addr,
-    auth: staticBearerAuth(secret),
+    auth,
     // PAPERCLIP_WORKER_ID — set explicitly when running on a GCE MIG so
     // it's durable across worker process restarts within the same
     // instance (spec NOTE N1). Random fallback only for local dev.
