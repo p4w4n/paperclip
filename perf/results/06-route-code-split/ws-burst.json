@@ -1,0 +1,18 @@
+{
+  "scenario": "ws-burst",
+  "sha": "c37e848f",
+  "label": "06-route-code-split",
+  "timestamp": "2026-05-08T06:06:31.236Z",
+  "cpuThrottlingRate": 4,
+  "burstCount": 200,
+  "messagesFired": 0,
+  "timeToIdleAfterBurstMs": 320.4,
+  "longTasksAfterBurst": {
+    "count": 0,
+    "totalMs": 0,
+    "maxMs": 0
+  },
+  "droppedFramesAfterBurst": 0,
+  "fpsDuringSettle": 60,
+  "note": "No WebSocket connections were observed — see scenario header for setup notes."
+}

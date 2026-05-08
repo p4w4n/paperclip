@@ -1,0 +1,117 @@
+{
+  "scenario": "bundle",
+  "sha": "c37e848f",
+  "label": "06-route-code-split",
+  "timestamp": "2026-05-08T06:07:27.817Z",
+  "cpuThrottlingRate": 4,
+  "totalBytes": 8060228,
+  "jsBytes": 7681214,
+  "cssBytes": 301925,
+  "otherBytes": 77089,
+  "jsFileCount": 281,
+  "cssFileCount": 1,
+  "topJsChunks": [
+    {
+      "path": "assets/index-DACbDirk.js",
+      "size": 2051798
+    },
+    {
+      "path": "assets/mermaid.core-Bj4J2tBf.js",
+      "size": 498090
+    },
+    {
+      "path": "assets/treemap-GDKQZRPO-C7mld0p8.js",
+      "size": 453237
+    },
+    {
+      "path": "assets/cytoscape.esm-jbPEKk2Y.js",
+      "size": 441205
+    },
+    {
+      "path": "assets/katex-B95LWT_Q.js",
+      "size": 257689
+    },
+    {
+      "path": "assets/IssueChatThread-CxKlStO5.js",
+      "size": 237726
+    },
+    {
+      "path": "assets/IssueDetail-uWCOkuQp.js",
+      "size": 185867
+    },
+    {
+      "path": "assets/markdown-fB_2S6cw.js",
+      "size": 164831
+    },
+    {
+      "path": "assets/architectureDiagram-VXUJARFQ-CyGst6-6.js",
+      "size": 148955
+    },
+    {
+      "path": "assets/AgentDetail-DfRvFCZH.js",
+      "size": 120092
+    },
+    {
+      "path": "assets/index-CtWdLunb.js",
+      "size": 100662
+    },
+    {
+      "path": "assets/sequenceDiagram-WL72ISMW-BDlB1NQU.js",
+      "size": 98232
+    },
+    {
+      "path": "assets/index-C9Yecke0.js",
+      "size": 97968
+    },
+    {
+      "path": "assets/index-Bdr0crjq.js",
+      "size": 86746
+    },
+    {
+      "path": "assets/cose-bilkent-S5V4N54A-BJ0tLNqv.js",
+      "size": 81811
+    }
+  ],
+  "topAssets": [
+    {
+      "path": "android-chrome-512x512.png",
+      "size": 29374
+    },
+    {
+      "path": "favicon.ico",
+      "size": 15086
+    },
+    {
+      "path": "android-chrome-192x192.png",
+      "size": 8982
+    },
+    {
+      "path": "apple-touch-icon.png",
+      "size": 8062
+    },
+    {
+      "path": "worktree-favicon.ico",
+      "size": 5430
+    },
+    {
+      "path": "index.html",
+      "size": 2470
+    },
+    {
+      "path": "worktree-favicon-32x32.png",
+      "size": 1864
+    },
+    {
+      "path": "favicon-32x32.png",
+      "size": 1609
+    },
+    {
+      "path": "worktree-favicon-16x16.png",
+      "size": 790
+    },
+    {
+      "path": "site.webmanifest",
+      "size": 671
+    }
+  ]
+}

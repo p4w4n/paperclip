@@ -1,0 +1,13 @@
+{
+  "label": "06-route-code-split",
+  "sha": "c37e848f",
+  "finishedAt": "2026-05-08T06:06:31.278Z",
+  "scenarios": [
+    "cold-load",
+    "chat-scroll",
+    "idle-polling",
+    "tab-refocus",
+    "ws-burst"
+  ],
+  "failures": []
+}
