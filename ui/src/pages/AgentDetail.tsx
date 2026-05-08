@@ -676,9 +676,18 @@ export function AgentDetail() {
     enabled: Boolean(resolvedAgentId) && needsDashboardData,
   });
 
+  // Cap the agent run fetch at 100 rows. Previously this was unbounded, so
+  // an agent with thousands of runs would download every row on every visit
+  // to the agent detail page (issue #958). 100 is enough to populate
+  // RunsTab's initial view; a future PR should switch RunsTab to
+  // useInfiniteQuery for "load more" semantics, but the immediate bandwidth
+  // cap is what's required as a worker-design phase 3 prerequisite.
+  // For per-day charts, AgentOverview should switch to
+  // heartbeatsApi.stats({ agentId }) — server-side aggregation, no run rows
+  // needed at all. That migration is queued as a follow-up.
   const { data: heartbeats } = useQuery({
-    queryKey: queryKeys.heartbeats(resolvedCompanyId!, agent?.id ?? undefined),
-    queryFn: () => heartbeatsApi.list(resolvedCompanyId!, agent?.id ?? undefined),
+    queryKey: [...queryKeys.heartbeats(resolvedCompanyId!, agent?.id ?? undefined), "limit", 100],
+    queryFn: () => heartbeatsApi.list(resolvedCompanyId!, agent?.id ?? undefined, 100),
     enabled: !!resolvedCompanyId && !!agent?.id && shouldLoadHeartbeats,
   });
 
