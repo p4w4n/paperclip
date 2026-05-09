@@ -15,6 +15,7 @@ import { sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { memoryEntries } from "@paperclipai/db";
 import type { EmbeddingProvider } from "./embedding.js";
+import { redactPii } from "./redact-pii.js";
 import { mergeRecallResults, type ScoredHit } from "./recall-rank.js";
 import type {
   ForgetInput,
@@ -27,6 +28,9 @@ import type {
 
 export interface PgvectorBackendOpts {
   embedder?: EmbeddingProvider;
+  // Disable PII redaction (defaults on). Tests pass false when they
+  // need to assert exact content; production should leave it on.
+  redactPii?: boolean;
 }
 
 export function createPgvectorMemoryBackend(
@@ -35,6 +39,11 @@ export function createPgvectorMemoryBackend(
 ): MemoryBackend {
   return {
     async write(input: WriteInput) {
+      // Pre-scrub regex PII so memory never stores raw secrets.
+      // Defense in depth — callers should also redact at their own
+      // boundary, but every fact passes through this gate.
+      const shouldRedact = opts.redactPii !== false;
+      const content = shouldRedact ? redactPii(input.content).redacted : input.content;
       const [row] = await db
         .insert(memoryEntries)
         .values({
@@ -44,7 +53,7 @@ export function createPgvectorMemoryBackend(
           sessionId: input.scope.sessionId ?? null,
           sessionKind: input.scope.sessionKind ?? null,
           kind: input.kind,
-          content: input.content,
+          content,
           payload: (input.payload ?? null) as Record<string, unknown> | null,
           sourceRunId: input.sourceRunId ?? null,
           // embedding stays null — reflection worker (M-12) populates
