@@ -78,9 +78,11 @@ This is the direction for higher-autonomy execution: more aggressive delegation,
 
 Some work needs more than a task description before execution starts. Deeper planning means stronger issue documents, revisionable plans, and clearer review loops for strategy-heavy work before agents begin execution.
 
-### ⚪ Work Queues
+### 🚧 Work Queues
 
 Paperclip should support queue-style work streams for repeatable inputs like support, triage, review, and backlog intake. That would make it easier to route work continuously without turning every system into a one-off workflow.
+
+Plan 1 (foundation) is in flight: `work_items` + `work_queue_tenant_credits` tables (Postgres-native, no Redis), partial-unique idempotency on `(company_id, dedupe_key) WHERE state IN ('queued','running')`, SKIP LOCKED dequeue with weighted round-robin fairness, materialization into `heartbeat_runs`, failure classifier (transient_provider / transient_local / poison / quota_exceeded / permanent), exponential-backoff retry with per-routine policy override, dead-letter + replay, webhook ingestion with `Idempotency-Key`, `pokeScheduler()` for low-latency wake, OTel messaging-semconv spans + 5 metric streams, `/instance/work-queue` admin UI with depth + DLQ + replay, plugin-SDK `createWorkQueueClient`. Plan 2 layers on per-queue concurrency caps, DLQ auto-archival, and Kafka/pubsub source plugins.
 
 ### ⚪ Self-Organization
 
