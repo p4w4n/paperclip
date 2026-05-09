@@ -1,0 +1,141 @@
+# Air-gapped release tarball build. Triggers on:
+#   - Tag push matching airgapped-v*  (e.g., airgapped-v2026.05.12)
+#   - Manual workflow_dispatch with an optional ref override
+#
+# Produces release/paperclip-release-<commit>.tar.gz via
+# scripts/build-release.sh and uploads it as both a workflow artifact
+# (always) and a GitHub Release asset (when triggered by a tag).
+#
+# The build runs inside node:lts-trixie-slim so the resulting native
+# binaries are glibc-compatible (Ubuntu / Debian / Rocky / RHEL /
+# Amazon Linux / GCP COS). Alpine / musl targets are explicitly not
+# supported — see scripts/build-release.sh header.
+#
+# Coexists with the existing release.yml (npm canary / stable
+# publishing); this workflow's tag namespace airgapped-v* keeps the
+# two from triggering each other.
+
+name: Release (air-gapped tarball)
+
+on:
+  push:
+    tags:
+      - "airgapped-v*"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit SHA, branch, or tag to build from. Defaults to the workflow's git ref.
+        required: false
+        type: string
+      claude_code_version:
+        description: Pinned @anthropic-ai/claude-code version (default latest)
+        required: false
+        type: string
+        default: latest
+      gemini_cli_version:
+        description: Pinned @google/gemini-cli version (default latest)
+        required: false
+        type: string
+        default: latest
+
+concurrency:
+  group: release-airgapped-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # required to attach the tarball to a GitHub Release
+
+jobs:
+  build_tarball:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          fetch-depth: 0
+
+      # The build script's --in-docker flag re-runs the build inside
+      # node:lts-trixie-slim. We don't pass --in-docker here because
+      # the GH runner is already a fresh ubuntu-latest with docker
+      # available — running --in-docker would docker-in-docker, which
+      # works but adds a layer of indirection we don't need. Instead,
+      # we install pnpm + Node 20 and run the script natively;
+      # ubuntu-latest is glibc-based, matching production targets.
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      - name: Build release tarball
+        env:
+          CLAUDE_CODE_VERSION: ${{ inputs.claude_code_version || 'latest' }}
+          GEMINI_CLI_VERSION: ${{ inputs.gemini_cli_version || 'latest' }}
+        run: |
+          ./scripts/build-release.sh
+          ls -lh release/
+
+      - name: Capture build metadata
+        id: meta
+        run: |
+          TARBALL=$(ls release/paperclip-release-*.tar.gz | head -1)
+          COMMIT=$(git rev-parse --short HEAD)
+          SIZE=$(du -h "$TARBALL" | cut -f1)
+          {
+            echo "tarball=$TARBALL"
+            echo "tarball_basename=$(basename "$TARBALL")"
+            echo "commit=$COMMIT"
+            echo "size=$SIZE"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "## Air-gapped release"
+            echo ""
+            echo "- **Commit**: \`$COMMIT\`"
+            echo "- **Size**: $SIZE"
+            echo "- **Tarball**: \`$(basename "$TARBALL")\`"
+            echo ""
+            echo "Built on \`ubuntu-latest\` (glibc). See \`docs/DEPLOYMENT.md\` for usage."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload tarball as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.tarball_basename }}
+          path: ${{ steps.meta.outputs.tarball }}
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Attach to GitHub Release (tag push only)
+        if: startsWith(github.ref, 'refs/tags/airgapped-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.meta.outputs.tarball }}
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          body: |
+            Air-gapped release tarball for ${{ github.ref_name }}.
+
+            Commit: `${{ steps.meta.outputs.commit }}`
+            Size: ${{ steps.meta.outputs.size }}
+
+            ## Bring up
+
+            ```
+            tar xzf ${{ steps.meta.outputs.tarball_basename }}
+            cd paperclip-release-${{ steps.meta.outputs.commit }}
+            export DATABASE_URL=postgres://...
+            ./scripts/apply-migrations.sh
+            ./scripts/start-server.sh
+            ```
+
+            See `docs/DEPLOYMENT.md` for the full configuration matrix
+            (control-plane + workers, GCP id-token auth, filestore mode,
+            Cloud Monitoring).
