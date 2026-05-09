@@ -1,0 +1,1 @@
+ALTER TABLE "routines" ADD COLUMN "requires_plan" boolean DEFAULT false NOT NULL;

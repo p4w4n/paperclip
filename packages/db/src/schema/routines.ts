@@ -45,6 +45,7 @@ export const routines = pgTable(
     lastEnqueuedAt: timestamp("last_enqueued_at", { withTimezone: true }),
     enqueueViaWorkQueue: boolean("enqueue_via_work_queue").notNull().default(false),
     defaultRetryPolicy: jsonb("default_retry_policy").$type<Record<string, unknown>>(),
+    requiresPlan: boolean("requires_plan").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
