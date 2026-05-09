@@ -66,6 +66,7 @@ const PluginManager = lazyNamed(() => import("./pages/PluginManager"), "PluginMa
 const PluginSettings = lazyNamed(() => import("./pages/PluginSettings"), "PluginSettings");
 const AdapterManager = lazyNamed(() => import("./pages/AdapterManager"), "AdapterManager");
 const InstanceWorkers = lazyNamed(() => import("./pages/InstanceWorkers"), "InstanceWorkers");
+const InstanceWorkQueue = lazyNamed(() => import("./pages/InstanceWorkQueue"), "InstanceWorkQueue");
 const PluginPage = lazyNamed(() => import("./pages/PluginPage"), "PluginPage");
 const OrgChart = lazyNamed(() => import("./pages/OrgChart"), "OrgChart");
 const NewAgent = lazyNamed(() => import("./pages/NewAgent"), "NewAgent");
@@ -156,6 +157,7 @@ function boardRoutes() {
       <Route path="design-guide" element={<DesignGuide />} />
       <Route path="instance/settings/adapters" element={<AdapterManager />} />
       <Route path="instance/workers" element={<InstanceWorkers />} />
+      <Route path="instance/work-queue" element={<InstanceWorkQueue />} />
       <Route path=":pluginRoutePath/*" element={<PluginPage />} />
       <Route path="*" element={<NotFoundPage scope="board" />} />
     </>

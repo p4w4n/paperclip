@@ -82,6 +82,62 @@ export function workQueueRoutes(db: Db) {
     },
   );
 
+  router.get("/admin/work-queue", async (req, res) => {
+    assertInstanceAdmin(req);
+    const depthRows = await db.execute<{
+      company_id: string;
+      queue: string;
+      depth: number;
+    }>(
+      // Per (company, queue) depth.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ((await import("drizzle-orm")) as any).sql`
+        SELECT company_id, queue, COUNT(*)::int AS depth
+        FROM work_items
+        WHERE state = 'queued'
+        GROUP BY company_id, queue
+        ORDER BY depth DESC
+      `,
+    );
+    const deadLetterRows = await db
+      .select()
+      .from(workItems)
+      .where(eq(workItems.state, "dead_letter"))
+      .limit(200);
+    const depth = (Array.isArray(depthRows)
+      ? depthRows
+      : (depthRows as { rows?: Array<{ company_id: string; queue: string; depth: number }> }).rows ?? []
+    ) as Array<{ company_id: string; queue: string; depth: number }>;
+    res.json({
+      depth: depth.map((r) => ({
+        companyId: r.company_id,
+        queue: r.queue,
+        depth: r.depth,
+      })),
+      deadLetter: deadLetterRows.map((r) => ({
+        id: r.id,
+        companyId: r.companyId,
+        queue: r.queue,
+        priority: r.priority,
+        state: r.state,
+        attempts: r.attempts,
+        maxAttempts: r.maxAttempts,
+        enqueuedByKind: r.enqueuedByKind,
+        enqueuedAt: r.enqueuedAt instanceof Date ? r.enqueuedAt.toISOString() : r.enqueuedAt,
+        startedAt:
+          r.startedAt instanceof Date
+            ? r.startedAt.toISOString()
+            : (r.startedAt as string | null),
+        completedAt:
+          r.completedAt instanceof Date
+            ? r.completedAt.toISOString()
+            : (r.completedAt as string | null),
+        lastError: r.lastError,
+        lastErrorCode: r.lastErrorCode,
+      })),
+    });
+  });
+
   router.post("/admin/work-queue/replay/:itemId", async (req, res) => {
     assertInstanceAdmin(req);
     const id = req.params.itemId as string;
