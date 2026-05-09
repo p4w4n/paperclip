@@ -603,6 +603,13 @@
 			"when": 1778318634260,
 			"tag": "0085_artifacts_foundation",
 			"breakpoints": true
+		},
+		{
+			"idx": 86,
+			"version": "7",
+			"when": 1778328000000,
+			"tag": "0086_artifacts_legacy_view",
+			"breakpoints": true
 		}
 	]
 }
