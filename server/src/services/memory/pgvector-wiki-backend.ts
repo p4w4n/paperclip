@@ -14,6 +14,7 @@
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { memoryPages, memoryPageLinks } from "@paperclipai/db";
+import type { EmbeddingProvider } from "./embedding.js";
 import type {
   ForgetInput,
   LlmClient,
@@ -22,6 +23,10 @@ import type {
   RecalledPage,
   WikiBackend,
 } from "./types.js";
+
+export interface PgvectorWikiBackendOpts {
+  embedder?: EmbeddingProvider;
+}
 
 // Helper: scope columns mapped to the Drizzle predicate set used by
 // the supersession query. Treats undefined as IS NULL so the unique
@@ -43,7 +48,10 @@ function scopeWhere(input: PageUpsertInput | PageRecallInput) {
   );
 }
 
-export function createPgvectorWikiBackend(db: Db): WikiBackend {
+export function createPgvectorWikiBackend(
+  db: Db,
+  opts: PgvectorWikiBackendOpts = {},
+): WikiBackend {
   return {
     async upsertPage(input: PageUpsertInput) {
       return db.transaction(async (tx) => {
@@ -125,9 +133,86 @@ export function createPgvectorWikiBackend(db: Db): WikiBackend {
       });
     },
 
-    // recallPages lands in M-9.
-    async recallPages(_input: PageRecallInput): Promise<RecalledPage[]> {
-      throw new Error("recallPages not yet implemented (M-9)");
+    async recallPages(input: PageRecallInput): Promise<RecalledPage[]> {
+      const limit = input.limit ?? 5;
+      const expandLinks = input.expandLinks ?? true;
+
+      // Always run keyword (title + content ILIKE). Vector search
+      // joins when an embedder is wired up; failures degrade.
+      const keywordHits = await runWikiKeywordQuery(db, input, limit);
+      let vectorHits: WikiHit[] = [];
+      if (opts.embedder) {
+        try {
+          const [embedding] = await opts.embedder.embed([input.query]);
+          vectorHits = await runWikiVectorQuery(db, input, limit, embedding);
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn("[memory.recallPages] vector path failed, falling back", err);
+        }
+      }
+
+      // Merge by id with weighted union (mirrors recall-rank but
+      // operates on the page row shape).
+      const merged = mergeWikiHits(vectorHits, keywordHits, limit);
+
+      // 1-hop link expansion. Each linked page contributes a
+      // half-weight (0.5) "matchedVia=link" hit. Pulls dedupe by id
+      // — if a page appears via embedding AND link, the embedding
+      // ranking wins.
+      if (expandLinks && merged.length > 0) {
+        const seen = new Set(merged.map((m) => m.id));
+        const linkRows = await db
+          .select({
+            id: memoryPages.id,
+            slug: memoryPages.slug,
+            title: memoryPages.title,
+            contentMarkdown: memoryPages.contentMarkdown,
+            companyId: memoryPages.companyId,
+            userId: memoryPages.userId,
+            agentId: memoryPages.agentId,
+            sessionId: memoryPages.sessionId,
+            fromPageId: memoryPageLinks.fromPageId,
+          })
+          .from(memoryPageLinks)
+          .innerJoin(memoryPages, eq(memoryPageLinks.toPageId, memoryPages.id))
+          .where(
+            and(
+              inArray(
+                memoryPageLinks.fromPageId,
+                merged.map((m) => m.id),
+              ),
+              isNull(memoryPages.supersededAt),
+            ),
+          );
+
+        // Attach linkedPages onto the parent for the response shape,
+        // and append the linked rows as separate hits.
+        const byParent = new Map<string, Array<{ id: string; slug: string; title: string }>>();
+        for (const lr of linkRows) {
+          const list = byParent.get(lr.fromPageId) ?? [];
+          list.push({ id: lr.id, slug: lr.slug, title: lr.title });
+          byParent.set(lr.fromPageId, list);
+        }
+        for (const m of merged) {
+          m.linkedPages = byParent.get(m.id);
+        }
+        for (const lr of linkRows) {
+          if (seen.has(lr.id)) continue;
+          seen.add(lr.id);
+          merged.push({
+            id: lr.id,
+            slug: lr.slug,
+            title: lr.title,
+            contentMarkdown: lr.contentMarkdown,
+            scope: scopeKindOf(lr),
+            score: 0.5,
+            matchedVia: "link",
+          });
+        }
+        merged.sort((a, b) => b.score - a.score);
+      }
+
+      return merged.slice(0, limit + (expandLinks ? limit : 0));
     },
 
     // lintPage lands in M-15.
@@ -191,4 +276,125 @@ function scopeKindOf(row: {
   if (row.sessionId) return { kind: "session" };
   if (row.agentId) return { kind: "agent" };
   return { kind: "company" };
+}
+
+// ---------- recallPages internals ----------
+
+interface WikiHit extends RecalledPage {
+  rawScore: number;
+}
+
+interface WikiRawRow {
+  id: string;
+  slug: string;
+  title: string;
+  content_markdown: string;
+  user_id: string | null;
+  agent_id: string | null;
+  session_id: string | null;
+  raw_score: number;
+}
+
+const WIKI_VECTOR_WEIGHT = 0.7;
+const WIKI_KEYWORD_WEIGHT = 0.3;
+
+async function runWikiKeywordQuery(
+  db: Db,
+  input: PageRecallInput,
+  limit: number,
+): Promise<WikiHit[]> {
+  const queryParam = `%${input.query}%`;
+  const userFilter = input.scope.userId
+    ? sql` AND (user_id IS NULL OR user_id = ${input.scope.userId})`
+    : sql``;
+  const agentFilter = input.scope.agentId
+    ? sql` AND (agent_id IS NULL OR agent_id = ${input.scope.agentId})`
+    : sql``;
+  const result = await db.execute(sql`
+    SELECT id, slug, title, content_markdown, user_id, agent_id, session_id,
+           1.0::double precision AS raw_score
+    FROM memory_pages
+    WHERE company_id = ${input.scope.companyId}
+      AND superseded_at IS NULL
+      AND (title ILIKE ${queryParam} OR content_markdown ILIKE ${queryParam})
+      ${userFilter}
+      ${agentFilter}
+    ORDER BY last_linted_at DESC NULLS LAST, created_at DESC
+    LIMIT ${limit}
+  `);
+  return rawToWikiHits(result, "embedding");
+}
+
+async function runWikiVectorQuery(
+  db: Db,
+  input: PageRecallInput,
+  limit: number,
+  embedding: Float32Array,
+): Promise<WikiHit[]> {
+  const literal = `[${Array.from(embedding).join(",")}]`;
+  const userFilter = input.scope.userId
+    ? sql` AND (user_id IS NULL OR user_id = ${input.scope.userId})`
+    : sql``;
+  const agentFilter = input.scope.agentId
+    ? sql` AND (agent_id IS NULL OR agent_id = ${input.scope.agentId})`
+    : sql``;
+  const result = await db.execute(sql`
+    SELECT id, slug, title, content_markdown, user_id, agent_id, session_id,
+           GREATEST(0.0, 1.0 - (embedding <=> ${literal}::vector))::double precision AS raw_score
+    FROM memory_pages
+    WHERE company_id = ${input.scope.companyId}
+      AND superseded_at IS NULL
+      AND embedding IS NOT NULL
+      ${userFilter}
+      ${agentFilter}
+    ORDER BY embedding <=> ${literal}::vector ASC
+    LIMIT ${limit}
+  `);
+  return rawToWikiHits(result, "embedding");
+}
+
+function rawToWikiHits(
+  result: unknown,
+  matchedVia: "embedding" | "link",
+): WikiHit[] {
+  const rows = (Array.isArray(result) ? result : (result as { rows?: WikiRawRow[] }).rows ?? []) as WikiRawRow[];
+  return rows.map((r) => ({
+    id: r.id,
+    slug: r.slug,
+    title: r.title,
+    contentMarkdown: r.content_markdown,
+    scope: scopeKindOf({ userId: r.user_id, agentId: r.agent_id, sessionId: r.session_id }),
+    score: 0,
+    matchedVia,
+    rawScore: typeof r.raw_score === "number" ? r.raw_score : Number(r.raw_score),
+  }));
+}
+
+function mergeWikiHits(
+  vectorHits: WikiHit[],
+  keywordHits: WikiHit[],
+  limit: number,
+): RecalledPage[] {
+  const merged = new Map<string, RecalledPage & { score: number }>();
+  for (const h of vectorHits) {
+    merged.set(h.id, { ...h, score: clamp(h.rawScore * WIKI_VECTOR_WEIGHT) });
+  }
+  for (const h of keywordHits) {
+    const existing = merged.get(h.id);
+    const contribution = clamp(h.rawScore * WIKI_KEYWORD_WEIGHT);
+    if (existing) {
+      existing.score = clamp(existing.score + contribution);
+    } else {
+      merged.set(h.id, { ...h, score: contribution });
+    }
+  }
+  return [...merged.values()]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+}
+
+function clamp(n: number): number {
+  if (n < 0) return 0;
+  if (n > 1) return 1;
+  return n;
 }
