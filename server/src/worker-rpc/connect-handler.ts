@@ -12,6 +12,8 @@ import {
   ServerToWorkerSchema,
   WelcomeSchema,
   PingSchema,
+  ArtifactDeclareAckSchema,
+  type ArtifactDeclared,
 } from "@paperclipai/worker-rpc";
 import type { WorkerAuthStrategy } from "./auth.js";
 import type { WorkerRegistry, RegisteredWorker } from "../services/worker-registry.js";
@@ -42,6 +44,20 @@ export interface HandleConnectOpts {
   // wires a Drizzle update on workspace_runtime_services. Optional —
   // when omitted, status frames are silently dropped.
   updateServiceStatus?: (runtimeServiceId: string, patch: Record<string, unknown>) => Promise<void>;
+  // Artifacts plan — handler receives an ArtifactDeclared frame and
+  // returns the ack payload. Production wires this to
+  // ArtifactsService.declare via a thin adapter (resolves the run's
+  // company from heartbeat_runs, etc.). Optional; when omitted the
+  // server logs and drops the frame.
+  handleArtifactDeclared?: (
+    frame: ArtifactDeclared,
+    senderWorkerId: string,
+  ) => Promise<{
+    artifactId: string;
+    superseded: boolean;
+    previewQueued: boolean;
+    error?: string;
+  }>;
 }
 
 export async function handleConnect(
@@ -214,6 +230,49 @@ export async function handleConnect(
       // touchIfRun already reset the deadline above. Explicit case here
       // documents the keepalive contract and stops the no-op falling
       // through to "unknown frame" logging once we add it.
+      return;
+    }
+    if (p.case === "artifactDeclared") {
+      if (!opts.handleArtifactDeclared || !registered) return;
+      const handler = opts.handleArtifactDeclared;
+      const senderWorkerId = registered.workerId;
+      const frame = p.value;
+      void (async () => {
+        try {
+          const result = await handler(frame, senderWorkerId);
+          await send(
+            create(ServerToWorkerSchema, {
+              payload: {
+                case: "artifactDeclareAck",
+                value: create(ArtifactDeclareAckSchema, {
+                  runId: frame.runId,
+                  name: frame.name,
+                  artifactId: result.artifactId,
+                  superseded: result.superseded,
+                  previewQueued: result.previewQueued,
+                  error: result.error ?? "",
+                }),
+              },
+            }),
+          );
+        } catch (err) {
+          await send(
+            create(ServerToWorkerSchema, {
+              payload: {
+                case: "artifactDeclareAck",
+                value: create(ArtifactDeclareAckSchema, {
+                  runId: frame.runId,
+                  name: frame.name,
+                  artifactId: "",
+                  superseded: false,
+                  previewQueued: false,
+                  error: err instanceof Error ? err.message : String(err),
+                }),
+              },
+            }),
+          );
+        }
+      })();
       return;
     }
     if (p.case === "serviceStatus") {
