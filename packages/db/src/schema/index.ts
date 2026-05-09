@@ -38,6 +38,8 @@ export { issueRelations } from "./issue_relations.js";
 export { routines, routineRevisions, routineTriggers, routineRuns } from "./routines.js";
 export { issueWorkProducts } from "./issue_work_products.js";
 export { artifacts } from "./artifacts.js";
+export { workItems } from "./work_items.js";
+export { workQueueTenantCredits } from "./work_queue_tenant_credits.js";
 export { labels } from "./labels.js";
 export { issueLabels } from "./issue_labels.js";
 export { issueApprovals } from "./issue_approvals.js";

@@ -610,6 +610,13 @@
 			"when": 1778328000000,
 			"tag": "0086_artifacts_legacy_view",
 			"breakpoints": true
+		},
+		{
+			"idx": 87,
+			"version": "7",
+			"when": 1778324326287,
+			"tag": "0087_work_queues_foundation",
+			"breakpoints": true
 		}
 	]
 }
