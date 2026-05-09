@@ -7,6 +7,8 @@ import {
   type PlanRow,
 } from "@/api/plans";
 import { PhaseTree } from "./PhaseTree";
+import { RevisionDiff } from "./RevisionDiff";
+import { DecisionLog } from "./DecisionLog";
 
 interface PlanTabProps {
   issueId: string;
@@ -79,6 +81,18 @@ export function PlanTab({ planId }: PlanTabProps) {
           onComplete={onComplete}
           busy={busy}
         />
+      </section>
+      <section>
+        <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Decisions
+        </h3>
+        <DecisionLog planId={plan.id} />
+      </section>
+      <section>
+        <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Revision diff
+        </h3>
+        <RevisionDiff planId={plan.id} />
       </section>
     </div>
   );
