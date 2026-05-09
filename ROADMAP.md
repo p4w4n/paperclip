@@ -54,9 +54,11 @@ Five-phase distributed-workers spec landed. See `docs/superpowers/specs/2026-05-
 
 We want agents to run in more remote and sandboxed environments while preserving the same Paperclip control-plane model. This makes the system safer, more flexible, and more useful outside a single trusted local machine.
 
-### ⚪ Artifacts & Work Products
+### 🚧 Artifacts & Work Products
 
 Paperclip should make outputs first-class. That means generated artifacts, previews, deployable outputs, and the handoff from "agent did work" to "here is the result" should become more visible and easier to operate.
+
+Plan 1 (foundation) is in flight: unified `artifacts` table with content-addressed blobs, 7 typed kinds (code.file, code.patch, doc.markdown, doc.office, chart, data.table, web.app) with per-kind metadata validation, in-process service with tenant gate + supersession + parent chain, gRPC `ArtifactDeclared` frame for distributed workers, REST endpoints + UI Work Products tab on issue detail, local preview provider for static kinds, 5-min preview reaper, and a back-compat read view over the old issue_work_products shape. Plan 2 layers on e2b/Cloudflare preview providers, MCP-Resource adapter, orphan-blob GC, and the document_revisions consolidation.
 
 ### 🚧 Memory / Knowledge
 
