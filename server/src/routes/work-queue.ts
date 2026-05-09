@@ -22,6 +22,7 @@ import { z } from "zod";
 import { workItems } from "@paperclipai/db";
 import { eq } from "drizzle-orm";
 import { getWorkQueueService } from "../services/work-queue/service.js";
+import { pokeScheduler } from "../services/work-queue/poke.js";
 import { assertCompanyAccess, assertInstanceAdmin } from "./authz.js";
 import { notFound } from "../errors.js";
 import { validate } from "../middleware/validate.js";
@@ -75,6 +76,7 @@ export function workQueueRoutes(db: Db) {
             req.actor.type === "agent" ? req.actor.agentId ?? undefined : undefined,
         },
       );
+      if (result.enqueued) pokeScheduler(companyId);
       // 201 on first-write, 200 on duplicate (Stripe-style)
       res.status(result.enqueued ? 201 : 200).json(result);
     },
