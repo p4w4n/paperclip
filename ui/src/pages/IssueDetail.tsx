@@ -92,6 +92,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { WorkProductsTab } from "@/features/issues/work-products/WorkProductsTab";
+import { PlanTab } from "@/features/issues/plan-tab/PlanTab";
 import {
   Dialog,
   DialogContent,
@@ -127,6 +128,7 @@ import {
   ListTree,
   MessageSquare,
   Package,
+  Compass,
   MoreHorizontal,
   MoreVertical,
   PauseCircle,
@@ -3774,6 +3776,10 @@ export function IssueDetail() {
             <Package className="h-3.5 w-3.5" />
             Work products
           </TabsTrigger>
+          <TabsTrigger value="plan" className="gap-1.5">
+            <Compass className="h-3.5 w-3.5" />
+            Plan
+          </TabsTrigger>
           {issuePluginTabItems.map((item) => (
             <TabsTrigger key={item.value} value={item.value}>
               {item.label}
@@ -3876,6 +3882,12 @@ export function IssueDetail() {
         <TabsContent value="work-products">
           {detailTab === "work-products" ? (
             <WorkProductsTab issueId={issue.id} />
+          ) : null}
+        </TabsContent>
+
+        <TabsContent value="plan">
+          {detailTab === "plan" ? (
+            <PlanTab issueId={issue.id} planId={null} />
           ) : null}
         </TabsContent>
 
