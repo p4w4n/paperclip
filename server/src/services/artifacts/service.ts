@@ -26,6 +26,10 @@ import {
 } from "@paperclipai/shared";
 import type { StorageProvider } from "../../storage/types.js";
 import { hashAndStore } from "./blob-store.js";
+import {
+  recordArtifactBlobBytes,
+  recordArtifactDeclared,
+} from "./metrics.js";
 import { findParentForName } from "./parent-chain.js";
 import {
   ArtifactsTenantMismatchError,
@@ -89,6 +93,9 @@ export function createArtifactsService(opts: ArtifactsServiceOpts): ArtifactsSer
         contentType: input.contentType,
         provider: opts.storageProvider,
       });
+      if (!blob.alreadyExisted) {
+        recordArtifactBlobBytes(blob.blobStorageProvider, blob.blobBytes);
+      }
 
       const declared: DeclareResult = await opts.db.transaction(async (tx) => {
         const parentId = await findParentForName({
@@ -137,6 +144,7 @@ export function createArtifactsService(opts: ArtifactsServiceOpts): ArtifactsSer
         };
       });
 
+      recordArtifactDeclared(input.kind);
       return declared;
     },
 
