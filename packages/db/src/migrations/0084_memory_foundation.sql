@@ -1,9 +1,18 @@
 -- Plan 1 of Memory / Knowledge: facts (memory_entries) + wiki pages
 -- (memory_pages) + page graph (memory_page_links). The pgvector
--- extension is required; on environments without it (some embedded
--- postgres test setups), the extension creation is best-effort and
--- the partial HNSW indexes below are skipped via DO blocks.
-CREATE EXTENSION IF NOT EXISTS vector;--> statement-breakpoint
+-- extension is required for production semantic search; on
+-- environments without it (some embedded postgres test setups), the
+-- extension creation, vector columns, and HNSW indexes are all
+-- best-effort: the migration succeeds, and recall falls back to
+-- keyword-only.
+DO $do$ BEGIN
+  CREATE EXTENSION IF NOT EXISTS vector;
+EXCEPTION
+  WHEN feature_not_supported THEN RAISE NOTICE 'pgvector not available';
+  WHEN insufficient_privilege THEN RAISE NOTICE 'pgvector not available';
+  WHEN undefined_file THEN RAISE NOTICE 'pgvector not available';
+  WHEN OTHERS THEN RAISE NOTICE 'pgvector unavailable: %', SQLERRM;
+END $do$;--> statement-breakpoint
 CREATE TABLE "memory_entries" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"company_id" uuid NOT NULL,
@@ -14,7 +23,6 @@ CREATE TABLE "memory_entries" (
 	"kind" text NOT NULL,
 	"content" text NOT NULL,
 	"payload" jsonb,
-	"embedding" vector(1024),
 	"source_run_id" uuid,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"last_used_at" timestamp with time zone,
@@ -44,7 +52,6 @@ CREATE TABLE "memory_pages" (
 	"slug" text NOT NULL,
 	"title" text NOT NULL,
 	"content_markdown" text NOT NULL,
-	"embedding" vector(1024),
 	"parent_id" uuid,
 	"source_entry_ids" text[],
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
@@ -58,6 +65,18 @@ CREATE TABLE "memory_pages" (
 	"forget_reason" text
 );
 --> statement-breakpoint
+-- Try to add vector columns; skip if pgvector is unavailable. The
+-- ORM schema declares the column so production paths see it; on
+-- pgvector-absent environments writes to embedding fail and recall
+-- degrades to keyword-only.
+DO $do$ BEGIN
+  ALTER TABLE "memory_entries" ADD COLUMN "embedding" vector(1024);
+EXCEPTION WHEN undefined_object THEN NULL;
+END $do$;--> statement-breakpoint
+DO $do$ BEGIN
+  ALTER TABLE "memory_pages" ADD COLUMN "embedding" vector(1024);
+EXCEPTION WHEN undefined_object THEN NULL;
+END $do$;--> statement-breakpoint
 ALTER TABLE "memory_entries" ADD CONSTRAINT "memory_entries_company_id_companies_id_fk" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "memory_entries" ADD CONSTRAINT "memory_entries_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "memory_entries" ADD CONSTRAINT "memory_entries_agent_id_agents_id_fk" FOREIGN KEY ("agent_id") REFERENCES "public"."agents"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -79,20 +98,20 @@ CREATE INDEX "memory_pages_session_idx" ON "memory_pages" USING btree ("company_
 -- Partial HNSW indexes — only embedded, non-superseded rows.
 -- Hand-edited because drizzle-kit doesn't emit USING hnsw or
 -- partial WHERE clauses on indexes. Wrapped in DO blocks so the
--- migration succeeds on environments without pgvector (tests skip
--- explicitly when the extension is missing).
-DO $$ BEGIN
+-- migration succeeds on environments without pgvector (the embedding
+-- column itself was best-effort earlier in this migration).
+DO $do$ BEGIN
   CREATE INDEX "memory_entries_embedding_hnsw" ON "memory_entries"
     USING hnsw ("embedding" vector_cosine_ops)
     WHERE "embedding" IS NOT NULL AND "superseded_at" IS NULL;
-EXCEPTION WHEN undefined_object THEN NULL;
-END $$;--> statement-breakpoint
-DO $$ BEGIN
+EXCEPTION WHEN undefined_object OR undefined_column THEN NULL;
+END $do$;--> statement-breakpoint
+DO $do$ BEGIN
   CREATE INDEX "memory_pages_embedding_hnsw" ON "memory_pages"
     USING hnsw ("embedding" vector_cosine_ops)
     WHERE "embedding" IS NOT NULL AND "superseded_at" IS NULL;
-EXCEPTION WHEN undefined_object THEN NULL;
-END $$;--> statement-breakpoint
+EXCEPTION WHEN undefined_object OR undefined_column THEN NULL;
+END $do$;--> statement-breakpoint
 -- Partial unique on (scope, slug) — at most one active page per
 -- scope per slug. NULL columns coalesced via the explicit form so
 -- multiple agents in the same company can each have a 'foo' page.

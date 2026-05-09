@@ -58,9 +58,11 @@ We want agents to run in more remote and sandboxed environments while preserving
 
 Paperclip should make outputs first-class. That means generated artifacts, previews, deployable outputs, and the handoff from "agent did work" to "here is the result" should become more visible and easier to operate.
 
-### ⚪ Memory / Knowledge
+### 🚧 Memory / Knowledge
 
 We want a stronger memory and knowledge surface for companies, agents, and projects. That includes durable memory, better recall of prior decisions and context, and a clearer path for knowledge-style capabilities without turning Paperclip into a generic chat app.
+
+Plan 1 (foundation) is in flight: Karpathy 3-layer model on Postgres+pgvector — episodic facts auto-captured at run boundaries, semantic + procedural promotion via a reflection worker, wiki pages curated by an ingest LLM stage with lint operations, recall via union-rank (vector + keyword) and 1-hop link expansion. Plugin-shaped backends so Mem0 / Letta / external markdown can swap in.
 
 ### ⚪ Enforced Outcomes
 
