@@ -91,6 +91,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { WorkProductsTab } from "@/features/issues/work-products/WorkProductsTab";
 import {
   Dialog,
   DialogContent,
@@ -125,6 +126,7 @@ import {
   Hexagon,
   ListTree,
   MessageSquare,
+  Package,
   MoreHorizontal,
   MoreVertical,
   PauseCircle,
@@ -3768,6 +3770,10 @@ export function IssueDetail() {
             <ListTree className="h-3.5 w-3.5" />
             Related work
           </TabsTrigger>
+          <TabsTrigger value="work-products" className="gap-1.5">
+            <Package className="h-3.5 w-3.5" />
+            Work products
+          </TabsTrigger>
           {issuePluginTabItems.map((item) => (
             <TabsTrigger key={item.value} value={item.value}>
               {item.label}
@@ -3865,6 +3871,12 @@ export function IssueDetail() {
 
         <TabsContent value="related-work">
           <IssueRelatedWorkPanel relatedWork={issue.relatedWork} />
+        </TabsContent>
+
+        <TabsContent value="work-products">
+          {detailTab === "work-products" ? (
+            <WorkProductsTab issueId={issue.id} />
+          ) : null}
         </TabsContent>
 
         {activePluginTab && (
