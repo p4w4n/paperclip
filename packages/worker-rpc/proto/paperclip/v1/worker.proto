@@ -33,6 +33,11 @@ message WorkerToServer {
     // (dev servers, embedded postgres, etc.). Server maps these to row
     // updates on workspace_runtime_services so the UI sees live state.
     ServiceStatus service_status = 13;
+    // Artifacts plan: agent declares a typed output (code file,
+    // patch, doc, chart, table, web app...). Server hashes + stores
+    // the bytes (or fetches blob_uri), inserts the manifest row,
+    // and replies with ArtifactDeclareAck.
+    ArtifactDeclared artifact_declared = 14;
   }
 }
 
@@ -44,7 +49,44 @@ message ServerToWorker {
     LeaseRenew lease_renew = 4;
     Ping ping = 5;
     Drain drain = 6;
+    // Server replies to an ArtifactDeclared frame with the assigned
+    // manifest id + supersession + preview-queue status. The worker
+    // matches the ack via the (run_id, name) tuple — there are no
+    // concurrent artifact declares from the same agent on the same
+    // (run, name) by design.
+    ArtifactDeclareAck artifact_declare_ack = 7;
   }
+}
+
+message ArtifactDeclared {
+  string run_id = 1;
+  string kind = 2;
+  string name = 3;
+  string content_type = 4;
+  // Per-kind structured metadata as JSON bytes. The server validates
+  // against the kind's schema in @paperclipai/shared/artifact-kinds.
+  bytes content_meta_json = 5;
+  // Either inline bytes (small artifacts) or blob_uri pointing at a
+  // worker-uploaded object the server fetches. v1 implements inline
+  // only; blob_uri lands in Plan 2 alongside the e2b/Cloudflare
+  // preview providers.
+  bytes inline_bytes = 6;
+  string blob_uri = 7;
+  // When true, the server enqueues a preview-provider job after
+  // committing the manifest row.
+  bool request_preview = 8;
+}
+
+message ArtifactDeclareAck {
+  string run_id = 1;
+  string name = 2;
+  // Server-assigned manifest id.
+  string artifact_id = 3;
+  bool superseded = 4;
+  bool preview_queued = 5;
+  // Populated on failure (kind unknown, content_meta invalid,
+  // tenant mismatch). artifact_id is empty when error is set.
+  string error = 6;
 }
 
 message Hello {
