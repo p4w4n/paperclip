@@ -27,6 +27,9 @@ const PAGE_DIVIDER = "\n\n---\n\n";
 export interface PromptPrefixInput {
   pages: RecalledPage[];
   facts: RecalledEntry[];
+  // Optional: top-N suggested playbooks from the Org Learning
+  // subsystem. Rendered above pages + facts when present.
+  playbooks?: Array<{ title: string; body: string; score: number; reason?: string }>;
   // Override the budget, primarily for tests.
   maxBudgetChars?: number;
 }
@@ -36,20 +39,54 @@ export interface PromptPrefixResult {
   truncated: boolean;
   pagesIncluded: number;
   factsIncluded: number;
+  playbooksIncluded: number;
 }
 
 export function buildMemoryPromptPrefix(input: PromptPrefixInput): PromptPrefixResult {
-  if (input.pages.length === 0 && input.facts.length === 0) {
-    return { text: "", truncated: false, pagesIncluded: 0, factsIncluded: 0 };
+  const playbooks = input.playbooks ?? [];
+  if (
+    input.pages.length === 0 &&
+    input.facts.length === 0 &&
+    playbooks.length === 0
+  ) {
+    return {
+      text: "",
+      truncated: false,
+      pagesIncluded: 0,
+      factsIncluded: 0,
+      playbooksIncluded: 0,
+    };
   }
 
   const budget = input.maxBudgetChars ?? MAX_BUDGET_CHARS;
   const sortedPages = [...input.pages].sort((a, b) => b.score - a.score);
   const sortedFacts = [...input.facts].sort((a, b) => b.score - a.score);
+  const sortedPlaybooks = [...playbooks].sort((a, b) => b.score - a.score);
 
   const parts: string[] = [];
   let used = "<memory>\n</memory>".length;
   let truncated = false;
+  let playbooksIncluded = 0;
+
+  // Suggested playbooks render first — agents should treat them
+  // as the primary procedural reference for matching issues.
+  if (sortedPlaybooks.length > 0) {
+    const renderedPlaybooks: string[] = [];
+    for (const pb of sortedPlaybooks) {
+      const block = `### ${pb.title}\n${pb.body}`;
+      if (used + block.length + PAGE_DIVIDER.length > budget) {
+        truncated = true;
+        break;
+      }
+      renderedPlaybooks.push(block);
+      used += block.length + PAGE_DIVIDER.length;
+      playbooksIncluded++;
+    }
+    if (renderedPlaybooks.length > 0) {
+      parts.push("## Suggested playbooks\n\n" + renderedPlaybooks.join(PAGE_DIVIDER));
+      used += "## Suggested playbooks\n\n".length;
+    }
+  }
 
   // Pages first.
   const includedPages: string[] = [];
@@ -85,7 +122,13 @@ export function buildMemoryPromptPrefix(input: PromptPrefixInput): PromptPrefixR
   }
 
   if (parts.length === 0) {
-    return { text: "", truncated: true, pagesIncluded: 0, factsIncluded: 0 };
+    return {
+      text: "",
+      truncated: true,
+      pagesIncluded: 0,
+      factsIncluded: 0,
+      playbooksIncluded: 0,
+    };
   }
 
   const text = `<memory>\n${parts.join("")}\n</memory>`;
@@ -94,6 +137,7 @@ export function buildMemoryPromptPrefix(input: PromptPrefixInput): PromptPrefixR
     truncated,
     pagesIncluded: includedPages.length,
     factsIncluded: includedFacts.length,
+    playbooksIncluded,
   };
 }
 
