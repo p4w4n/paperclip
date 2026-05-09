@@ -50,6 +50,12 @@
 // ---------------------------------------------------------------------------
 
 export { definePlugin } from "./define-plugin.js";
+export { createWorkQueueClient } from "./work-queue.js";
+export type {
+  WorkQueueClient,
+  WorkQueueEnqueueInput,
+  WorkQueueEnqueueResult,
+} from "./work-queue.js";
 export { createTestHarness, createEnvironmentTestHarness, createFakeEnvironmentDriver, filterEnvironmentEvents, assertEnvironmentEventOrder, assertLeaseLifecycle, assertWorkspaceRealizationLifecycle, assertExecutionLifecycle, assertEnvironmentError } from "./testing.js";
 export { createPluginBundlerPresets } from "./bundlers.js";
 export { startPluginDevServer, getUiBuildSnapshot } from "./dev-server.js";
