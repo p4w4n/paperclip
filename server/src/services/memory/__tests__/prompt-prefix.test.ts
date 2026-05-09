@@ -89,14 +89,17 @@ describe("buildMemoryPromptPrefix", () => {
   it("renders playbooks above pages + facts when present", () => {
     const out = buildMemoryPromptPrefix({
       playbooks: [
-        { title: "Deploy recovery", body: "1. Roll back\n2. Notify ops", score: 0.8 },
+        { title: "Roll back staging", body: "1. revert\n2. Notify ops", score: 0.8 },
       ],
       pages: [page({ slug: "deploy", title: "Deploy", contentMarkdown: "Use blue/green." })],
       facts: [fact({ content: "Tests run on CI." })],
     });
     expect(out.playbooksIncluded).toBe(1);
-    expect(out.text.indexOf("Deploy recovery")).toBeLessThan(out.text.indexOf("Deploy"));
     expect(out.text.indexOf("Suggested playbooks")).toBeGreaterThan(-1);
+    expect(out.text.indexOf("Roll back staging")).toBeLessThan(
+      out.text.indexOf("Wiki pages"),
+    );
+    expect(out.text.indexOf("Wiki pages")).toBeLessThan(out.text.indexOf("Facts"));
   });
 
   it("trims fact content over 280 chars", () => {
