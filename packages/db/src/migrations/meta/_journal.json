@@ -631,6 +631,13 @@
 			"when": 1778332713237,
 			"tag": "0089_routine_requires_plan",
 			"breakpoints": true
+		},
+		{
+			"idx": 90,
+			"version": "7",
+			"when": 1778333765997,
+			"tag": "0090_organizational_learning_foundation",
+			"breakpoints": true
 		}
 	]
 }
