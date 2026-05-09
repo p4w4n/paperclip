@@ -74,9 +74,11 @@ Paperclip should get stricter about what counts as finished work. Tasks, approva
 
 This is the direction for higher-autonomy execution: more aggressive delegation, deeper follow-through, and stronger operating loops with clear budgets, visibility, and governance. The point is not hidden autonomy; the point is more output per human supervisor.
 
-### ⚪ Deep Planning
+### 🚧 Deep Planning
 
 Some work needs more than a task description before execution starts. Deeper planning means stronger issue documents, revisionable plans, and clearer review loops for strategy-heavy work before agents begin execution.
+
+Plan 1 (foundation) is in flight: 7 tables (`plans`, `plan_revisions`, `plan_phases`, `plan_phase_dependencies`, `plan_reviews`, `plan_decisions`, `plan_phase_runs`) with a strict lifecycle (draft → under_review → approved → in_progress → completed) and configurable `approval_policy` + `phase_advance_policy`; revision chain pure helpers; DAG cycle-check; lifecycle + phase-readiness validators; `PlanService` with tenant gate; phase ↔ work-queue bridge that materializes phase work into runs (Plan 1 of Work Queues); memory ingestion on plan completion (procedural wiki page + semantic decisions per Plan 1 of Memory); artifact tagging via `content_meta.plan_id`; heartbeat run-completion → phase auto-advance hook with markdown checkbox exit-criteria; OTel spans + 5 metric streams; UI Plan tab on issue detail (revision view, phase tree, decision log, revision diff, review surface); `/plans` index; `routines.requires_plan` flag for cron-driven plan creation. Plan 2 layers on plan templates, a planner-agent role, phase parallelism caps, auto-archival, and parent → child sub-plan composition.
 
 ### 🚧 Work Queues
 
