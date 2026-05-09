@@ -64,8 +64,21 @@ services:
       WORKER_AUTH_MODE: "shared_secret"
       WORKER_SHARED_SECRET: "${WORKER_SHARED_SECRET:?WORKER_SHARED_SECRET must be set}"
       WORKER_GRPC_BIND_ADDRESS: "0.0.0.0:50051"
+      # Plan 2: lease-expiry auto-replay cap. 2 = one auto-retry after
+      # the first expiry, then terminal failure (default). Set to 1
+      # to disable auto-replay entirely.
+      WORKER_LEASE_MAX_ATTEMPTS: "2"
+      # Plan 4: filestore mode root. Mount-and-share path for
+      # filestore_mode=on workspaces. Each worker container also
+      # mounts this same path; the workspace_leases table serializes
+      # concurrent runs across workers.
+      PAPERCLIP_FILESTORE_ROOT: "/paperclip-filestore"
     volumes:
       - workers-server-data:/paperclip
+      # Plan 4 filestore: shared volume mounted at the same path on
+      # every worker so filestore_mode workspaces resolve to the same
+      # files across the fleet.
+      - workers-filestore:/paperclip-filestore
     depends_on:
       db:
         condition: service_healthy
@@ -87,6 +100,8 @@ services:
       PAPERCLIP_WORKER_ADAPTERS: "claude_local,gemini_local"
       PAPERCLIP_WORKER_MAX_CONCURRENT: "1"
       HOME: "/paperclip"
+      # Plan 4 filestore root — same path on every worker.
+      PAPERCLIP_FILESTORE_ROOT: "/paperclip-filestore"
     volumes:
       # OAuth credentials from the host — claude-code reads
       # $HOME/.claude/.credentials.json and gemini-cli reads
@@ -94,6 +109,7 @@ services:
       # still works.
       - ${HOME}/.claude:/paperclip/.claude
       - ${HOME}/.gemini:/paperclip/.gemini
+      - workers-filestore:/paperclip-filestore
     depends_on:
       server:
         condition: service_started
@@ -120,3 +136,4 @@ services:
 volumes:
   workers-pgdata:
   workers-server-data:
+  workers-filestore:
