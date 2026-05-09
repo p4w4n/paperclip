@@ -657,6 +657,29 @@ export async function startServer(): Promise<StartedServer> {
     createPgvectorWikiBackend(db as any, embedder ? { embedder } : {}),
   );
 
+  // Artifacts subsystem boot. Registers the local preview provider
+  // (only one in Plan 1; e2b/Cloudflare layer on in Plan 2) and
+  // initializes the in-process service singleton.
+  const { initializeArtifactsService } = await import(
+    "./services/artifacts/service.js"
+  );
+  const { createLocalPreviewProvider } = await import(
+    "./services/artifacts/preview/local.js"
+  );
+  const { registerPreviewProvider } = await import(
+    "./services/artifacts/preview/registry.js"
+  );
+  const { startPreviewReaper } = await import(
+    "./services/artifacts/preview/reaper.js"
+  );
+  const { createStorageProviderFromConfig } = await import(
+    "./storage/provider-registry.js"
+  );
+  const storageProvider = createStorageProviderFromConfig(config);
+  registerPreviewProvider(createLocalPreviewProvider());
+  initializeArtifactsService({ db: db as any, storageProvider });
+  startPreviewReaper({ db: db as any });
+
   // Reflection worker — backfills embeddings for memory_entries +
   // memory_pages where embedding IS NULL. Booted even without an
   // embedder; the tick no-ops and the cadence resumes once one is
