@@ -2,7 +2,8 @@
 // without mocking dynamic imports, so we focus on the batching
 // helper which is the actual logic worth testing.
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createEmbeddingProvider } from "../embedding.js";
 
 // Reach into the module to test the private batching by re-creating
 // the same shape inline. (The exported surface is pure factory; the
@@ -23,6 +24,101 @@ async function embedInBatches(
   }
   return results;
 }
+
+describe("createEmbeddingProvider — ollama", () => {
+  const origFetch = globalThis.fetch;
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+  });
+  afterEach(() => {
+    globalThis.fetch = origFetch;
+  });
+
+  function ok(body: unknown) {
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return body;
+      },
+      async text() {
+        return JSON.stringify(body);
+      },
+    };
+  }
+
+  it("returns null when the daemon is unreachable", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("ECONNREFUSED"));
+    const provider = await createEmbeddingProvider({ provider: "ollama" });
+    expect(provider).toBeNull();
+  });
+
+  it("refuses to bind when the model emits a non-1024 dimension", async () => {
+    // 768-dim model probe (e.g. nomic-embed-text)
+    fetchMock.mockResolvedValueOnce(
+      ok({ embeddings: [Array(768).fill(0.1)] }),
+    );
+    const provider = await createEmbeddingProvider({
+      provider: "ollama",
+      model: "nomic-embed-text",
+    });
+    expect(provider).toBeNull();
+  });
+
+  it("binds when the model emits 1024-dim", async () => {
+    fetchMock.mockResolvedValueOnce(
+      ok({ embeddings: [Array(1024).fill(0.1)] }),
+    );
+    const provider = await createEmbeddingProvider({ provider: "ollama" });
+    expect(provider).not.toBeNull();
+    expect(provider?.id).toBe("ollama");
+    expect(provider?.dimension).toBe(1024);
+  });
+
+  it("embed() POSTs to /api/embed and returns Float32Arrays", async () => {
+    // probe
+    fetchMock.mockResolvedValueOnce(
+      ok({ embeddings: [Array(1024).fill(0.0)] }),
+    );
+    const provider = await createEmbeddingProvider({ provider: "ollama" });
+    expect(provider).not.toBeNull();
+
+    // embed call
+    const v1 = Array(1024).fill(0.1);
+    const v2 = Array(1024).fill(0.2);
+    fetchMock.mockResolvedValueOnce(ok({ embeddings: [v1, v2] }));
+    const out = await provider!.embed(["a", "b"]);
+    expect(out).toHaveLength(2);
+    expect(out[0]).toBeInstanceOf(Float32Array);
+    expect(out[0].length).toBe(1024);
+    expect(out[0][0]).toBeCloseTo(0.1, 4);
+
+    const lastCall = fetchMock.mock.calls.at(-1);
+    expect(lastCall?.[0]).toContain("/api/embed");
+    expect(JSON.parse(lastCall?.[1].body as string)).toEqual({
+      model: "bge-m3",
+      input: ["a", "b"],
+    });
+  });
+
+  it("embed() throws when the daemon errors", async () => {
+    fetchMock.mockResolvedValueOnce(
+      ok({ embeddings: [Array(1024).fill(0)] }),
+    );
+    const provider = await createEmbeddingProvider({ provider: "ollama" });
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      async text() {
+        return "model not loaded";
+      },
+    });
+    await expect(provider!.embed(["x"])).rejects.toThrow(/500/);
+  });
+});
 
 describe("embedInBatches", () => {
   const fakeVector = (i: number) => Float32Array.from([i, i, i]);

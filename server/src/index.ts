@@ -617,19 +617,54 @@ export async function startServer(): Promise<StartedServer> {
   const { createPgvectorWikiBackend } = await import(
     "./services/memory/pgvector-wiki-backend.js"
   );
+  // Embedding provider — selected by env var:
+  // PAPERCLIP_EMBEDDING_PROVIDER ∈ {ollama, voyage-3-large,
+  // text-embedding-3-large}; default ollama. The Ollama probe
+  // checks the daemon is reachable + emits 1024-dim — if not, the
+  // backends boot without an embedder and recall stays keyword-only
+  // until config is fixed.
+  const { createEmbeddingProvider } = await import(
+    "./services/memory/embedding.js"
+  );
+  const embedderProvider = (
+    process.env.PAPERCLIP_EMBEDDING_PROVIDER ?? "ollama"
+  ).trim() as
+    | "ollama"
+    | "voyage-3-large"
+    | "text-embedding-3-large";
+  const embedder = await createEmbeddingProvider({
+    provider: embedderProvider,
+    apiKey:
+      process.env.PAPERCLIP_EMBEDDING_API_KEY ??
+      process.env.VOYAGE_API_KEY ??
+      process.env.OPENAI_API_KEY,
+    baseUrl: process.env.PAPERCLIP_OLLAMA_BASE_URL,
+    model: process.env.PAPERCLIP_OLLAMA_EMBED_MODEL,
+  }).catch(() => null);
+  if (embedder) {
+    logger.info(
+      { provider: embedder.id, dimension: embedder.dimension },
+      "memory: embedding provider ready",
+    );
+  } else {
+    logger.info(
+      { provider: embedderProvider },
+      "memory: no embedding provider available — recall is keyword-only (set PAPERCLIP_EMBEDDING_PROVIDER and ensure it's reachable to enable vector search)",
+    );
+  }
   initializeMemoryService(
-    createPgvectorMemoryBackend(db as any),
-    createPgvectorWikiBackend(db as any),
+    createPgvectorMemoryBackend(db as any, embedder ? { embedder } : {}),
+    createPgvectorWikiBackend(db as any, embedder ? { embedder } : {}),
   );
 
   // Reflection worker — backfills embeddings for memory_entries +
   // memory_pages where embedding IS NULL. Booted even without an
-  // embedder configured (the tick no-ops); once a tenant adds an
-  // embedder, the next tick picks up the backlog. Interval is 30s.
+  // embedder; the tick no-ops and the cadence resumes once one is
+  // added.
   const { startReflectionWorker } = await import(
     "./services/memory/reflection-worker.js"
   );
-  startReflectionWorker({ db: db as any });
+  startReflectionWorker({ db: db as any, embedder: embedder ?? undefined });
   const app = await createApp(db as any, {
     uiMode,
     serverPort: listenPort,

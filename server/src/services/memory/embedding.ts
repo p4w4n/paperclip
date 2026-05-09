@@ -1,12 +1,15 @@
-// Embedding provider abstraction. Two production options:
-//   - voyage-3-large (default): MTEB 2026 leader at retrieval; ~10%
-//     better than text-embedding-3-large per voyage's benchmark.
-//   - text-embedding-3-large (fallback): OpenAI default; safe choice
-//     when a tenant doesn't have a Voyage account.
+// Embedding provider abstraction. Three options:
+//   - voyage-3-large: MTEB 2026 leader at retrieval; ~10% better
+//     than text-embedding-3-large per voyage's benchmark.
+//   - text-embedding-3-large: OpenAI default.
+//   - ollama: free + local. User runs an Ollama daemon and pulls
+//     a 1024-dim embedding model (`ollama pull bge-m3` or
+//     `ollama pull mxbai-embed-large`). No API key. No SDK.
+//     Default base URL http://127.0.0.1:11434.
 //
-// Both SDKs are lazy-imported — unit tests that don't exercise the
-// production providers don't pay the load cost. Same pattern as the
-// gcpIdTokenAuthStrategy in workers Plan 1 Task 14.
+// Voyage / OpenAI SDKs are lazy-imported — unit tests that don't
+// exercise the production providers don't pay the load cost. The
+// ollama provider has zero dependencies — pure fetch().
 //
 // Default dimension is 1024 (matches the schema's vector(1024)). For
 // providers that emit 3072-dim by default (text-embedding-3-large at
@@ -14,26 +17,35 @@
 // int8 quantization recommendation lands as a follow-up in Plan 2.
 
 const MAX_BATCH = 100;
+const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434";
+const DEFAULT_OLLAMA_MODEL = "bge-m3";
+
+export type EmbeddingProviderId =
+  | "voyage-3-large"
+  | "text-embedding-3-large"
+  | "ollama";
 
 export interface EmbeddingProvider {
-  id: "voyage-3-large" | "text-embedding-3-large";
+  id: EmbeddingProviderId;
   dimension: number;
   embed(texts: string[]): Promise<Float32Array[]>;
 }
 
 export interface EmbeddingProviderOpts {
-  // Override per-tenant via the boot wiring. Default 'voyage-3-large'
-  // unless VOYAGE_API_KEY is missing AND OPENAI_API_KEY is present.
-  provider: "voyage-3-large" | "text-embedding-3-large";
-  apiKey: string;
+  provider: EmbeddingProviderId;
+  // Required for voyage / openai. Unused for ollama.
+  apiKey?: string;
   dimension?: number;
+  // Ollama-only.
+  baseUrl?: string;
+  model?: string;
 }
 
 /**
- * Production factory. Returns null when the SDK package isn't
- * installed; the boot wiring degrades to a no-op embedding pipeline
- * (entries stay with embedding=null, recall falls back to keyword
- * search via M-8's degraded path).
+ * Production factory. Returns null when the underlying provider isn't
+ * available (missing SDK package, ollama not reachable); the boot
+ * wiring degrades to a no-op embedding pipeline (entries stay with
+ * embedding=null, recall falls back to keyword search).
  */
 export async function createEmbeddingProvider(
   opts: EmbeddingProviderOpts,
@@ -41,7 +53,10 @@ export async function createEmbeddingProvider(
   if (opts.provider === "voyage-3-large") {
     return createVoyageProvider(opts);
   }
-  return createOpenAiProvider(opts);
+  if (opts.provider === "text-embedding-3-large") {
+    return createOpenAiProvider(opts);
+  }
+  return createOllamaProvider(opts);
 }
 
 async function createVoyageProvider(
@@ -94,6 +109,65 @@ async function createOpenAiProvider(
           dimensions: dim,
         });
         return res.data.map((d: { embedding: number[] }) => Float32Array.from(d.embedding));
+      });
+    },
+  };
+}
+
+async function createOllamaProvider(
+  opts: EmbeddingProviderOpts,
+): Promise<EmbeddingProvider | null> {
+  const baseUrl = (opts.baseUrl ?? DEFAULT_OLLAMA_BASE_URL).replace(/\/+$/, "");
+  const model = opts.model ?? DEFAULT_OLLAMA_MODEL;
+
+  // Probe once at factory time so a misconfigured base URL surfaces
+  // at boot rather than on the first recall. We only check the
+  // model exists; we don't pre-warm it.
+  let detectedDimension: number | null = opts.dimension ?? null;
+  try {
+    const probe = await fetch(`${baseUrl}/api/embed`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model, input: ["probe"] }),
+    });
+    if (!probe.ok) return null;
+    const json = (await probe.json()) as { embeddings?: number[][] };
+    const first = json.embeddings?.[0];
+    if (!Array.isArray(first) || first.length === 0) return null;
+    detectedDimension = detectedDimension ?? first.length;
+    // Schema is vector(1024). If the model emits a different
+    // dimension, refuse to bind: writes would crash and silently
+    // accepting wrong dimensions corrupts recall.
+    if (detectedDimension !== 1024) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[memory.embedding.ollama] model ${model} emits ${detectedDimension}-dim vectors but schema requires 1024; refusing to bind. Use bge-m3 or mxbai-embed-large.`,
+      );
+      return null;
+    }
+  } catch {
+    // Daemon not reachable — return null so the worker stays idle.
+    return null;
+  }
+
+  return {
+    id: "ollama",
+    dimension: detectedDimension!,
+    async embed(texts) {
+      return embedInBatches(texts, async (batch) => {
+        const res = await fetch(`${baseUrl}/api/embed`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model, input: batch }),
+        });
+        if (!res.ok) {
+          throw new Error(`ollama /api/embed ${res.status}: ${await res.text()}`);
+        }
+        const json = (await res.json()) as { embeddings?: number[][] };
+        if (!Array.isArray(json.embeddings)) {
+          throw new Error("ollama /api/embed: missing embeddings array");
+        }
+        return json.embeddings.map((v) => Float32Array.from(v));
       });
     },
   };
