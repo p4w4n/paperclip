@@ -8,16 +8,17 @@ function fakeDb({
   phaseRow?: Record<string, unknown> | null;
   planRow?: Record<string, unknown> | null;
 }) {
+  // First select() call hits plan_phases, second hits plans —
+  // matches the order in the implementation.
   let call = 0;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return {
     select: vi.fn(() => ({
-      from: vi.fn((tbl) => ({
+      from: vi.fn(() => ({
         where: vi.fn(() => {
           call++;
-          const tableName = (tbl as { _: { name: string } } | undefined)?._?.name;
-          if (tableName === "plan_phases") return Promise.resolve(phaseRow ? [phaseRow] : []);
-          if (tableName === "plans") return Promise.resolve(planRow ? [planRow] : []);
+          if (call === 1) return Promise.resolve(phaseRow ? [phaseRow] : []);
+          if (call === 2) return Promise.resolve(planRow ? [planRow] : []);
           return Promise.resolve([]);
         }),
       })),
@@ -50,7 +51,8 @@ describe("enqueuePhaseWork", () => {
       phaseId: "ph-1",
     });
     expect(out).toEqual({ enqueued: true, workItemId: "wi-1" });
-    const callArgs = wq.enqueue.mock.calls[0]?.[1] as Record<string, unknown>;
+    const calls = wq.enqueue.mock.calls as unknown as Array<[unknown, Record<string, unknown>]>;
+    const callArgs = calls[0][1];
     expect(callArgs.dedupeKey).toBe("plan-p-1-phase-ph-1");
     expect((callArgs.payload as Record<string, unknown>).planContext).toEqual({
       planId: "p-1",
