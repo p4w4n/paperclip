@@ -167,6 +167,7 @@ import { getMemoryService } from "./memory/service.js";
 import {
   recordRunStart as memoryRecordRunStart,
   recordRunFinish as memoryRecordRunFinish,
+  recordRunComment as memoryRecordRunComment,
 } from "./memory/run-events.js";
 import { buildMemoryPromptPrefix } from "./memory/prompt-prefix.js";
 
@@ -3721,8 +3722,11 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
 
   // Fire-and-forget bridge into the Memory subsystem. Records an
   // episodic entry whenever a run transitions into "running" (start)
-  // or a terminal state ("succeeded", "failed", "timed_out").
-  // Failures are absorbed; memory must not stall the run path.
+  // or a terminal state ("succeeded", "failed", "timed_out"). When
+  // a "running" transition has a wakeCommentId in its context, we
+  // also record the comment that drove the wake (best-effort DB
+  // lookup for author + body). Failures are absorbed; memory must
+  // not stall the run path.
   function writeMemoryRunLifecycleEvent(run: typeof heartbeatRuns.$inferSelect): void {
     let svc;
     try {
@@ -3741,6 +3745,14 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         issueId,
         issueTitle,
       });
+      const wakeCommentId =
+        readNonEmptyString(ctx.wakeCommentId) ?? readNonEmptyString(ctx.commentId);
+      if (wakeCommentId) {
+        // Fire-and-forget DB lookup; errors logged not raised.
+        void recordCommentDrivenWake(run, wakeCommentId).catch((err) => {
+          logger.debug({ err, runId: run.id }, "memory: comment-driven wake record failed");
+        });
+      }
       return;
     }
     if (run.status === "succeeded" || run.status === "failed" || run.status === "timed_out") {
@@ -3754,6 +3766,42 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         summary: run.error ?? undefined,
       });
     }
+  }
+
+  async function recordCommentDrivenWake(
+    run: typeof heartbeatRuns.$inferSelect,
+    commentId: string,
+  ): Promise<void> {
+    const svc = getMemoryService();
+    const [comment] = await db
+      .select({
+        body: issueComments.body,
+        authorAgentId: issueComments.authorAgentId,
+        authorUserId: issueComments.authorUserId,
+        issueId: issueComments.issueId,
+      })
+      .from(issueComments)
+      .where(
+        and(
+          eq(issueComments.id, commentId),
+          eq(issueComments.companyId, run.companyId),
+        ),
+      );
+    if (!comment) return;
+    const commentBy =
+      comment.authorAgentId
+        ? `agent:${comment.authorAgentId}`
+        : comment.authorUserId
+          ? `user:${comment.authorUserId}`
+          : "unknown";
+    memoryRecordRunComment(svc, {
+      runId: run.id,
+      companyId: run.companyId,
+      agentId: run.agentId ?? undefined,
+      issueId: comment.issueId,
+      commentBy,
+      commentExcerpt: comment.body,
+    });
   }
 
   function publishRunLifecyclePluginEvent(run: typeof heartbeatRuns.$inferSelect) {
