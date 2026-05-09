@@ -688,6 +688,42 @@ export async function startServer(): Promise<StartedServer> {
     "./services/memory/reflection-worker.js"
   );
   startReflectionWorker({ db: db as any, embedder: embedder ?? undefined });
+
+  // Work-queue service singleton. The scheduler integration into
+  // the heartbeat tick lands when the heartbeat refactor consolidates
+  // the existing dispatch loop; for now the service is initialized
+  // so REST + plugin SDK paths work.
+  const { initializeWorkQueueService } = await import(
+    "./services/work-queue/service.js"
+  );
+  initializeWorkQueueService({ db: db as any });
+
+  // Plan service singleton. onPlanCompleted hook wires Memory's
+  // ingestCompletedPlan when the plan transitions to completed.
+  const { initializePlanService } = await import("./services/plans/service.js");
+  const { ingestCompletedPlan } = await import("./services/plans/memory-ingest.js");
+  const { getMemoryService } = await import("./services/memory/service.js");
+  initializePlanService({
+    db: db as any,
+    onPlanCompleted: async (planId: string) => {
+      try {
+        await ingestCompletedPlan(db as any, getMemoryService(), planId);
+      } catch (err) {
+        logger.warn({ err, planId }, "memory-ingest of completed plan failed");
+      }
+    },
+  });
+
+  // OrgLearningService singleton + suggest cache.
+  const { initializeOrgLearningService } = await import(
+    "./services/learning/service.js"
+  );
+  const { initializeSuggestCache } = await import(
+    "./services/learning/suggest-cache.js"
+  );
+  initializeOrgLearningService({ db: db as any });
+  initializeSuggestCache();
+
   const app = await createApp(db as any, {
     uiMode,
     serverPort: listenPort,

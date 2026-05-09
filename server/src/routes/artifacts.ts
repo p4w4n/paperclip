@@ -74,7 +74,8 @@ export function artifactsRoutes(db: Db) {
     res.json({ artifact: hydrated });
   });
 
-  router.get("/preview/:artifactId/*", async (req, res) => {
+  // path-to-regexp v8 (Express 5) requires named wildcards.
+  router.get("/preview/:artifactId/*splat", async (req, res) => {
     const id = req.params.artifactId as string;
     const row = await peekArtifact(db, id);
     if (!row) throw notFound("artifact not found");
