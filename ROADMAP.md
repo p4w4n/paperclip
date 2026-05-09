@@ -90,9 +90,11 @@ Plan 1 (foundation) is in flight: `work_items` + `work_queue_tenant_credits` tab
 
 As companies grow, agents should be able to propose useful structural changes such as role adjustments, delegation changes, and new recurring routines. The goal is adaptive organizations that still stay within governance and approval boundaries.
 
-### ⚪ Automatic Organizational Learning
+### 🚧 Automatic Organizational Learning
 
 Paperclip should get better at turning completed work into reusable organizational knowledge. That includes capturing playbooks, recurring fixes, and decision patterns so future work starts from what the company has already learned.
+
+Plan 1 (foundation) is in flight: 5 tables (`playbooks` with revision chain + applicability_conditions + lifecycle, `playbook_revisions`, `outcome_patterns`, `agent_skills`, `decision_patterns`); pure clustering + skill-tagging + decision-aggregator helpers (extend Memory's reflection worker); `OrgLearningService` with tenant gate + CRUD + suggest hot path; in-memory LRU suggest cache (60s TTL, 1000 entries); REST endpoints; UI `/admin/learning` curation page + agent skills page + `/learning/patterns` dashboard; OTel spans + 6 metric streams. Suggested playbooks integrate with the existing `<memory>` prompt-prefix as a top-of-block "Suggested playbooks" section. Plan 2 layers on MCP-Resource adapter, auto-execution under Enforced Outcomes, cross-company industry-template plugins, and skill canonicalization.
 
 ### ⚪ CEO Chat
 
