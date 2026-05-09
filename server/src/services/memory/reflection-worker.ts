@@ -26,7 +26,10 @@ import type { EmbeddingProvider } from "./embedding.js";
 
 export interface ReflectionWorkerOpts {
   db: Db;
-  embedder: EmbeddingProvider;
+  // Optional. When absent, the embed stages are skipped (no-op tick).
+  // Boot can wire the worker before any embedder is configured —
+  // the worker quietly idles until createEmbeddingProvider lands.
+  embedder?: EmbeddingProvider;
   // How many rows per tick. Default 32; embedding APIs are happiest
   // with batches up to ~100 (see embedding.ts MAX_BATCH).
   batchSize?: number;
@@ -116,6 +119,13 @@ export async function reflectionTick(
   let factsEmbedded = 0;
   let pagesEmbedded = 0;
   let errors = 0;
+  // No-op when no embedder is wired. Boot installs the worker even
+  // before an embedder is configured so the cadence exists; once a
+  // tenant adds Voyage / OpenAI keys, the next tick picks up the
+  // pending backlog.
+  if (!opts.embedder) {
+    return { factsEmbedded: 0, pagesEmbedded: 0, errors: 0 };
+  }
   try {
     const facts = await embedPendingFacts(opts.db, opts.embedder, batchSize);
     factsEmbedded = facts.embedded;

@@ -621,6 +621,15 @@ export async function startServer(): Promise<StartedServer> {
     createPgvectorMemoryBackend(db as any),
     createPgvectorWikiBackend(db as any),
   );
+
+  // Reflection worker — backfills embeddings for memory_entries +
+  // memory_pages where embedding IS NULL. Booted even without an
+  // embedder configured (the tick no-ops); once a tenant adds an
+  // embedder, the next tick picks up the backlog. Interval is 30s.
+  const { startReflectionWorker } = await import(
+    "./services/memory/reflection-worker.js"
+  );
+  startReflectionWorker({ db: db as any });
   const app = await createApp(db as any, {
     uiMode,
     serverPort: listenPort,
