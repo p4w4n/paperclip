@@ -103,9 +103,31 @@ If your GCP project blocks external internet access (no npm, no pypi, no public 
 ### Building the release tarball (on a machine with network)
 
 ```bash
+# Default: builds locally. Native binaries (sharp's libvips bindings,
+# etc.) match whatever distro the build machine runs.
 ./scripts/build-release.sh
+
+# Recommended for releases that leave the build machine: rebuild
+# inside the same container the Dockerfile uses, so the native
+# binaries match every modern long-LTS Linux (Ubuntu, Debian, Rocky,
+# RHEL, Amazon Linux 2, GCP COS, etc. — anything glibc-based).
+./scripts/build-release.sh --in-docker
+
 # → release/paperclip-release-<commit>.tar.gz
 ```
+
+**Linux portability.** The tarball is glibc-based. It runs on any
+modern Linux that ships glibc (every long-LTS distro since ~2020).
+**Alpine and other musl-based distros are NOT supported** because
+sharp's prebuilt binaries are glibc-only — running on musl would
+require rebuilding from source, which an air-gapped target can't do
+without network. Use a glibc base (debian-slim, distroless, Ubuntu)
+on the target.
+
+The `--in-docker` mode pins the build environment to
+`node:lts-trixie-slim`, which matches what GCP COS, Ubuntu 22.04+,
+Debian 12+, and most other modern distros run. A tarball built this
+way is portable across all of them.
 
 The script:
 1. Runs `pnpm install` + `pnpm -r build`

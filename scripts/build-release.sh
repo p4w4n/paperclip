@@ -6,6 +6,29 @@
 #
 # Run this on a machine WITH network access. The output goes into
 # release/paperclip-release-<commit>.tar.gz.
+#
+# # Linux portability
+#
+# The tarball includes native binaries for:
+#   - sharp (image processing — libvips bindings)
+#   - any other npm package with prebuilt binaries
+#
+# These are GLIBC-based and built on whatever distro you run this on.
+# For maximum portability across "open Linux images" (Ubuntu, Debian,
+# Rocky, RHEL, Amazon Linux 2, GCP COS, etc.), pass `--in-docker` so
+# the build runs inside a node:lts-trixie-slim container. That target
+# matches what every modern long-LTS distro ships.
+#
+# `embedded-postgres` is in the dep tree but the air-gapped path
+# never runs it — you bring your own Cloud SQL / self-hosted
+# Postgres. The binary it would download is skipped via the
+# postinstall env var below.
+#
+# musl-based distros (Alpine) are NOT supported by this tarball.
+# Sharp's prebuilt binaries are glibc; running on Alpine requires
+# rebuilding from source against musl, which the air-gapped target
+# can't do without network. Use a glibc base (debian-slim, distroless,
+# Ubuntu, etc.) on the target.
 
 set -euo pipefail
 
@@ -36,6 +59,34 @@ require git
 
 log "release name: ${RELEASE_NAME}"
 log "claude-code: ${CLAUDE_CODE_VERSION}, gemini-cli: ${GEMINI_CLI_VERSION}"
+
+# --in-docker: rebuild this script's call inside the same container
+# the production Dockerfile uses (node:lts-trixie-slim, glibc). The
+# resulting tarball runs on any glibc-based Linux that has Node 20.
+# Plain mode runs locally and produces a tarball whose native binaries
+# are tied to whatever distro you're on. Recommended: --in-docker for
+# any release that ships outside the build machine.
+if [[ "${1:-}" == "--in-docker" ]]; then
+  log "rebuilding inside node:lts-trixie-slim for portability"
+  exec docker run --rm \
+    -v "${ROOT}:/work" \
+    -e CLAUDE_CODE_VERSION="${CLAUDE_CODE_VERSION}" \
+    -e GEMINI_CLI_VERSION="${GEMINI_CLI_VERSION}" \
+    -w /work \
+    node:lts-trixie-slim \
+    bash -c '
+      set -e
+      apt-get update -qq
+      apt-get install -y --no-install-recommends git tar ca-certificates >/dev/null
+      corepack enable
+      bash scripts/build-release.sh
+    '
+fi
+
+# Skip embedded-postgres binary download — air-gapped target uses
+# external postgres. The package stays in node_modules for code-level
+# imports; the binary download just bloats the tarball.
+export EMBEDDED_POSTGRES_SKIP_DOWNLOAD=1
 
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
