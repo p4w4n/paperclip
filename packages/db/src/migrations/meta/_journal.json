@@ -589,6 +589,13 @@
       "when": 1778267117063,
       "tag": "0083_workspace_leases",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1778304318474,
+      "tag": "0084_memory_foundation",
+      "breakpoints": true
     }
   ]
 }
