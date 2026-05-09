@@ -9,6 +9,7 @@ import {
 import { PhaseTree } from "./PhaseTree";
 import { RevisionDiff } from "./RevisionDiff";
 import { DecisionLog } from "./DecisionLog";
+import { ReviewSurface } from "./ReviewSurface";
 
 interface PlanTabProps {
   issueId: string;
@@ -81,6 +82,12 @@ export function PlanTab({ planId }: PlanTabProps) {
           onComplete={onComplete}
           busy={busy}
         />
+      </section>
+      <section>
+        <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Reviews
+        </h3>
+        <ReviewSurface planId={plan.id} canReview={plan.status === "under_review" || plan.status === "draft"} />
       </section>
       <section>
         <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
