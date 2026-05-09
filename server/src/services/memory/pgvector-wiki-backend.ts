@@ -256,13 +256,28 @@ export function createPgvectorWikiBackend(
     },
 
     async forget(input: ForgetInput) {
-      await db
-        .update(memoryPages)
-        .set({
-          supersededAt: sql`now()`,
-          forgetReason: input.reason,
-        })
-        .where(and(eq(memoryPages.id, input.id), isNull(memoryPages.supersededAt)));
+      // Soft-delete via supersededAt + forget reason. Idempotent —
+      // a second call is a no-op because of the supersededAt IS NULL
+      // guard. Outbound links from this page are dropped so they
+      // don't surface in 1-hop expansion of other pages.
+      await db.transaction(async (tx) => {
+        const [row] = await tx
+          .update(memoryPages)
+          .set({
+            supersededAt: sql`now()`,
+            forgetReason: input.reason,
+          })
+          .where(and(eq(memoryPages.id, input.id), isNull(memoryPages.supersededAt)))
+          .returning({ id: memoryPages.id });
+        if (row) {
+          await tx
+            .delete(memoryPageLinks)
+            .where(eq(memoryPageLinks.fromPageId, input.id));
+          await tx
+            .delete(memoryPageLinks)
+            .where(eq(memoryPageLinks.toPageId, input.id));
+        }
+      });
     },
   };
 }
