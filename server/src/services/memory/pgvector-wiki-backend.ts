@@ -215,9 +215,113 @@ export function createPgvectorWikiBackend(
       return merged.slice(0, limit + (expandLinks ? limit : 0));
     },
 
-    // lintPage lands in M-15.
-    async lintPage(_input: { pageId: string; llm: LlmClient }) {
-      throw new Error("lintPage not yet implemented (M-15)");
+    async lintPage(input: { pageId: string; llm: LlmClient }) {
+      // Karpathy's "lint" operation: ask the LLM whether the page is
+      // clean / stale / contradicted / needs_split, optionally with
+      // a rewrite. We pass the page content + the cluster of source
+      // facts so the LLM can compare what was written against the
+      // current evidence.
+      const [page] = await db
+        .select({
+          id: memoryPages.id,
+          title: memoryPages.title,
+          contentMarkdown: memoryPages.contentMarkdown,
+          sourceEntryIds: memoryPages.sourceEntryIds,
+          companyId: memoryPages.companyId,
+          userId: memoryPages.userId,
+          agentId: memoryPages.agentId,
+          sessionId: memoryPages.sessionId,
+          sessionKind: memoryPages.sessionKind,
+          slug: memoryPages.slug,
+        })
+        .from(memoryPages)
+        .where(and(eq(memoryPages.id, input.pageId), isNull(memoryPages.supersededAt)));
+
+      if (!page) {
+        return {
+          newRevisionId: null,
+          status: "clean" as const,
+          notes: "page not found or already superseded",
+        };
+      }
+
+      // Pull the current source facts for context.
+      let sourceFacts: Array<{ id: string; content: string; kind: string }> = [];
+      if (page.sourceEntryIds && page.sourceEntryIds.length > 0) {
+        const idsExpr = sql`${page.sourceEntryIds}`;
+        const factRows = await db.execute(sql`
+          SELECT id, content, kind FROM memory_entries
+          WHERE id = ANY(${idsExpr}::uuid[])
+            AND superseded_at IS NULL
+        `);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const rows = (Array.isArray(factRows) ? factRows : (factRows as any).rows ?? []) as Array<{
+          id: string;
+          content: string;
+          kind: string;
+        }>;
+        sourceFacts = rows;
+      }
+
+      const userPrompt = [
+        `# Page: ${page.title} (${page.slug})\n`,
+        page.contentMarkdown,
+        "\n# Current source facts:\n",
+        ...sourceFacts.map((f) => `- (${f.id}) [${f.kind}] ${f.content}`),
+        "\n# Task",
+        "Return JSON: {\"status\":\"clean|stale|contradicted|needs_split\",\"notes\":\"...\",\"rewrite\":\"...optional...\"}",
+      ].join("\n");
+
+      const raw = await input.llm.generate({
+        system: LINT_SYSTEM_PROMPT,
+        user: userPrompt,
+      });
+      const parsed = parseLintResponse(raw);
+
+      let newRevisionId: string | null = null;
+      if (
+        parsed.rewrite &&
+        (parsed.status === "stale" || parsed.status === "contradicted") &&
+        parsed.rewrite.length > 0
+      ) {
+        const [newRow] = await db
+          .insert(memoryPages)
+          .values({
+            companyId: page.companyId,
+            userId: page.userId,
+            agentId: page.agentId,
+            sessionId: page.sessionId,
+            sessionKind: page.sessionKind,
+            slug: page.slug,
+            title: page.title,
+            contentMarkdown: parsed.rewrite,
+            parentId: page.id,
+            sourceEntryIds: page.sourceEntryIds,
+          })
+          .returning({ id: memoryPages.id });
+        await db
+          .update(memoryPages)
+          .set({ supersededAt: new Date() })
+          .where(eq(memoryPages.id, page.id));
+        newRevisionId = newRow.id;
+      }
+
+      // Always update lint metadata on the (possibly now-superseded)
+      // row — the audit log lives in the parent chain.
+      await db
+        .update(memoryPages)
+        .set({
+          lintStatus: parsed.status,
+          lintNotes: parsed.notes ?? null,
+          lastLintedAt: sql`now()`,
+        })
+        .where(eq(memoryPages.id, page.id));
+
+      return {
+        newRevisionId,
+        status: parsed.status,
+        notes: parsed.notes ?? "",
+      };
     },
 
     async listLinkedPages(input: { pageId: string; depth?: number }) {
@@ -412,4 +516,47 @@ function clamp(n: number): number {
   if (n < 0) return 0;
   if (n > 1) return 1;
   return n;
+}
+
+// ---------- lint internals ----------
+
+const LINT_SYSTEM_PROMPT = `You audit a wiki page against its current evidence.
+
+Decide a status:
+- clean: the page accurately reflects the source facts.
+- stale: source facts have moved on; the page is out of date.
+- contradicted: source facts disagree with the page.
+- needs_split: the page covers more than one topic and should be split.
+
+Output JSON: {"status":"...","notes":"...","rewrite":"...optional rewrite if stale or contradicted"}.
+
+Be conservative: if you're not sure, return "clean" with brief notes.
+Never invent facts in the rewrite — use only what's in the source facts.`;
+
+interface LintParsed {
+  status: "clean" | "stale" | "contradicted" | "needs_split";
+  notes: string | null;
+  rewrite: string | null;
+}
+
+export function parseLintResponse(raw: string): LintParsed {
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start === -1 || end === -1 || end < start) {
+    return { status: "clean", notes: null, rewrite: null };
+  }
+  try {
+    const obj = JSON.parse(raw.slice(start, end + 1));
+    const status =
+      obj?.status === "stale" ||
+      obj?.status === "contradicted" ||
+      obj?.status === "needs_split"
+        ? obj.status
+        : "clean";
+    const notes = typeof obj?.notes === "string" ? obj.notes : null;
+    const rewrite = typeof obj?.rewrite === "string" && obj.rewrite.trim().length > 0 ? obj.rewrite : null;
+    return { status, notes, rewrite };
+  } catch {
+    return { status: "clean", notes: null, rewrite: null };
+  }
 }
