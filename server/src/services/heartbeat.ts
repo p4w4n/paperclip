@@ -163,6 +163,12 @@ import { environmentService } from "./environments.js";
 import { environmentRuntimeService } from "./environment-runtime.js";
 import { environmentRunOrchestrator } from "./environment-run-orchestrator.js";
 import type { PluginWorkerManager } from "./plugin-worker-manager.js";
+import { getMemoryService } from "./memory/service.js";
+import {
+  recordRunStart as memoryRecordRunStart,
+  recordRunFinish as memoryRecordRunFinish,
+} from "./memory/run-events.js";
+import { buildMemoryPromptPrefix } from "./memory/prompt-prefix.js";
 
 const MAX_LIVE_LOG_CHUNK_BYTES = 8 * 1024;
 const MAX_PERSISTED_LOG_CHUNK_CHARS = 64 * 1024;
@@ -3707,9 +3713,47 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         },
       });
       publishRunLifecyclePluginEvent(updated);
+      writeMemoryRunLifecycleEvent(updated);
     }
 
     return updated;
+  }
+
+  // Fire-and-forget bridge into the Memory subsystem. Records an
+  // episodic entry whenever a run transitions into "running" (start)
+  // or a terminal state ("succeeded", "failed", "timed_out").
+  // Failures are absorbed; memory must not stall the run path.
+  function writeMemoryRunLifecycleEvent(run: typeof heartbeatRuns.$inferSelect): void {
+    let svc;
+    try {
+      svc = getMemoryService();
+    } catch {
+      return;
+    }
+    const ctx = parseObject(run.contextSnapshot);
+    const issueId = readNonEmptyString(ctx.issueId) ?? undefined;
+    const issueTitle = readNonEmptyString(ctx.issueTitle) ?? undefined;
+    if (run.status === "running") {
+      memoryRecordRunStart(svc, {
+        runId: run.id,
+        companyId: run.companyId,
+        agentId: run.agentId ?? undefined,
+        issueId,
+        issueTitle,
+      });
+      return;
+    }
+    if (run.status === "succeeded" || run.status === "failed" || run.status === "timed_out") {
+      const exitCode = run.status === "succeeded" ? 0 : 1;
+      memoryRecordRunFinish(svc, {
+        runId: run.id,
+        companyId: run.companyId,
+        agentId: run.agentId ?? undefined,
+        issueId,
+        exitCode,
+        summary: run.error ?? undefined,
+      });
+    }
   }
 
   function publishRunLifecyclePluginEvent(run: typeof heartbeatRuns.$inferSelect) {
@@ -5846,6 +5890,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
       },
     });
     publishRunLifecyclePluginEvent(claimed);
+    writeMemoryRunLifecycleEvent(claimed);
 
     await setWakeupStatus(claimed.wakeupRequestId, "claimed", { claimedAt });
 
@@ -7580,6 +7625,34 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
           },
           "local agent jwt secret missing or invalid; running without injected PAPERCLIP_API_KEY",
         );
+      }
+      // Memory recall — populate context.paperclipMemoryPreamble so
+      // adapters can prepend the wiki-page + fact prefix to their
+      // user prompt. Fire-and-await (recall in the critical path)
+      // but with a hard cap and full degradation on failure: if
+      // memory is unavailable, the run still runs.
+      try {
+        const svc = getMemoryService();
+        const issueTitleForRecall = readNonEmptyString(context.issueTitle) ?? "";
+        const wakeReasonForRecall =
+          readNonEmptyString(context.wakeReason) ?? readNonEmptyString(context.taskKey) ?? "";
+        const queryText = [issueTitleForRecall, wakeReasonForRecall].filter(Boolean).join(" • ");
+        if (queryText.length > 0) {
+          const scope = {
+            companyId: agent.companyId,
+            agentId: agent.id,
+          };
+          const [facts, pages] = await Promise.all([
+            svc.recall({ callerCompanyId: agent.companyId }, { scope, query: queryText, limit: 8 }),
+            svc.recallPages({ callerCompanyId: agent.companyId }, { scope, query: queryText, limit: 4 }),
+          ]);
+          const prefix = buildMemoryPromptPrefix({ facts, pages });
+          if (prefix.text.length > 0) {
+            context.paperclipMemoryPreamble = prefix.text;
+          }
+        }
+      } catch (err) {
+        logger.debug({ err, runId: run.id }, "memory recall failed; skipping preamble");
       }
       const adapterResult = await adapter.execute({
         runId: run.id,

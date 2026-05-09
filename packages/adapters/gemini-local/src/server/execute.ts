@@ -469,9 +469,11 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const sessionHandoffNote = asString(context.paperclipSessionHandoffMarkdown, "").trim();
   const paperclipEnvNote = renderPaperclipEnvNote(env);
   const apiAccessNote = renderApiAccessNote(env);
+  const memoryPreamble = asString(context.paperclipMemoryPreamble, "").trim();
   const prompt = joinPromptSections([
     instructionsPrefix,
     renderedBootstrapPrompt,
+    memoryPreamble,
     wakePrompt,
     sessionHandoffNote,
     paperclipEnvNote,

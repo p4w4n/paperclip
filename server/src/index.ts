@@ -604,6 +604,23 @@ export async function startServer(): Promise<StartedServer> {
     }
   };
   const pluginWorkerManager = createPluginWorkerManager();
+
+  // Memory subsystem boot. Pure-DB backends (no embedder by default
+  // — recall degrades to keyword-only). Wiring an embedding provider
+  // is a per-tenant config concern that lands in Plan 2; for now the
+  // service is initialized so writes (run-events) and keyword recall
+  // work everywhere.
+  const { initializeMemoryService } = await import("./services/memory/service.js");
+  const { createPgvectorMemoryBackend } = await import(
+    "./services/memory/pgvector-backend.js"
+  );
+  const { createPgvectorWikiBackend } = await import(
+    "./services/memory/pgvector-wiki-backend.js"
+  );
+  initializeMemoryService(
+    createPgvectorMemoryBackend(db as any),
+    createPgvectorWikiBackend(db as any),
+  );
   const app = await createApp(db as any, {
     uiMode,
     serverPort: listenPort,
