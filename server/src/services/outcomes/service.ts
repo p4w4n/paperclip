@@ -3,6 +3,7 @@ import { outcomes } from "@paperclipai/db";
 import { OUTCOME_KINDS, validateRequiredMeta, type OutcomeKind } from "@paperclipai/shared";
 import { diffContract } from "./contract.js";
 import { OutcomeRequiredError, type OutcomeTarget, type OutcomeRowLite } from "./types.js";
+import { VERIFIERS, type VerifierKind } from "./verifiers/index.js";
 
 interface OutcomesServiceDeps {
   // postgres-js / drizzle handle. Loose-typed because the ambient db type is
@@ -89,6 +90,21 @@ export class OutcomesService {
       .returning();
     if (result.length === 0) throw new Error("Outcome not in verified state");
     return result[0];
+  }
+
+  async tryVerify<K extends VerifierKind>(
+    kind: K,
+    evidence: Parameters<typeof VERIFIERS[K]>[1],
+  ): Promise<{ verifiedCount: number }> {
+    const verifier = VERIFIERS[kind];
+    if (!verifier) return { verifiedCount: 0 };
+    try {
+      return await verifier(this.deps.db, evidence as any);
+    } catch (err) {
+      // Best-effort — log, don't bubble to source service.
+      console.error("[outcomes] verifier error", { kind, err });
+      return { verifiedCount: 0 };
+    }
   }
 }
 
