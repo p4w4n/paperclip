@@ -6,6 +6,11 @@ export {
 } from "./artifact-kinds/index.js";
 export type { ArtifactKindDefinition, ArtifactKindId } from "./artifact-kinds/index.js";
 export {
+  OUTCOME_KINDS,
+  validateRequiredMeta,
+} from "./outcome-kinds/index.js";
+export type { OutcomeKind, RequiredMetaValidation } from "./outcome-kinds/index.js";
+export {
   COMPANY_STATUSES,
   DEFAULT_COMPANY_ATTACHMENT_MAX_BYTES,
   MAX_COMPANY_ATTACHMENT_MAX_BYTES,
