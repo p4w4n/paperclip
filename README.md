@@ -266,6 +266,57 @@ Paperclip is a full control plane, not a wrapper. Before you build any of this y
 
 <br/>
 
+### Tier-1 Foundations (Plan 1 in flight)
+
+Five new substrates land alongside the core systems above. Each is shipped as a Plan 1 foundation with the architectural skeleton in master and a Plan 2 follow-up planned. Specs live under `docs/superpowers/specs/`; per-area task plans under `docs/superpowers/plans/`.
+
+<table>
+<tr>
+<td width="50%">
+
+**🧠 Memory / Knowledge** — Karpathy 3-layer model on Postgres + pgvector. `memory_entries` (facts) capture episodic events at run boundaries; the reflection worker promotes them to semantic facts and curated `memory_pages` (markdown wiki). Recall is union-rank (vector + keyword) with 1-hop link expansion. PII redaction on every write, tenant isolation in the service layer. Local Ollama embedder supported (free, no API key).
+
+</td>
+<td width="50%">
+
+**📦 Artifacts & Work Products** — A unified `artifacts` manifest with content-addressed blob dedup, 7 typed kinds (`code.file`, `code.patch`, `doc.markdown`, `chart`, `data.table`, `web.app`, `doc.office`), parent-chain versioning, and a pluggable preview-provider abstraction with a built-in `local` provider for static kinds. Declared in-process for `claude-local` / `gemini-local`, or via the worker gRPC `ArtifactDeclared` frame.
+
+</td>
+</tr>
+<tr>
+<td>
+
+**🪣 Work Queues** — Postgres-native fanout (no Redis) with a partial-unique idempotency primitive on `(company, dedupe_key) WHERE state IN ('queued','running')`. SKIP LOCKED dequeue + weighted round-robin fairness across companies. Webhook ingestion accepts a Stripe-style `Idempotency-Key`; failures classify into transient / poison / quota / permanent and ride per-routine retry policies.
+
+</td>
+<td>
+
+**🗺️ Deep Planning** — A versioned `plans` layer attached to issues with phase DAGs, decision records, review surface, and exit-criteria gating. Phases produce work-queue items that materialize into runs; the heartbeat run-completion hook auto-advances phases when their checkbox exit-criteria are met. On plan completion, the final revision becomes a memory wiki page and decisions become semantic facts.
+
+</td>
+</tr>
+<tr>
+<td>
+
+**🎓 Automatic Organizational Learning** — Mining + suggestion layer on top of Memory + Plans. Pattern miner clusters similar resolutions, skill miner derives per-agent profiles with decay, decision aggregator surfaces "we tend to choose X when Y." `playbooks` are structured procedural runbooks with applicability conditions; the heartbeat suggests the top-N matches at issue pickup, prepended to the `<memory>` prompt-prefix. In-memory LRU cache on the suggest hot path.
+
+</td>
+<td>
+
+**Try the foundations end-to-end:**
+
+```bash
+scripts/smoke/tier1-e2e.sh
+```
+
+Spins up an embedded-Postgres dev server, applies all 93 migrations, and exercises every Tier-1 surface (issue → plan with phases + decision → playbook + suggest match → work-queue with idempotency dedup) in ~20s.
+
+</td>
+</tr>
+</table>
+
+<br/>
+
 ## What Paperclip is not
 
 |                              |                                                                                                                      |
@@ -352,7 +403,11 @@ pnpm db:migrate       # Apply migrations
 
 `pnpm test` does not run Playwright. Browser suites stay separate and are typically run only when working on those flows or in CI.
 
-See [doc/DEVELOPING.md](doc/DEVELOPING.md) for the full development guide.
+```bash
+./scripts/smoke/tier1-e2e.sh   # End-to-end smoke for Memory + Artifacts + Work Queues + Plans + Org Learning (~20s)
+```
+
+See [doc/DEVELOPING.md](doc/DEVELOPING.md) for the full development guide and [docs/tier1-foundations.md](docs/tier1-foundations.md) for the Tier-1 substrate overview.
 
 <br/>
 
@@ -367,15 +422,15 @@ See [doc/DEVELOPING.md](doc/DEVELOPING.md) for the full development guide.
 - ✅ Better Budgeting
 - ✅ Agent Reviews and Approvals
 - ✅ Multiple Human Users
-- ⚪ Cloud / Sandbox agents (e.g. Cursor / e2b agents)
-- ⚪ Artifacts & Work Products
-- ⚪ Memory / Knowledge
+- ✅ Cloud / Sandbox agents (e.g. Cursor / e2b agents)
+- 🚧 Artifacts & Work Products
+- 🚧 Memory / Knowledge
 - ⚪ Enforced Outcomes
 - ⚪ MAXIMIZER MODE
-- ⚪ Deep Planning
-- ⚪ Work Queues
+- 🚧 Deep Planning
+- 🚧 Work Queues
 - ⚪ Self-Organization
-- ⚪ Automatic Organizational Learning
+- 🚧 Automatic Organizational Learning
 - ⚪ CEO Chat
 - ⚪ Cloud deployments
 - ⚪ Desktop App
