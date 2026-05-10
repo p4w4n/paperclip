@@ -241,3 +241,165 @@ describe("verifier — artifact_declared", () => {
     expect(result.verifiedCount).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// plan_completed helper
+// ---------------------------------------------------------------------------
+
+function pendingPlanCompletedOutcome(overrides: Partial<any> = {}): any {
+  return {
+    id: "out-pc-1",
+    companyId: "co-1",
+    targetKind: "issue",
+    targetId: "i1",
+    kind: "plan_completed",
+    status: "pending",
+    requiredMeta: {},
+    ...overrides,
+  };
+}
+
+describe("verifier — plan_completed", () => {
+  let svc: ReturnType<typeof initializeOutcomesService>;
+
+  it("flips outcome (target=issue, no plan_id) when any plan tagged on the issue completes", async () => {
+    const row = pendingPlanCompletedOutcome();
+    const db = makeFakeDb([row]);
+    svc = initializeOutcomesService({ db } as any);
+
+    const result = await svc.tryVerify("plan_completed", {
+      planId: "plan-1",
+      companyId: "co-1",
+      issueId: "i1",
+      completedAt: new Date("2026-02-01T00:00:00Z"),
+      revisionId: "rev-1",
+    });
+
+    expect(result.verifiedCount).toBe(1);
+    expect(db.rows[0].status).toBe("verified");
+    expect(db.rows[0].verifiedMeta).toMatchObject({ plan_id: "plan-1" });
+  });
+
+  it("flips outcome (target=plan) only when target_id matches the planId in evidence", async () => {
+    const row = pendingPlanCompletedOutcome({ targetKind: "plan", targetId: "plan-2" });
+    const db = makeFakeDb([row]);
+    svc = initializeOutcomesService({ db } as any);
+
+    // Wrong plan — should not flip
+    const miss = await svc.tryVerify("plan_completed", {
+      planId: "plan-1",
+      companyId: "co-1",
+      issueId: "i1",
+      completedAt: new Date("2026-02-01T00:00:00Z"),
+      revisionId: null,
+    });
+    expect(miss.verifiedCount).toBe(0);
+    expect(db.rows[0].status).toBe("pending");
+
+    // Correct plan — should flip
+    const hit = await svc.tryVerify("plan_completed", {
+      planId: "plan-2",
+      companyId: "co-1",
+      issueId: "i1",
+      completedAt: new Date("2026-02-01T00:00:00Z"),
+      revisionId: null,
+    });
+    expect(hit.verifiedCount).toBe(1);
+    expect(db.rows[0].status).toBe("verified");
+  });
+
+  it("flips outcome with explicit plan_id only when that plan_id matches", async () => {
+    const row = pendingPlanCompletedOutcome({
+      requiredMeta: { plan_id: "plan-specific" },
+    });
+    const db = makeFakeDb([row]);
+    svc = initializeOutcomesService({ db } as any);
+
+    // Different plan — should not flip even though issue matches
+    const miss = await svc.tryVerify("plan_completed", {
+      planId: "plan-other",
+      companyId: "co-1",
+      issueId: "i1",
+      completedAt: new Date("2026-02-01T00:00:00Z"),
+      revisionId: null,
+    });
+    expect(miss.verifiedCount).toBe(0);
+
+    // Exact plan_id match — should flip
+    const hit = await svc.tryVerify("plan_completed", {
+      planId: "plan-specific",
+      companyId: "co-1",
+      issueId: "i1",
+      completedAt: new Date("2026-02-01T00:00:00Z"),
+      revisionId: null,
+    });
+    expect(hit.verifiedCount).toBe(1);
+    expect(db.rows[0].status).toBe("verified");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// decision_recorded helper
+// ---------------------------------------------------------------------------
+
+function pendingDecisionRecordedOutcome(overrides: Partial<any> = {}): any {
+  return {
+    id: "out-dr-1",
+    companyId: "co-1",
+    targetKind: "plan",
+    targetId: "plan-1",
+    kind: "decision_recorded",
+    status: "pending",
+    requiredMeta: {
+      plan_id: "plan-1",
+      decision_title: "Choose deployment strategy",
+    },
+    ...overrides,
+  };
+}
+
+describe("verifier — decision_recorded", () => {
+  let svc: ReturnType<typeof initializeOutcomesService>;
+
+  it("flips when a plan_decisions row with chosen_option_id and matching title is inserted", async () => {
+    const row = pendingDecisionRecordedOutcome();
+    const db = makeFakeDb([row]);
+    svc = initializeOutcomesService({ db } as any);
+
+    const result = await svc.tryVerify("decision_recorded", {
+      decisionId: "dec-1",
+      companyId: "co-1",
+      planId: "plan-1",
+      planIssueId: "i1",
+      title: "Choose deployment strategy",
+      chosenOptionId: "opt-blue",
+      decidedAt: new Date("2026-03-01T00:00:00Z"),
+    });
+
+    expect(result.verifiedCount).toBe(1);
+    expect(db.rows[0].status).toBe("verified");
+    expect(db.rows[0].verifiedMeta).toMatchObject({
+      decision_id: "dec-1",
+      chosen_option_id: "opt-blue",
+    });
+  });
+
+  it("does not flip when chosen_option_id is null", async () => {
+    const row = pendingDecisionRecordedOutcome();
+    const db = makeFakeDb([row]);
+    svc = initializeOutcomesService({ db } as any);
+
+    const result = await svc.tryVerify("decision_recorded", {
+      decisionId: "dec-1",
+      companyId: "co-1",
+      planId: "plan-1",
+      planIssueId: "i1",
+      title: "Choose deployment strategy",
+      chosenOptionId: null,
+      decidedAt: new Date("2026-03-01T00:00:00Z"),
+    });
+
+    expect(result.verifiedCount).toBe(0);
+    expect(db.rows[0].status).toBe("pending");
+  });
+});
