@@ -99,10 +99,17 @@ import {
 } from "../services/issue-execution-policy.js";
 import { parseIssueExecutionWorkspaceSettings } from "../services/execution-workspace-policy.js";
 import type { PluginWorkerManager } from "../services/plugin-worker-manager.js";
+import { allOutcomesVerified } from "../services/outcomes/predicate.js";
+import { OutcomeRequiredError } from "../services/outcomes/types.js";
+import { getOutcomesService } from "../services/outcomes/service.js";
 
 const MAX_ISSUE_COMMENT_LIMIT = 500;
 const updateIssueRouteSchema = updateIssueSchema.extend({
   interrupt: z.boolean().optional(),
+  requiredOutcomes: z.array(z.object({
+    kind: z.string(),
+    requiredMeta: z.record(z.unknown()),
+  })).optional(),
 });
 
 type ParsedExecutionState = NonNullable<ReturnType<typeof parseIssueExecutionState>>;
@@ -2553,6 +2560,7 @@ export function issueRoutes(
       resume: resumeRequested,
       interrupt: interruptRequested,
       hiddenAt: hiddenAtRaw,
+      requiredOutcomes: requiredOutcomesInput,
       ...updateFields
     } = req.body;
     const shouldCancelActiveRunForCancelledStatus =
@@ -2730,6 +2738,33 @@ export function issueRoutes(
     if (assigneeWillChange && !transition.workflowControlledAssignment) {
       if (!isAgentReturningIssueToCreator) {
         await assertCanAssignTasks(req, existing.companyId);
+      }
+    }
+
+    // EO-12 Part A: contract write — materialize requiredOutcomes if provided in the request body.
+    if (Array.isArray(requiredOutcomesInput) && requiredOutcomesInput.length >= 0) {
+      await getOutcomesService().materializeContract(
+        { kind: "issue", id: existing.id, companyId: existing.companyId },
+        requiredOutcomesInput as Array<{ kind: string; requiredMeta: Record<string, unknown> }>,
+      );
+    }
+
+    // EO-12 Part B: gate check — reject status=done when required outcomes are pending.
+    const newStatus = typeof updateFields.status === "string" ? updateFields.status : undefined;
+    if (
+      newStatus === "done" &&
+      existing.status !== "done" &&
+      Array.isArray(existing.requiredOutcomes) &&
+      existing.requiredOutcomes.length > 0
+    ) {
+      const gateResult = await allOutcomesVerified(db, {
+        kind: "issue",
+        id: existing.id,
+        companyId: existing.companyId,
+      });
+      if (gateResult instanceof OutcomeRequiredError) {
+        res.status(422).json(gateResult.body);
+        return;
       }
     }
 
