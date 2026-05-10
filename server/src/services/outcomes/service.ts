@@ -4,6 +4,8 @@ import { OUTCOME_KINDS, validateRequiredMeta, type OutcomeKind } from "@papercli
 import { diffContract } from "./contract.js";
 import { OutcomeRequiredError, type OutcomeTarget, type OutcomeRowLite } from "./types.js";
 import { VERIFIERS, type VerifierKind } from "./verifiers/index.js";
+import { verifyManualSignoff, type ManualSignoffInput } from "./verifiers/manual-signoff.js";
+import { ingestExternalSignal, type SignalIngestInput } from "./verifiers/external-signal.js";
 
 interface OutcomesServiceDeps {
   // postgres-js / drizzle handle. Loose-typed because the ambient db type is
@@ -105,6 +107,14 @@ export class OutcomesService {
       console.error("[outcomes] verifier error", { kind, err });
       return { verifiedCount: 0 };
     }
+  }
+
+  async signOff(input: ManualSignoffInput) {
+    return verifyManualSignoff(this.deps.db, input);
+  }
+
+  async ingestSignal(input: SignalIngestInput) {
+    return ingestExternalSignal(this.deps.db, input);
   }
 }
 

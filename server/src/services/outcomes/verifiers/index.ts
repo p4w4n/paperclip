@@ -10,6 +10,20 @@ export { verifyDecisionRecorded, type DecisionEvidence } from "./decision-record
 export { verifyApprovalGranted, type ApprovalEvidence } from "./approval-granted.js";
 export { verifyExitCriteriaMet, type PhaseEvidence } from "./exit-criteria-met.js";
 
+// Route-driven verifiers — NOT in VERIFIERS auto-dispatch map.
+export {
+  verifyManualSignoff,
+  SignoffRoleMismatchError,
+  type ManualSignoffInput,
+} from "./manual-signoff.js";
+
+export {
+  ingestExternalSignal,
+  SignalAuthError,
+  SignalReplayMismatchError,
+  type SignalIngestInput,
+} from "./external-signal.js";
+
 export const VERIFIERS = {
   artifact_declared: verifyArtifactDeclared,
   plan_completed: verifyPlanCompleted,

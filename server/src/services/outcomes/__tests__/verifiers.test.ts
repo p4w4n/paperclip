@@ -2,6 +2,9 @@ import { describe, expect, it, beforeEach } from "vitest";
 import { initializeOutcomesService } from "../service.js";
 import { verifyApprovalGranted } from "../verifiers/approval-granted.js";
 import { verifyExitCriteriaMet } from "../verifiers/exit-criteria-met.js";
+import { verifyManualSignoff, SignoffRoleMismatchError } from "../verifiers/manual-signoff.js";
+import { ingestExternalSignal, SignalAuthError, SignalReplayMismatchError } from "../verifiers/external-signal.js";
+import { createHmac } from "node:crypto";
 
 // ---------------------------------------------------------------------------
 // fakeDb that supports:
@@ -595,5 +598,225 @@ describe("verifier — exit_criteria_met", () => {
 
     expect(result.verifiedCount).toBe(0);
     expect(db.rows[0].status).toBe("pending");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// manual_signoff tests
+// ---------------------------------------------------------------------------
+
+function pendingManualSignoffOutcome(overrides: Partial<any> = {}): any {
+  return {
+    id: "out-ms-1",
+    companyId: "co-1",
+    targetKind: "issue",
+    targetId: "i1",
+    kind: "manual_signoff",
+    status: "pending",
+    requiredMeta: {},
+    ...overrides,
+  };
+}
+
+describe("verifier — manual_signoff", () => {
+  it("flips outcome and records verified_by_user_id; rejects if required_role mismatches user role", async () => {
+    // Success case: no required_role
+    const row = pendingManualSignoffOutcome();
+    const db = makeFakeDb([row]);
+
+    const result = await verifyManualSignoff(db as any, {
+      outcomeId: "out-ms-1",
+      companyId: "co-1",
+      userId: "user-42",
+      userRole: "engineer",
+      note: "looks good",
+    });
+
+    expect(result.verifiedCount).toBe(1);
+    expect(db.rows[0].status).toBe("verified");
+    expect(db.rows[0].verifiedMeta).toMatchObject({ user_id: "user-42", note: "looks good" });
+
+    // Role mismatch case: required_role = 'manager', caller is 'engineer'
+    const row2 = pendingManualSignoffOutcome({
+      id: "out-ms-2",
+      requiredMeta: { required_role: "manager" },
+    });
+    const db2 = makeFakeDb([row2]);
+
+    await expect(
+      verifyManualSignoff(db2 as any, {
+        outcomeId: "out-ms-2",
+        companyId: "co-1",
+        userId: "user-42",
+        userRole: "engineer",
+      }),
+    ).rejects.toThrow(SignoffRoleMismatchError);
+
+    expect(db2.rows[0].status).toBe("pending");
+  });
+
+  it("returns verifiedCount 0 if outcome doesn't exist or already verified", async () => {
+    // Already verified
+    const row = pendingManualSignoffOutcome({ status: "verified" });
+    const db = makeFakeDb([row]);
+
+    const result = await verifyManualSignoff(db as any, {
+      outcomeId: "out-ms-1",
+      companyId: "co-1",
+      userId: "user-42",
+      userRole: null,
+    });
+
+    expect(result.verifiedCount).toBe(0);
+
+    // Non-existent
+    const db2 = makeFakeDb([]);
+    const result2 = await verifyManualSignoff(db2 as any, {
+      outcomeId: "out-ms-999",
+      companyId: "co-1",
+      userId: "user-42",
+      userRole: null,
+    });
+    expect(result2.verifiedCount).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// external_signal tests
+// ---------------------------------------------------------------------------
+
+const TEST_SECRET = "super-secret-key";
+
+function makeHmacSig(secret: string, body: string): string {
+  return "sha256=" + createHmac("sha256", secret).update(body).digest("hex");
+}
+
+function makeMultiTableFakeDbForSignal(
+  outcomeRow: any,
+  companyRow: any,
+) {
+  return makeMultiTableFakeDb({
+    companies: [companyRow],
+    outcomes: [outcomeRow],
+  });
+}
+
+function pendingExternalSignalOutcome(overrides: Partial<any> = {}): any {
+  return {
+    id: "out-es-1",
+    companyId: "co-1",
+    targetKind: "issue",
+    targetId: "i1",
+    kind: "external_signal",
+    status: "pending",
+    requiredMeta: {},
+    verifiedMeta: null,
+    ...overrides,
+  };
+}
+
+function companyWithSecret(secret: string = TEST_SECRET): any {
+  return { id: "co-1", outcomeSignalSecret: secret };
+}
+
+describe("verifier — external_signal", () => {
+  it("flips on valid HMAC + first idempotency-key", async () => {
+    const rawBody = JSON.stringify({ event: "done" });
+    const sig = makeHmacSig(TEST_SECRET, rawBody);
+    const db = makeMultiTableFakeDbForSignal(
+      pendingExternalSignalOutcome(),
+      companyWithSecret(),
+    );
+
+    const result = await ingestExternalSignal(db as any, {
+      outcomeId: "out-es-1",
+      companyId: "co-1",
+      rawBody,
+      signature: sig,
+      idempotencyKey: "idem-key-1",
+    });
+
+    expect(result.verified).toBe(true);
+    expect(result.replay).toBe(false);
+    expect(db.allRows["outcomes"][0].status).toBe("verified");
+    expect(db.allRows["outcomes"][0].verifiedMeta).toMatchObject({
+      idempotency_key: "idem-key-1",
+      signature_verified: true,
+    });
+  });
+
+  it("returns 200 with existing row on idempotency-key replay (same body)", async () => {
+    const { createHash } = require("node:crypto");
+    const rawBody = JSON.stringify({ event: "done" });
+    const sha256 = createHash("sha256").update(rawBody).digest("hex");
+    const sig = makeHmacSig(TEST_SECRET, rawBody);
+    const alreadyVerifiedOutcome = pendingExternalSignalOutcome({
+      status: "verified",
+      verifiedMeta: {
+        idempotency_key: "idem-key-1",
+        signature_verified: true,
+        payload_sha256: sha256,
+        received_at: "2026-01-01T00:00:00.000Z",
+      },
+    });
+    const db = makeMultiTableFakeDbForSignal(alreadyVerifiedOutcome, companyWithSecret());
+
+    const result = await ingestExternalSignal(db as any, {
+      outcomeId: "out-es-1",
+      companyId: "co-1",
+      rawBody,
+      signature: sig,
+      idempotencyKey: "idem-key-1",
+    });
+
+    expect(result.verified).toBe(true);
+    expect(result.replay).toBe(true);
+  });
+
+  it("throws SignalReplayMismatchError on idempotency-key replay with DIFFERENT body", async () => {
+    const { createHash } = require("node:crypto");
+    const originalBody = JSON.stringify({ event: "done" });
+    const sha256 = createHash("sha256").update(originalBody).digest("hex");
+    const differentBody = JSON.stringify({ event: "DIFFERENT" });
+    const sig = makeHmacSig(TEST_SECRET, differentBody);
+    const alreadyVerifiedOutcome = pendingExternalSignalOutcome({
+      status: "verified",
+      verifiedMeta: {
+        idempotency_key: "idem-key-1",
+        signature_verified: true,
+        payload_sha256: sha256,
+        received_at: "2026-01-01T00:00:00.000Z",
+      },
+    });
+    const db = makeMultiTableFakeDbForSignal(alreadyVerifiedOutcome, companyWithSecret());
+
+    await expect(
+      ingestExternalSignal(db as any, {
+        outcomeId: "out-es-1",
+        companyId: "co-1",
+        rawBody: differentBody,
+        signature: sig,
+        idempotencyKey: "idem-key-1",
+      }),
+    ).rejects.toThrow(SignalReplayMismatchError);
+  });
+
+  it("throws SignalAuthError on bad HMAC", async () => {
+    const rawBody = JSON.stringify({ event: "done" });
+    const badSig = "sha256=0000000000000000000000000000000000000000000000000000000000000000";
+    const db = makeMultiTableFakeDbForSignal(
+      pendingExternalSignalOutcome(),
+      companyWithSecret(),
+    );
+
+    await expect(
+      ingestExternalSignal(db as any, {
+        outcomeId: "out-es-1",
+        companyId: "co-1",
+        rawBody,
+        signature: badSig,
+        idempotencyKey: "idem-key-bad",
+      }),
+    ).rejects.toThrow(SignalAuthError);
   });
 });
