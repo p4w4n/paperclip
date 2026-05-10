@@ -93,6 +93,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { WorkProductsTab } from "@/features/issues/work-products/WorkProductsTab";
 import { PlanTab } from "@/features/issues/plan-tab/PlanTab";
+import { OutcomesTab } from "../components/OutcomesTab";
 import {
   Dialog,
   DialogContent,
@@ -1201,6 +1202,7 @@ export function IssueDetail() {
   const [copied, setCopied] = useState(false);
   const [mobilePropsOpen, setMobilePropsOpen] = useState(false);
   const [detailTab, setDetailTab] = useState("chat");
+  const [pendingOutcomes, setPendingOutcomes] = useState(0);
   const [handoffFocusSignal, setHandoffFocusSignal] = useState(0);
   const [pendingApprovalAction, setPendingApprovalAction] = useState<{
     approvalId: string;
@@ -3205,11 +3207,25 @@ export function IssueDetail() {
 
       <div className="space-y-3">
         <div className="flex items-center gap-2 min-w-0 flex-wrap">
-          <StatusIcon
-            status={issue.status}
-            blockerAttention={issue.blockerAttention}
-            onChange={(status) => updateIssue.mutate({ status })}
-          />
+          <span
+            title={pendingOutcomes > 0 ? `${pendingOutcomes} outcome(s) still pending — resolve before marking done` : undefined}
+          >
+            <StatusIcon
+              status={issue.status}
+              blockerAttention={issue.blockerAttention}
+              onChange={(status) => {
+                if (status === "done" && pendingOutcomes > 0) {
+                  pushToast({
+                    title: `${pendingOutcomes} outcome(s) still pending`,
+                    body: "All required outcomes must be verified before marking this issue done.",
+                    tone: "error",
+                  });
+                  return;
+                }
+                updateIssue.mutate({ status });
+              }}
+            />
+          </span>
           <PriorityIcon
             priority={issue.priority}
             onChange={(priority) => updateIssue.mutate({ priority })}
@@ -3780,6 +3796,14 @@ export function IssueDetail() {
             <Compass className="h-3.5 w-3.5" />
             Plan
           </TabsTrigger>
+          <TabsTrigger value="outcomes" className="gap-1.5">
+            Outcomes
+            {pendingOutcomes > 0 && (
+              <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
+                {pendingOutcomes}
+              </span>
+            )}
+          </TabsTrigger>
           {issuePluginTabItems.map((item) => (
             <TabsTrigger key={item.value} value={item.value}>
               {item.label}
@@ -3888,6 +3912,15 @@ export function IssueDetail() {
         <TabsContent value="plan">
           {detailTab === "plan" ? (
             <PlanTab issueId={issue.id} planId={null} />
+          ) : null}
+        </TabsContent>
+
+        <TabsContent value="outcomes">
+          {detailTab === "outcomes" ? (
+            <OutcomesTab
+              target={{ kind: "issue", id: issue.id, companyId: issue.companyId }}
+              onPendingCountChange={setPendingOutcomes}
+            />
           ) : null}
         </TabsContent>
 

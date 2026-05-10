@@ -24,9 +24,11 @@ interface PhaseTreeProps {
   onStart?: (phaseId: string) => void;
   onComplete?: (phaseId: string) => void;
   busy?: string | null;
+  /** When set, the Complete button is rendered disabled with this tooltip. */
+  disabledCompleteReason?: string;
 }
 
-export function PhaseTree({ phases, onStart, onComplete, busy }: PhaseTreeProps) {
+export function PhaseTree({ phases, onStart, onComplete, busy, disabledCompleteReason }: PhaseTreeProps) {
   if (phases.length === 0) {
     return <div className="text-sm text-muted-foreground">No phases.</div>;
   }
@@ -64,11 +66,12 @@ export function PhaseTree({ phases, onStart, onComplete, busy }: PhaseTreeProps)
                   Start
                 </button>
               ) : null}
-              {p.status === "in_progress" && onComplete ? (
+              {p.status === "in_progress" && (onComplete || disabledCompleteReason) ? (
                 <button
-                  className="text-xs text-primary underline disabled:opacity-50"
-                  onClick={() => onComplete(p.id)}
-                  disabled={busy === p.id}
+                  className="text-xs text-primary underline disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={() => onComplete?.(p.id)}
+                  disabled={busy === p.id || !!disabledCompleteReason}
+                  title={disabledCompleteReason}
                 >
                   Complete
                 </button>

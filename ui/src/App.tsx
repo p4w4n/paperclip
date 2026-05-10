@@ -68,6 +68,7 @@ const AdapterManager = lazyNamed(() => import("./pages/AdapterManager"), "Adapte
 const InstanceWorkers = lazyNamed(() => import("./pages/InstanceWorkers"), "InstanceWorkers");
 const InstanceWorkQueue = lazyNamed(() => import("./pages/InstanceWorkQueue"), "InstanceWorkQueue");
 const Plans = lazyNamed(() => import("./pages/Plans"), "Plans");
+const PlanDetail = lazyNamed(() => import("./pages/PlanDetail"), "PlanDetail");
 const AdminLearning = lazyNamed(() => import("./pages/AdminLearning"), "AdminLearning");
 const AgentSkillsPage = lazyNamed(() => import("./pages/AgentSkillsPage"), "AgentSkillsPage");
 const LearningPatterns = lazyNamed(() => import("./pages/LearningPatterns"), "LearningPatterns");
@@ -164,6 +165,7 @@ function boardRoutes() {
       <Route path="instance/workers" element={<InstanceWorkers />} />
       <Route path="instance/work-queue" element={<InstanceWorkQueue />} />
       <Route path="plans" element={<Plans />} />
+      <Route path="plans/:planId" element={<PlanDetail />} />
       <Route path="admin/learning" element={<AdminLearning />} />
       <Route path="agents/:agentId/skills" element={<AgentSkillsPage />} />
       <Route path="learning/patterns" element={<LearningPatterns />} />
