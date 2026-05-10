@@ -13,7 +13,19 @@ export interface ArtifactEvidence {
   planTargetIssueId?: string | null;
 }
 
-export async function verifyArtifactDeclared(db: any, evidence: ArtifactEvidence): Promise<{ verifiedCount: number }> {
+export interface VerifiedRow {
+  id: string;
+  kind: string;
+  targetKind: string;
+  targetId: string;
+  companyId: string;
+  verifiedMeta?: unknown;
+}
+
+export async function verifyArtifactDeclared(
+  db: any,
+  evidence: ArtifactEvidence,
+): Promise<{ verifiedCount: number; verifiedRows: VerifiedRow[] }> {
   // Look up all pending artifact_declared outcomes in this company.
   const pending = await db
     .select()
@@ -25,26 +37,38 @@ export async function verifyArtifactDeclared(db: any, evidence: ArtifactEvidence
     ));
 
   let verifiedCount = 0;
+  const verifiedRows: VerifiedRow[] = [];
   for (const row of pending) {
     if (!matches(row, evidence)) continue;
+    const verifiedMeta = {
+      artifact_id: evidence.id,
+      blob_sha256: evidence.blobSha256,
+      declared_at: evidence.declaredAt.toISOString(),
+    };
     const result = await db
       .update(outcomes)
       .set({
         status: "verified",
-        verifiedMeta: {
-          artifact_id: evidence.id,
-          blob_sha256: evidence.blobSha256,
-          declared_at: evidence.declaredAt.toISOString(),
-        },
+        verifiedMeta,
         verifiedAt: new Date(),
         verifiedByKind: "system",
         updatedAt: new Date(),
       })
       .where(and(eq(outcomes.id, row.id), eq(outcomes.status, "pending")))
       .returning();
-    if (result.length > 0) verifiedCount++;
+    if (result.length > 0) {
+      verifiedCount++;
+      verifiedRows.push({
+        id: row.id,
+        kind: row.kind,
+        targetKind: row.targetKind,
+        targetId: row.targetId,
+        companyId: row.companyId,
+        verifiedMeta,
+      });
+    }
   }
-  return { verifiedCount };
+  return { verifiedCount, verifiedRows };
 }
 
 function matches(row: any, e: ArtifactEvidence): boolean {

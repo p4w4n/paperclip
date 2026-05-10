@@ -4,7 +4,7 @@ import { verifyDecisionRecorded } from "./decision-recorded.js";
 import { verifyApprovalGranted } from "./approval-granted.js";
 import { verifyExitCriteriaMet } from "./exit-criteria-met.js";
 
-export { verifyArtifactDeclared, type ArtifactEvidence } from "./artifact-declared.js";
+export { verifyArtifactDeclared, type ArtifactEvidence, type VerifiedRow } from "./artifact-declared.js";
 export { verifyPlanCompleted, type PlanCompletedEvidence } from "./plan-completed.js";
 export { verifyDecisionRecorded, type DecisionEvidence } from "./decision-recorded.js";
 export { verifyApprovalGranted, type ApprovalEvidence } from "./approval-granted.js";

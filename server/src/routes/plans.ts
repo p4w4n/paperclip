@@ -27,6 +27,7 @@ import { validate } from "../middleware/validate.js";
 import { allOutcomesVerified } from "../services/outcomes/predicate.js";
 import { OutcomeRequiredError } from "../services/outcomes/types.js";
 import { getOutcomesService } from "../services/outcomes/service.js";
+import { recordGateBlocked } from "../services/outcomes/metrics.js";
 
 const phaseDraftSchema = z.object({
   name: z.string().min(1),
@@ -230,6 +231,7 @@ export function plansRoutes(db: Db) {
         companyId: planRow.companyId,
       });
       if (gateResult instanceof OutcomeRequiredError) {
+        recordGateBlocked("plan");
         res.status(422).json(gateResult.body);
         return;
       }

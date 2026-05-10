@@ -757,6 +757,15 @@ export async function startServer(): Promise<StartedServer> {
     void outcomesService.tryVerify("approval_granted", p);
   });
 
+  // EO-17: Memory subscriber — writes procedural entries on outcome state transitions.
+  const { attachMemoryOutcomeSubscriber } = await import(
+    "./services/memory/outcome-subscriber.js"
+  );
+  const { outcomesEvents } = await import("./services/outcomes/events.js");
+  const memSub = attachMemoryOutcomeSubscriber(getMemoryService());
+  outcomesEvents.on("verified", (e) => { void memSub.onVerified(e); });
+  outcomesEvents.on("reverted", (e) => { void memSub.onReverted(e); });
+
   const app = await createApp(db as any, {
     uiMode,
     serverPort: listenPort,

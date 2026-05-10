@@ -102,6 +102,7 @@ import type { PluginWorkerManager } from "../services/plugin-worker-manager.js";
 import { allOutcomesVerified } from "../services/outcomes/predicate.js";
 import { OutcomeRequiredError } from "../services/outcomes/types.js";
 import { getOutcomesService } from "../services/outcomes/service.js";
+import { recordGateBlocked } from "../services/outcomes/metrics.js";
 
 const MAX_ISSUE_COMMENT_LIMIT = 500;
 const updateIssueRouteSchema = updateIssueSchema.extend({
@@ -2763,6 +2764,7 @@ export function issueRoutes(
         companyId: existing.companyId,
       });
       if (gateResult instanceof OutcomeRequiredError) {
+        recordGateBlocked("issue");
         res.status(422).json(gateResult.body);
         return;
       }
