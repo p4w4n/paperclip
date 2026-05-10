@@ -1,5 +1,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { initializeOutcomesService } from "../service.js";
+import { verifyApprovalGranted } from "../verifiers/approval-granted.js";
+import { verifyExitCriteriaMet } from "../verifiers/exit-criteria-met.js";
 
 // ---------------------------------------------------------------------------
 // fakeDb that supports:
@@ -124,6 +126,79 @@ function makeFakeDb(initialRows: any[] = []) {
     },
 
     // transaction not used by verifier tests, but included for completeness
+    transaction: async (fn: any) => fn(db),
+  };
+
+  return db;
+}
+
+/**
+ * A two-table fakeDb for verifiers that perform selects on multiple tables
+ * (e.g. approval-granted: issueApprovals + outcomes).
+ * `tableRows` maps a table's name to its row array.
+ */
+function makeMultiTableFakeDb(tableRows: Record<string, any[]>) {
+  // Mutable copies of each table's rows.
+  const store: Record<string, any[]> = {};
+  for (const [k, rows] of Object.entries(tableRows)) {
+    store[k] = rows.map((r) => ({ ...r }));
+  }
+
+  // Expose the underlying row arrays for assertion in tests.
+  const allRows = store;
+
+  const db = {
+    allRows,
+
+    select(_projection?: any) {
+      return {
+        from(table: any) {
+          const tableName: string = table[Symbol.for("drizzle:Name")] ?? table._.name ?? table.name ?? "";
+          return {
+            where(condition: any): Promise<any[]> {
+              const rows: any[] = store[tableName] ?? [];
+              const filters = extractEqs(condition);
+              const matched = rows.filter((row) =>
+                Object.entries(filters).every(([k, v]) => {
+                  const camel = k.replace(/_([a-z])/g, (_: string, c: string) => c.toUpperCase());
+                  return row[camel] === v || row[k] === v;
+                }),
+              );
+              return Promise.resolve(matched);
+            },
+          };
+        },
+      };
+    },
+
+    update(table: any) {
+      const tableName: string = table[Symbol.for("drizzle:Name")] ?? table._.name ?? table.name ?? "";
+      return {
+        set(values: any) {
+          return {
+            where(condition: any) {
+              return {
+                returning(): Promise<any[]> {
+                  const rows: any[] = store[tableName] ?? [];
+                  const filters = extractEqs(condition);
+                  const matched = rows.filter((row) =>
+                    Object.entries(filters).every(([k, v]) => {
+                      const camel = k.replace(/_([a-z])/g, (_: string, c: string) => c.toUpperCase());
+                      return row[camel] === v || row[k] === v;
+                    }),
+                  );
+                  for (const row of matched) {
+                    Object.assign(row, values);
+                  }
+                  return Promise.resolve(matched);
+                },
+              };
+            },
+          };
+        },
+      };
+    },
+
     transaction: async (fn: any) => fn(db),
   };
 
@@ -397,6 +472,125 @@ describe("verifier — decision_recorded", () => {
       title: "Choose deployment strategy",
       chosenOptionId: null,
       decidedAt: new Date("2026-03-01T00:00:00Z"),
+    });
+
+    expect(result.verifiedCount).toBe(0);
+    expect(db.rows[0].status).toBe("pending");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// approval_granted tests
+// ---------------------------------------------------------------------------
+
+function pendingApprovalGrantedOutcome(overrides: Partial<any> = {}): any {
+  return {
+    id: "out-ag-1",
+    companyId: "co-1",
+    targetKind: "issue",
+    targetId: "i1",
+    kind: "approval_granted",
+    status: "pending",
+    requiredMeta: {
+      approval_kind: "legal",
+    },
+    ...overrides,
+  };
+}
+
+describe("verifier — approval_granted", () => {
+  it("flips when approvals.status='approved' and approval_kind matches and the issue link exists in issue_approvals", async () => {
+    const outcomeRow = pendingApprovalGrantedOutcome();
+    const approvalLinkRow = { approvalId: "appr-1", issueId: "i1" };
+    const db = makeMultiTableFakeDb({
+      issue_approvals: [approvalLinkRow],
+      outcomes: [outcomeRow],
+    });
+
+    const result = await verifyApprovalGranted(db as any, {
+      approvalId: "appr-1",
+      companyId: "co-1",
+      approvalKind: "legal",
+      decidedByUserId: "user-1",
+      decidedAt: new Date("2026-04-01T00:00:00Z"),
+    });
+
+    expect(result.verifiedCount).toBe(1);
+    expect(db.allRows["outcomes"][0].status).toBe("verified");
+    expect(db.allRows["outcomes"][0].verifiedMeta).toMatchObject({
+      approval_id: "appr-1",
+      decided_by_user_id: "user-1",
+    });
+  });
+
+  it("ignores approval whose kind doesn't match required_meta.approval_kind", async () => {
+    const outcomeRow = pendingApprovalGrantedOutcome(); // approval_kind: "legal"
+    const approvalLinkRow = { approvalId: "appr-2", issueId: "i1" };
+    const db = makeMultiTableFakeDb({
+      issue_approvals: [approvalLinkRow],
+      outcomes: [outcomeRow],
+    });
+
+    const result = await verifyApprovalGranted(db as any, {
+      approvalId: "appr-2",
+      companyId: "co-1",
+      approvalKind: "financial", // different kind
+      decidedByUserId: null,
+      decidedAt: new Date("2026-04-01T00:00:00Z"),
+    });
+
+    expect(result.verifiedCount).toBe(0);
+    expect(db.allRows["outcomes"][0].status).toBe("pending");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// exit_criteria_met tests
+// ---------------------------------------------------------------------------
+
+function pendingExitCriteriaMetOutcome(overrides: Partial<any> = {}): any {
+  return {
+    id: "out-ec-1",
+    companyId: "co-1",
+    targetKind: "issue",
+    targetId: "issue-plan-1",
+    kind: "exit_criteria_met",
+    status: "pending",
+    requiredMeta: {
+      plan_phase_id: "phase-1",
+    },
+    ...overrides,
+  };
+}
+
+describe("verifier — exit_criteria_met", () => {
+  it("flips when phase exit_criteria_markdown has all checkboxes checked", async () => {
+    const outcomeRow = pendingExitCriteriaMetOutcome();
+    const db = makeFakeDb([outcomeRow]);
+
+    const result = await verifyExitCriteriaMet(db as any, {
+      planPhaseId: "phase-1",
+      companyId: "co-1",
+      planId: "plan-1",
+      planIssueId: "issue-plan-1",
+      exitCriteriaMarkdown: "- [x] one\n- [x] two",
+    });
+
+    expect(result.verifiedCount).toBe(1);
+    expect(db.rows[0].status).toBe("verified");
+    expect(db.rows[0].verifiedMeta).toMatchObject({ checked_count: 2, total_count: 2 });
+  });
+
+  it("does not flip when any checkbox is unchecked", async () => {
+    const outcomeRow = pendingExitCriteriaMetOutcome();
+    const db = makeFakeDb([outcomeRow]);
+
+    const result = await verifyExitCriteriaMet(db as any, {
+      planPhaseId: "phase-1",
+      companyId: "co-1",
+      planId: "plan-1",
+      planIssueId: "issue-plan-1",
+      exitCriteriaMarkdown: "- [x] a\n- [ ] b",
     });
 
     expect(result.verifiedCount).toBe(0);
