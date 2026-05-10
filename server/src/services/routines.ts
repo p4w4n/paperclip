@@ -58,6 +58,7 @@ import { parseCron, validateCron } from "./cron.js";
 import { heartbeatService } from "./heartbeat.js";
 import { queueIssueAssignmentWakeup, type IssueAssignmentWakeupDeps } from "./issue-assignment-wakeup.js";
 import { logActivity } from "./activity-log.js";
+import { getOutcomesService } from "./outcomes/service.js";
 import type { PluginWorkerManager } from "./plugin-worker-manager.js";
 
 const OPEN_ISSUE_STATUSES = ["backlog", "todo", "in_progress", "in_review", "blocked"];
@@ -1144,6 +1145,8 @@ export function routineService(
       title,
       description,
     });
+    // EO-16: track the newly created issue so we can apply the outcomes contract after the transaction commits.
+    let issuedIssueId: string | null = null;
     const run = await db.transaction(async (tx) => {
       const txDb = tx as unknown as Db;
       await tx.execute(
@@ -1288,6 +1291,7 @@ export function routineService(
         }
 
         // Keep the dispatch lock until the issue is linked to a queued heartbeat run.
+        issuedIssueId = createdIssue.id;
         await queueIssueAssignmentWakeup({
           heartbeat,
           issue: createdIssue,
@@ -1330,6 +1334,27 @@ export function routineService(
         return failed ?? createdRun;
       }
     });
+
+    // EO-16: copy defaultRequiredOutcomes onto the newly created issue (after transaction commits to avoid lock contention).
+    if (
+      issuedIssueId !== null &&
+      run.status === "issue_created" &&
+      Array.isArray(input.routine.defaultRequiredOutcomes) &&
+      input.routine.defaultRequiredOutcomes.length > 0
+    ) {
+      const desiredOutcomes = input.routine.defaultRequiredOutcomes as Array<{ kind: string; requiredMeta: Record<string, unknown> }>;
+      try {
+        await db.update(issues)
+          .set({ requiredOutcomes: desiredOutcomes })
+          .where(eq(issues.id, issuedIssueId));
+        await getOutcomesService().materializeContract(
+          { kind: "issue", id: issuedIssueId, companyId: input.routine.companyId },
+          desiredOutcomes,
+        );
+      } catch (err) {
+        logger.warn({ err, routineId: input.routine.id, issueId: issuedIssueId }, "failed to apply outcomes contract to routine-created issue");
+      }
+    }
 
     if (input.source === "schedule" || input.source === "webhook") {
       const actorId = input.source === "schedule" ? "routine-scheduler" : "routine-webhook";
@@ -1531,6 +1556,7 @@ export function routineService(
             concurrencyPolicy: input.concurrencyPolicy,
             catchUpPolicy: input.catchUpPolicy,
             variables,
+            defaultRequiredOutcomes: input.defaultRequiredOutcomes ?? [],
             createdByAgentId: actor.agentId ?? null,
             createdByUserId: actor.userId ?? null,
             updatedByAgentId: actor.agentId ?? null,
@@ -1611,6 +1637,7 @@ export function routineService(
           concurrencyPolicy: patch.concurrencyPolicy ?? locked.concurrencyPolicy,
           catchUpPolicy: patch.catchUpPolicy ?? locked.catchUpPolicy,
           variables: nextVariables,
+          defaultRequiredOutcomes: patch.defaultRequiredOutcomes !== undefined ? patch.defaultRequiredOutcomes : locked.defaultRequiredOutcomes,
           updatedByAgentId: actor.agentId ?? null,
           updatedByUserId: actor.userId ?? null,
         };
@@ -1651,6 +1678,7 @@ export function routineService(
             concurrencyPolicy: candidate.concurrencyPolicy,
             catchUpPolicy: candidate.catchUpPolicy,
             variables: candidate.variables,
+            defaultRequiredOutcomes: candidate.defaultRequiredOutcomes,
             updatedByAgentId: actor.agentId ?? null,
             updatedByUserId: actor.userId ?? null,
             updatedAt: new Date(),

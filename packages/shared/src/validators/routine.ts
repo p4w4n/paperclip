@@ -48,6 +48,11 @@ export const routineVariableSchema = z.object({
   }
 });
 
+const requiredOutcomeItemSchema = z.object({
+  kind: z.string().min(1),
+  requiredMeta: z.record(z.unknown()),
+});
+
 export const createRoutineSchema = z.object({
   projectId: z.string().uuid().optional().nullable(),
   goalId: z.string().uuid().optional().nullable(),
@@ -60,6 +65,7 @@ export const createRoutineSchema = z.object({
   concurrencyPolicy: z.enum(ROUTINE_CONCURRENCY_POLICIES).optional().default("coalesce_if_active"),
   catchUpPolicy: z.enum(ROUTINE_CATCH_UP_POLICIES).optional().default("skip_missed"),
   variables: z.array(routineVariableSchema).optional().default([]),
+  defaultRequiredOutcomes: z.array(requiredOutcomeItemSchema).optional().default([]),
 });
 
 export type CreateRoutine = z.infer<typeof createRoutineSchema>;

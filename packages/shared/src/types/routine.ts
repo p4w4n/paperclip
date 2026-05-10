@@ -59,6 +59,7 @@ export interface Routine {
   concurrencyPolicy: string;
   catchUpPolicy: string;
   variables: RoutineVariable[];
+  defaultRequiredOutcomes: Array<{ kind: string; requiredMeta: Record<string, unknown> }>;
   latestRevisionId: string | null;
   latestRevisionNumber: number;
   createdByAgentId: string | null;

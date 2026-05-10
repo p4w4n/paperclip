@@ -141,6 +141,7 @@ function buildRoutineMutationPayload(input: {
   concurrencyPolicy: string;
   catchUpPolicy: string;
   variables: RoutineVariable[];
+  defaultRequiredOutcomes: Array<{ kind: string; requiredMeta: Record<string, unknown> }>;
 }) {
   return {
     ...input,
@@ -287,6 +288,9 @@ export function RoutineDetail() {
   const projectSelectorRef = useRef<HTMLButtonElement | null>(null);
   const [secretMessage, setSecretMessage] = useState<SecretMessage | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [outcomesContractOpen, setOutcomesContractOpen] = useState(false);
+  const [outcomesContractText, setOutcomesContractText] = useState<string>("");
+  const [outcomesContractError, setOutcomesContractError] = useState<string | null>(null);
   const [saveConflict, setSaveConflict] = useState(false);
   const [runVariablesOpen, setRunVariablesOpen] = useState(false);
   const [newTrigger, setNewTrigger] = useState({
@@ -304,6 +308,7 @@ export function RoutineDetail() {
     concurrencyPolicy: string;
     catchUpPolicy: string;
     variables: RoutineVariable[];
+    defaultRequiredOutcomes: Array<{ kind: string; requiredMeta: Record<string, unknown> }>;
   }>({
     title: "",
     description: "",
@@ -313,6 +318,7 @@ export function RoutineDetail() {
     concurrencyPolicy: "coalesce_if_active",
     catchUpPolicy: "skip_missed",
     variables: [],
+    defaultRequiredOutcomes: [],
   });
   const activeTab = useMemo(() => getRoutineTabFromSearch(location.search), [location.search]);
 
@@ -379,6 +385,7 @@ export function RoutineDetail() {
             concurrencyPolicy: routine.concurrencyPolicy,
             catchUpPolicy: routine.catchUpPolicy,
             variables: routine.variables,
+            defaultRequiredOutcomes: (routine.defaultRequiredOutcomes ?? []) as Array<{ kind: string; requiredMeta: Record<string, unknown> }>,
           }
         : null,
     [routine],
@@ -408,6 +415,9 @@ export function RoutineDetail() {
     if (JSON.stringify(editDraft.variables) !== JSON.stringify(routineDefaults.variables)) {
       result.push({ key: "variables", label: "the variables" });
     }
+    if (JSON.stringify(editDraft.defaultRequiredOutcomes) !== JSON.stringify(routineDefaults.defaultRequiredOutcomes)) {
+      result.push({ key: "defaultRequiredOutcomes", label: "the outcomes contract" });
+    }
     return result;
   }, [editDraft, routineDefaults]);
   const isEditDirty = dirtyFields.length > 0;
@@ -420,6 +430,8 @@ export function RoutineDetail() {
     const changedRoutine = hydratedRoutineIdRef.current !== routine.id;
     if (changedRoutine || !isEditDirty) {
       setEditDraft(routineDefaults);
+      setOutcomesContractText(JSON.stringify(routineDefaults.defaultRequiredOutcomes, null, 2));
+      setOutcomesContractError(null);
       hydratedRoutineIdRef.current = routine.id;
     }
   }, [routine, routineDefaults, isEditDirty, setBreadcrumbs]);
@@ -1048,6 +1060,43 @@ export function RoutineDetail() {
         </CollapsibleContent>
       </Collapsible>
 
+      {/* Outcomes contract */}
+      <Collapsible open={outcomesContractOpen} onOpenChange={setOutcomesContractOpen}>
+        <CollapsibleTrigger className="flex w-full items-center justify-between text-left">
+          <span className="text-sm font-medium">Outcomes contract</span>
+          {outcomesContractOpen ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+        </CollapsibleTrigger>
+        <CollapsibleContent className="pt-3 space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Define required outcomes that will be copied onto every issue created by this routine.
+            Enter a JSON array of <code className="font-mono">{"[{kind, requiredMeta}]"}</code> objects.
+          </p>
+          <textarea
+            className="w-full rounded-md border border-input bg-transparent px-3 py-2 font-mono text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-ring"
+            rows={6}
+            value={outcomesContractText}
+            onChange={(e) => {
+              const text = e.target.value;
+              setOutcomesContractText(text);
+              try {
+                const parsed = JSON.parse(text) as unknown;
+                if (!Array.isArray(parsed)) throw new Error("Must be a JSON array");
+                setEditDraft((current) => ({
+                  ...current,
+                  defaultRequiredOutcomes: parsed as Array<{ kind: string; requiredMeta: Record<string, unknown> }>,
+                }));
+                setOutcomesContractError(null);
+              } catch (err) {
+                setOutcomesContractError(err instanceof Error ? err.message : "Invalid JSON");
+              }
+            }}
+          />
+          {outcomesContractError && (
+            <p className="text-xs text-destructive">{outcomesContractError}</p>
+          )}
+        </CollapsibleContent>
+      </Collapsible>
+
       {/* Save bar */}
       <div className="flex items-center justify-between">
         {isEditDirty ? (
@@ -1277,6 +1326,7 @@ export function RoutineDetail() {
                 concurrencyPolicy: response.routine.concurrencyPolicy,
                 catchUpPolicy: response.routine.catchUpPolicy,
                 variables: response.routine.variables,
+                defaultRequiredOutcomes: (response.routine.defaultRequiredOutcomes ?? []) as Array<{ kind: string; requiredMeta: Record<string, unknown> }>,
               });
               hydratedRoutineIdRef.current = response.routine.id;
             }}

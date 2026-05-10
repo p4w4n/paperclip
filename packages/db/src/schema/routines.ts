@@ -46,7 +46,7 @@ export const routines = pgTable(
     enqueueViaWorkQueue: boolean("enqueue_via_work_queue").notNull().default(false),
     defaultRetryPolicy: jsonb("default_retry_policy").$type<Record<string, unknown>>(),
     requiresPlan: boolean("requires_plan").notNull().default(false),
-    defaultRequiredOutcomes: jsonb("default_required_outcomes").$type<unknown[]>().notNull().default([]),
+    defaultRequiredOutcomes: jsonb("default_required_outcomes").$type<Array<{ kind: string; requiredMeta: Record<string, unknown> }>>().notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
