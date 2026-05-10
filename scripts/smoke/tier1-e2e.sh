@@ -217,11 +217,70 @@ DUP=$(echo "$WQ3" | python3 -c "import json,sys; print(json.load(sys.stdin).get(
 [[ "$DUP" == "duplicate" ]] || fail "expected duplicate on idempotency-key replay, got: $WQ3"
 ok "  idempotency-key dedupes: reason=$DUP"
 
-# ─── Artifacts: declare + list (in-process declare via internal API)
-log "─── Artifacts: list (no public declare via REST yet — gRPC only) ───"
-ART=$(api GET "/api/issues/$ISSUE_ID/artifacts")
-echo "  artifacts response: $ART" | head -c 200
-ok "  /api/issues/:id/artifacts route reachable"
+# ─── Artifacts: declare + list ──────────────────────────────
+log "─── Artifacts: declare + list ───"
+ART_RES=$(api POST "/api/companies/$COMPANY_ID/artifacts" "{
+  \"kind\": \"code.patch\",
+  \"name\": \"patch\",
+  \"content\": \"--- diff ---\",
+  \"contentType\": \"text/x-diff\",
+  \"contentMeta\": {\"target_ref\": \"main\"},
+  \"issueId\": \"$ISSUE_ID\"
+}")
+ART_ID=$(echo "$ART_RES" | python3 -c "import json,sys; print(json.load(sys.stdin).get('artifact',{}).get('id',''))" 2>/dev/null || true)
+[[ -n "$ART_ID" ]] || { log "  artifact declare payload: $ART_RES"; fail "could not declare artifact"; }
+ok "  artifact: $ART_ID"
+
+ART_LIST=$(api GET "/api/issues/$ISSUE_ID/artifacts")
+ART_COUNT=$(echo "$ART_LIST" | python3 -c "import json,sys; print(len(json.load(sys.stdin).get('artifacts', [])))")
+[[ "$ART_COUNT" -ge 1 ]] || fail "expected ≥1 artifact after declare, got $ART_COUNT"
+ok "  /api/issues/:id/artifacts list: $ART_COUNT artifact(s)"
+
+# ─── Enforced Outcomes ───────────────────────────────────────
+log "─── Enforced Outcomes: contract + gate + declare → done ───"
+
+# PATCH the issue with a required_outcomes contract (requiredOutcomes in request body).
+# The contract requires one artifact_declared outcome of kind code.patch named "patch2".
+# We use a NEW name here ("patch2") so the artifact we already declared above does NOT
+# pre-satisfy the contract before the gate check fires.
+echo "[EO] PATCH issue with requiredOutcomes contract"
+api PATCH "/api/issues/$ISSUE_ID" \
+  '{"requiredOutcomes":[{"kind":"artifact_declared","requiredMeta":{"name":"patch2","artifact_kind":"code.patch"}}]}'
+
+# Attempt status=done — expect 422 outcome_required.
+echo "[EO] Attempt status=done (expect 422)"
+HTTP=$(curl -s -o /tmp/eo-422.json -w '%{http_code}' -X PATCH \
+  -H "Content-Type: application/json" \
+  "$BASE/api/issues/$ISSUE_ID" \
+  -d '{"status":"done"}')
+[ "$HTTP" = "422" ] || { echo "[EO] expected 422, got $HTTP"; cat /tmp/eo-422.json; exit 1; }
+grep -q "outcome_required" /tmp/eo-422.json || { echo "[EO] outcome_required not in 422 body"; cat /tmp/eo-422.json; exit 1; }
+ok "  gate blocked with 422 + outcome_required"
+
+# Declare the satisfying artifact (name=patch2 matches the contract).
+echo "[EO] Declare satisfying artifact (name=patch2)"
+api POST "/api/companies/$COMPANY_ID/artifacts" "{
+  \"kind\": \"code.patch\",
+  \"name\": \"patch2\",
+  \"content\": \"--- diff ---\",
+  \"contentType\": \"text/x-diff\",
+  \"contentMeta\": {\"target_ref\": \"main\"},
+  \"issueId\": \"$ISSUE_ID\"
+}"
+
+# Subscriber is in-process — sleep briefly to let it flip the outcome.
+sleep 0.5
+
+# Retry mark-done — expect 200.
+echo "[EO] Retry status=done (expect 200)"
+DONE_RES=$(curl -s -o /tmp/eo-done.json -w '%{http_code}' -X PATCH \
+  -H "Content-Type: application/json" \
+  "$BASE/api/issues/$ISSUE_ID" \
+  -d '{"status":"done"}')
+[ "$DONE_RES" = "200" ] || { echo "[EO] expected 200, got $DONE_RES"; cat /tmp/eo-done.json; exit 1; }
+ok "  outcome satisfied — status=done accepted (HTTP 200)"
+
+echo "[EO] outcome smoke OK"
 
 # ─── Summary ─────────────────────────────────────────────────
 log "─── e2e PASSED ───"

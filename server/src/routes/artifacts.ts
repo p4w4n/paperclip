@@ -1,4 +1,8 @@
-// Artifacts REST surface. Three endpoints:
+// Artifacts REST surface. Four endpoints:
+//
+//   POST /api/companies/:companyId/artifacts → declare a new artifact
+//     inline. Body: { kind, name, content, contentType?, contentMeta?,
+//     issueId? }. content is a UTF-8 string stored as bytes.
 //
 //   GET /api/issues/:issueId/artifacts → list non-superseded
 //     artifacts attached to an issue. ?includeSuperseded=true
@@ -26,6 +30,39 @@ import { notFound } from "../errors.js";
 export function artifactsRoutes(db: Db) {
   const router = Router();
   const issueSvc = issueService(db);
+
+  // POST /companies/:companyId/artifacts — inline declare for REST clients
+  // and the e2e smoke script. Accepts { kind, name, content, contentType?,
+  // contentMeta?, issueId? }; content is a UTF-8 string stored as bytes.
+  router.post("/companies/:companyId/artifacts", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const { kind, name, content, contentType, contentMeta, issueId } = req.body as {
+      kind: string;
+      name: string;
+      content: string;
+      contentType?: string;
+      contentMeta?: Record<string, unknown>;
+      issueId?: string;
+    };
+    if (!kind || !name || content == null) {
+      res.status(400).json({ error: "kind, name, and content are required" });
+      return;
+    }
+    const svc = getArtifactsService();
+    const result = await svc.declare(
+      { callerCompanyId: companyId },
+      {
+        scope: { companyId, issueId },
+        kind,
+        name,
+        contentBytes: Buffer.from(content, "utf8"),
+        contentType: contentType ?? "text/plain",
+        contentMeta,
+      },
+    );
+    res.status(201).json({ artifact: result });
+  });
 
   router.get("/issues/:issueId/artifacts", async (req, res) => {
     const rawId = req.params.issueId as string;

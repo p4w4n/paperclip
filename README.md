@@ -303,6 +303,13 @@ Five new substrates land alongside the core systems above. Each is shipped as a 
 </td>
 <td>
 
+**🔒 Enforced Outcomes** — Opt-in outcome contracts on issues + plans, 7 typed kinds verified via in-process pub/sub over the four landed substrates. Hard gate when required, no-op when not.
+
+</td>
+</tr>
+<tr>
+<td colspan="2">
+
 **Try the foundations end-to-end:**
 
 ```bash
@@ -425,7 +432,7 @@ See [doc/DEVELOPING.md](doc/DEVELOPING.md) for the full development guide and [d
 - ✅ Cloud / Sandbox agents (e.g. Cursor / e2b agents)
 - 🚧 Artifacts & Work Products
 - 🚧 Memory / Knowledge
-- ⚪ Enforced Outcomes
+- 🚧 Enforced Outcomes
 - ⚪ MAXIMIZER MODE
 - 🚧 Deep Planning
 - 🚧 Work Queues

@@ -66,9 +66,11 @@ We want a stronger memory and knowledge surface for companies, agents, and proje
 
 Plan 1 (foundation) is in flight: Karpathy 3-layer model on Postgres+pgvector — episodic facts auto-captured at run boundaries, semantic + procedural promotion via a reflection worker, wiki pages curated by an ingest LLM stage with lint operations, recall via union-rank (vector + keyword) and 1-hop link expansion. Plugin-shaped backends so Mem0 / Letta / external markdown can swap in.
 
-### ⚪ Enforced Outcomes
+### 🚧 Enforced Outcomes
 
 Paperclip should get stricter about what counts as finished work. Tasks, approvals, and execution flows should resolve to clear outcomes like merged code, published artifacts, shipped docs, or explicit decisions instead of stopping at vague status updates.
+
+Plan 1 (foundation) is in flight: `outcomes` table with polymorphic target (issue/plan), 7 typed kinds (artifact_declared, plan_completed, decision_recorded, approval_granted, exit_criteria_met, manual_signoff, external_signal) with per-kind JSON-schema validators, pure helpers (contract-diff, markdown-checkbox parser, HMAC verifier with timing-safe compare), `OutcomesService` singleton with tenant gate + materializeContract (insert/keep/drop diff) + tryVerify (idempotent, best-effort, errors-don't-bubble) + revertOutcome (sticky terminal), in-process `events.ts` emitters on Artifacts/Plans/Approvals + boot-time subscriber wiring (Outcomes is the only listener; Memory subscribes to outcome events for procedural ingest), gate-check predicate at `issueService.updateIssue → done` and the plan phase-complete route (422 OutcomeRequiredError with structured pending list), REST endpoints (list/get/signoff/signal/revert/rotate-secret/instance-admin), UI Outcomes tab on issue + plan detail + `/instance/outcomes` admin + routine "Outcomes contract" inheritance into newly-created issues, OTel spans + 5 metric streams + 6th verifier-error counter, e2e smoke addition. Plan 2 layers on provider-specific webhook adapters (GitHub PR-merged, Linear, GitHub-Actions), plan/routine templates carrying `default_required_outcomes`, `playbooks.suggested_outcomes` autopopulation, opt-in reopen-on-revert, outcome aliases, auto-archival, MCP-Resource adapter.
 
 ### ⚪ MAXIMIZER MODE
 
