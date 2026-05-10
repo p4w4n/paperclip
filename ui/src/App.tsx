@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Layout } from "./components/Layout";
 import { OnboardingWizard } from "./components/OnboardingWizard";
 import { CloudAccessGate } from "./components/CloudAccessGate";
-
 // Each page is lazy-loaded so vite emits one chunk per route. The previous
 // eager imports collapsed the entire SPA into the main entry chunk
 // (`index-FWfI3djl.js`, ~3.6 MB un-gzipped). Splitting them lets the browser
@@ -54,6 +53,7 @@ const CompanyEnvironments = lazyNamed(() => import("./pages/CompanyEnvironments"
 const CompanyAccess = lazyNamed(() => import("./pages/CompanyAccess"), "CompanyAccess");
 const CompanyInvites = lazyNamed(() => import("./pages/CompanyInvites"), "CompanyInvites");
 const CompanySkills = lazyNamed(() => import("./pages/CompanySkills"), "CompanySkills");
+const Secrets = lazyNamed(() => import("./pages/Secrets"), "Secrets");
 const CompanyExport = lazyNamed(() => import("./pages/CompanyExport"), "CompanyExport");
 const CompanyImport = lazyNamed(() => import("./pages/CompanyImport"), "CompanyImport");
 const DesignGuide = lazyNamed(() => import("./pages/DesignGuide"), "DesignGuide");
@@ -99,6 +99,7 @@ function boardRoutes() {
       <Route path="company/settings/invites" element={<CompanyInvites />} />
       <Route path="company/export/*" element={<CompanyExport />} />
       <Route path="company/import" element={<CompanyImport />} />
+      <Route path="company/settings/secrets" element={<Secrets />} />
       <Route path="skills/*" element={<CompanySkills />} />
       <Route path="settings" element={<LegacySettingsRedirect />} />
       <Route path="settings/*" element={<LegacySettingsRedirect />} />

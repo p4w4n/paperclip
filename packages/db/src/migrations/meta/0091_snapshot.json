@@ -1,6 +1,6 @@
 {
-  "id": "34c35234-d501-4e46-a395-01f8d3df0f29",
-  "prevId": "fca48eae-eda8-45ee-a321-8a9d4bcad58b",
+  "id": "27d547f4-1935-48b5-bb6d-d592a98fa26a",
+  "prevId": "34c35234-d501-4e46-a395-01f8d3df0f29",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -17260,6 +17260,13 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
+        },
+        "requires_plan": {
+          "name": "requires_plan",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         },
         "created_at": {
           "name": "created_at",

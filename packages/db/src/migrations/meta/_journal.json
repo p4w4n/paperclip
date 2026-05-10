@@ -579,64 +579,78 @@
 		{
 			"idx": 82,
 			"version": "7",
-			"when": 1778240935409,
-			"tag": "0082_distributed_workers",
+			"when": 1778067785041,
+			"tag": "0082_dry_vision",
 			"breakpoints": true
 		},
 		{
 			"idx": 83,
 			"version": "7",
-			"when": 1778267117063,
-			"tag": "0083_workspace_leases",
+			"when": 1778074536410,
+			"tag": "0083_company_secret_provider_configs",
 			"breakpoints": true
 		},
 		{
 			"idx": 84,
 			"version": "7",
-			"when": 1778304318474,
-			"tag": "0084_memory_foundation",
+			"when": 1778240935409,
+			"tag": "0084_distributed_workers",
 			"breakpoints": true
 		},
 		{
 			"idx": 85,
 			"version": "7",
-			"when": 1778318634260,
-			"tag": "0085_artifacts_foundation",
+			"when": 1778267117063,
+			"tag": "0085_workspace_leases",
 			"breakpoints": true
 		},
 		{
 			"idx": 86,
 			"version": "7",
-			"when": 1778328000000,
-			"tag": "0086_artifacts_legacy_view",
+			"when": 1778304318474,
+			"tag": "0086_memory_foundation",
 			"breakpoints": true
 		},
 		{
 			"idx": 87,
 			"version": "7",
-			"when": 1778324326287,
-			"tag": "0087_work_queues_foundation",
+			"when": 1778318634260,
+			"tag": "0087_artifacts_foundation",
 			"breakpoints": true
 		},
 		{
 			"idx": 88,
 			"version": "7",
-			"when": 1778329890299,
-			"tag": "0088_deep_planning_foundation",
+			"when": 1778328000000,
+			"tag": "0088_artifacts_legacy_view",
 			"breakpoints": true
 		},
 		{
 			"idx": 89,
 			"version": "7",
-			"when": 1778332713237,
-			"tag": "0089_routine_requires_plan",
+			"when": 1778324326287,
+			"tag": "0089_work_queues_foundation",
 			"breakpoints": true
 		},
 		{
 			"idx": 90,
 			"version": "7",
+			"when": 1778329890299,
+			"tag": "0090_deep_planning_foundation",
+			"breakpoints": true
+		},
+		{
+			"idx": 91,
+			"version": "7",
+			"when": 1778332713237,
+			"tag": "0091_routine_requires_plan",
+			"breakpoints": true
+		},
+		{
+			"idx": 92,
+			"version": "7",
 			"when": 1778333765997,
-			"tag": "0090_organizational_learning_foundation",
+			"tag": "0092_organizational_learning_foundation",
 			"breakpoints": true
 		}
 	]
