@@ -31,6 +31,7 @@ import {
   recordArtifactDeclared,
 } from "./metrics.js";
 import { findParentForName } from "./parent-chain.js";
+import { artifactsEvents } from "./events.js";
 import {
   ArtifactsTenantMismatchError,
   type ArtifactsService,
@@ -145,6 +146,19 @@ export function createArtifactsService(opts: ArtifactsServiceOpts): ArtifactsSer
       });
 
       recordArtifactDeclared(input.kind);
+
+      // Emit AFTER the transaction commits — never inside it.
+      // A verifier crash must NOT roll back the source write.
+      artifactsEvents.emit("declared", {
+        id: declared.id,
+        companyId: input.scope.companyId,
+        issueId: input.scope.issueId ?? null,
+        kind: input.kind,
+        name: input.name,
+        blobSha256: blob.blobSha256,
+        declaredAt: new Date(),
+      });
+
       return declared;
     },
 

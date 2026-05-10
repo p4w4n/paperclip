@@ -7,6 +7,7 @@ import { agentService } from "./agents.js";
 import { budgetService } from "./budgets.js";
 import { notifyHireApproved } from "./hire-hook.js";
 import { instanceSettingsService } from "./instance-settings.js";
+import { approvalsEvents } from "./approvals-events.js";
 
 export function approvalService(db: Db) {
   const agentsSvc = agentService(db);
@@ -163,6 +164,18 @@ export function approvalService(db: Db) {
             approvedAt: now,
           }).catch(() => {});
         }
+      }
+
+      // Emit AFTER the DB update commits — never inside a transaction.
+      // Guard with `applied` so we only emit on actual status transitions.
+      if (applied) {
+        approvalsEvents.emit("approved", {
+          approvalId: updated.id,
+          companyId: updated.companyId,
+          approvalKind: updated.type,
+          decidedByUserId: updated.decidedByUserId ?? null,
+          decidedAt: updated.decidedAt ?? now,
+        });
       }
 
       return { approval: updated, applied };

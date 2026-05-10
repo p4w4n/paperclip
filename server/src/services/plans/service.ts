@@ -32,6 +32,7 @@ import {
   planReviews,
   plans,
 } from "@paperclipai/db";
+import { plansEvents } from "./events.js";
 import { wouldCreateCycle, type DepEdge } from "./cycle-check.js";
 import { validatePhaseTransition, validatePlanTransition } from "./lifecycle.js";
 import { phaseReadiness } from "./phase-ready.js";
@@ -354,6 +355,30 @@ export function createPlanService(opts: PlanServiceOpts): PlanService {
           // completion. Log via the caller's error path.
         }
       }
+
+      // Emit AFTER the transaction commits — never inside it.
+      const phasePayload = {
+        planPhaseId: phaseId,
+        companyId: plan.companyId,
+        planId: plan.id,
+        planIssueId: plan.issueId ?? null,
+        exitCriteriaMarkdown: phase.exitCriteriaMarkdown ?? "",
+      };
+      plansEvents.emit("phaseCompleted", phasePayload);
+      // phaseMarkdownUpdated fires alongside phaseCompleted — there is no
+      // separate "phase markdown update" write path in Plan 1; both events
+      // carry the same payload so exit_criteria_met verifiers see it.
+      plansEvents.emit("phaseMarkdownUpdated", phasePayload);
+
+      if (allCompletedAfter) {
+        plansEvents.emit("completed", {
+          planId: plan.id,
+          companyId: plan.companyId,
+          issueId: plan.issueId ?? null,
+          completedAt: new Date(),
+          revisionId: plan.currentRevisionId ?? null,
+        });
+      }
     },
 
     async recordDecision(ctx, planId, input: DecisionInput): Promise<PlanDecisionRow> {
@@ -373,6 +398,18 @@ export function createPlanService(opts: PlanServiceOpts): PlanService {
           decidedByAgentId: input.decidedByAgentId ?? null,
         })
         .returning();
+
+      // Emit AFTER the DB insert commits — never inside a transaction.
+      plansEvents.emit("decisionRecorded", {
+        decisionId: row.id,
+        companyId: plan.companyId,
+        planId,
+        planIssueId: plan.issueId ?? null,
+        title: row.title,
+        chosenOptionId: row.chosenOptionId ?? null,
+        decidedAt: row.decidedAt,
+      });
+
       return rowToDecision(row);
     },
 

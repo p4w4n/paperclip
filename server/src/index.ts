@@ -724,6 +724,39 @@ export async function startServer(): Promise<StartedServer> {
   initializeOrgLearningService({ db: db as any });
   initializeSuggestCache();
 
+  // OutcomesService + substrate event wiring.
+  // Must initialize AFTER all four substrates (artifacts, plans, approvals,
+  // org-learning) are up. Disabling this block leaves substrates working.
+  const { initializeOutcomesService } = await import(
+    "./services/outcomes/service.js"
+  );
+  const { artifactsEvents } = await import(
+    "./services/artifacts/events.js"
+  );
+  const { plansEvents } = await import("./services/plans/events.js");
+  const { approvalsEvents } = await import("./services/approvals-events.js");
+
+  const outcomesService = initializeOutcomesService({ db: db as any });
+
+  artifactsEvents.on("declared", (p) => {
+    void outcomesService.tryVerify("artifact_declared", p);
+  });
+  plansEvents.on("completed", (p) => {
+    void outcomesService.tryVerify("plan_completed", p);
+  });
+  plansEvents.on("phaseCompleted", (p) => {
+    void outcomesService.tryVerify("exit_criteria_met", p);
+  });
+  plansEvents.on("phaseMarkdownUpdated", (p) => {
+    void outcomesService.tryVerify("exit_criteria_met", p);
+  });
+  plansEvents.on("decisionRecorded", (p) => {
+    void outcomesService.tryVerify("decision_recorded", p);
+  });
+  approvalsEvents.on("approved", (p) => {
+    void outcomesService.tryVerify("approval_granted", p);
+  });
+
   const app = await createApp(db as any, {
     uiMode,
     serverPort: listenPort,
