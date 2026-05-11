@@ -8,6 +8,9 @@ import {
   GitHubWebhookSecretNotConfiguredError,
 } from "../services/outcomes/webhooks/github.js";
 import { assertCompanyAccess, assertInstanceAdmin } from "./authz.js";
+import { withSpan } from "../observability/spans.js";
+import { SPAN_WEBHOOK_GITHUB } from "../services/outcomes/spans.js";
+import { recordWebhookReceived, recordWebhookSignatureFailed } from "../services/outcomes/metrics.js";
 
 export function webhooksRoutes(db: Db): Router {
   const r = Router();
@@ -27,13 +30,28 @@ export function webhooksRoutes(db: Db): Router {
       const rawBody =
         ((req as any).rawBody as Buffer | undefined)?.toString("utf-8") ?? "";
 
-      const result = await ingestGithubWebhook(db, {
-        companyId: req.params.cid,
-        deliveryId,
-        eventType,
-        signature,
-        rawBody,
-      });
+      const result = await withSpan(
+        SPAN_WEBHOOK_GITHUB,
+        async () => {
+          const r2 = await ingestGithubWebhook(db, {
+            companyId: req.params.cid,
+            deliveryId,
+            eventType,
+            signature,
+            rawBody,
+          });
+          recordWebhookReceived({ source: "github", result: r2.result });
+          if (r2.result === "invalid_signature") {
+            recordWebhookSignatureFailed({ source: "github" });
+          }
+          return r2;
+        },
+        {
+          "webhook.delivery_id": deliveryId,
+          "webhook.event_type": eventType,
+          "webhook.company_id": req.params.cid,
+        },
+      );
 
       const status = result.result === "invalid_signature" ? 401 : 200;
       return res.status(status).json(result);

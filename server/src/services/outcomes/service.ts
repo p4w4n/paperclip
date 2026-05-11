@@ -16,6 +16,8 @@ import {
   startRevertSpan,
   endSpanOk,
   endSpanError,
+  SPAN_APPLY_PLAYBOOK,
+  SPAN_AUTO_REOPEN,
 } from "./spans.js";
 import {
   recordVerified,
@@ -25,8 +27,18 @@ import {
   recordAutoReopen,
   recordAutoReopenFailed,
   recordAutoReopenSuppressed,
+  recordPlaybookApplied,
 } from "./metrics.js";
+import { withSpan } from "../../observability/spans.js";
 import { outcomesEvents } from "./events.js";
+
+/** Low-cardinality bucket for added_count metric labels. */
+function bucketize(n: number): "0" | "1" | "2-5" | "6+" {
+  if (n === 0) return "0";
+  if (n === 1) return "1";
+  if (n <= 5) return "2-5";
+  return "6+";
+}
 
 export class PlaybookNotApplicableError extends Error {
   statusCode = 422;
@@ -154,36 +166,46 @@ export class OutcomesService {
       let parentReopened = false;
       let slotStillSatisfied = false;
       try {
-        // Load sibling rows for the same target.
-        const allSiblings = await this.deps.db
-          .select()
-          .from(outcomes)
-          .where(and(
-            eq(outcomes.companyId, (reverted as any).companyId),
-            eq(outcomes.targetKind, (reverted as any).targetKind),
-            eq(outcomes.targetId, (reverted as any).targetId),
-          ));
-        const siblingsExceptSelf = allSiblings.filter((s: any) => s.id !== reverted.id);
+        await withSpan(
+          SPAN_AUTO_REOPEN,
+          async () => {
+            // Load sibling rows for the same target.
+            const allSiblings = await this.deps.db
+              .select()
+              .from(outcomes)
+              .where(and(
+                eq(outcomes.companyId, (reverted as any).companyId),
+                eq(outcomes.targetKind, (reverted as any).targetKind),
+                eq(outcomes.targetId, (reverted as any).targetId),
+              ));
+            const siblingsExceptSelf = allSiblings.filter((s: any) => s.id !== reverted.id);
 
-        const decision = shouldReopenParent(reverted as any, siblingsExceptSelf as any);
-        if (decision.reopen) {
-          if ((reverted as any).targetKind === "issue") {
-            await this.deps.db
-              .update(issues)
-              .set({ status: "in_progress", completedAt: null, updatedAt: new Date() })
-              .where(eq(issues.id, (reverted as any).targetId));
-          } else {
-            await this.deps.db
-              .update(plans)
-              .set({ status: "in_progress", completedAt: null, updatedAt: new Date() })
-              .where(eq(plans.id, (reverted as any).targetId));
-          }
-          parentReopened = true;
-          recordAutoReopen({ kind: reverted.kind, target_kind: (reverted as any).targetKind });
-        } else if ((decision as any).reason === "alt_covers") {
-          slotStillSatisfied = true;
-          recordAutoReopenSuppressed({ reason: "alt_covers" });
-        }
+            const decision = shouldReopenParent(reverted as any, siblingsExceptSelf as any);
+            if (decision.reopen) {
+              if ((reverted as any).targetKind === "issue") {
+                await this.deps.db
+                  .update(issues)
+                  .set({ status: "in_progress", completedAt: null, updatedAt: new Date() })
+                  .where(eq(issues.id, (reverted as any).targetId));
+              } else {
+                await this.deps.db
+                  .update(plans)
+                  .set({ status: "in_progress", completedAt: null, updatedAt: new Date() })
+                  .where(eq(plans.id, (reverted as any).targetId));
+              }
+              parentReopened = true;
+              recordAutoReopen({ kind: reverted.kind, target_kind: (reverted as any).targetKind });
+            } else if ((decision as any).reason === "alt_covers") {
+              slotStillSatisfied = true;
+              recordAutoReopenSuppressed({ reason: "alt_covers" });
+            }
+          },
+          {
+            "outcome.id": outcomeId,
+            "outcome.kind": reverted.kind,
+            "outcome.target_kind": (reverted as any).targetKind ?? "unknown",
+          },
+        );
       } catch (err) {
         recordAutoReopenFailed({
           kind: reverted.kind,
@@ -389,23 +411,38 @@ export class OutcomesService {
 
     const merge = mergeSuggestedOutcomes(existing as any, suggested as any, mergeStrategy);
 
-    // Materialize into outcomes rows (expands alternatives via EO-P2-10).
-    await this.materializeContract(
-      { kind: "issue", id: issue.id, companyId: issue.companyId },
-      merge.merged as Array<{ kind: string; requiredMeta: Record<string, unknown> }>,
+    return withSpan(
+      SPAN_APPLY_PLAYBOOK,
+      async () => {
+        // Materialize into outcomes rows (expands alternatives via EO-P2-10).
+        await this.materializeContract(
+          { kind: "issue", id: issue.id, companyId: issue.companyId },
+          merge.merged as Array<{ kind: string; requiredMeta: Record<string, unknown> }>,
+        );
+
+        // Persist requiredOutcomes column on the issue (EO-P1 lesson: column write must not be omitted).
+        await this.deps.db
+          .update(issues)
+          .set({ requiredOutcomes: merge.merged as unknown[] })
+          .where(eq(issues.id, issue.id));
+
+        recordPlaybookApplied({
+          playbook_id_low_card: playbookId.slice(0, 8),
+          added_count_bucket: bucketize(merge.added.length),
+        });
+
+        return {
+          addedOutcomes: merge.added,
+          skippedExisting: merge.skippedExisting,
+          newContractLength: merge.merged.length,
+        };
+      },
+      {
+        "outcome.playbook_id": playbookId,
+        "outcome.issue_id": issueId,
+        "outcome.added_count": merge.added.length,
+      },
     );
-
-    // Persist requiredOutcomes column on the issue (EO-P1 lesson: column write must not be omitted).
-    await this.deps.db
-      .update(issues)
-      .set({ requiredOutcomes: merge.merged as unknown[] })
-      .where(eq(issues.id, issue.id));
-
-    return {
-      addedOutcomes: merge.added,
-      skippedExisting: merge.skippedExisting,
-      newContractLength: merge.merged.length,
-    };
   }
 }
 

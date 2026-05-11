@@ -57,6 +57,9 @@ import {
 } from "../templates/service.js";
 import { getOutcomesService } from "../outcomes/service.js";
 import { projectTemplateToContract } from "../templates/apply-template.js";
+import { withSpan } from "../../observability/spans.js";
+import { SPAN_APPLY_TEMPLATE } from "../outcomes/spans.js";
+import { recordTemplateApplied } from "../outcomes/metrics.js";
 
 export { PlanTemplateNotFoundError };
 
@@ -190,9 +193,20 @@ export function createPlanService(opts: PlanServiceOpts): PlanService {
         // EO-P2-9: materializeContract runs outside the plan transaction
         // (it manages its own tx). Fire after the plan row is committed.
         if (templateContract && templateContract.length > 0) {
-          await getOutcomesService().materializeContract(
-            { kind: "plan", id: plan.id, companyId: input.companyId },
-            templateContract as Array<{ kind: string; requiredMeta: Record<string, unknown> }>,
+          await withSpan(
+            SPAN_APPLY_TEMPLATE,
+            async () => {
+              await getOutcomesService().materializeContract(
+                { kind: "plan", id: plan.id, companyId: input.companyId },
+                templateContract as Array<{ kind: string; requiredMeta: Record<string, unknown> }>,
+              );
+              recordTemplateApplied({ template_id_low_card: (input.templateId ?? "").slice(0, 8) });
+            },
+            {
+              "outcome.template_id": input.templateId ?? "",
+              "outcome.plan_id": plan.id,
+              "outcome.contract_size": templateContract.length,
+            },
           );
         }
         return plan;

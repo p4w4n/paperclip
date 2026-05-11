@@ -13,7 +13,9 @@ import {
   type ObservableGauge,
 } from "@opentelemetry/api";
 
-let cached: ReturnType<typeof metrics.getMeter> | null = null;
+// Shared meter for the outcomes subsystem — reused by both P1 and P2 counters.
+const meter = metrics.getMeter("paperclip.outcomes", "1.0.0");
+
 let counters: {
   verifiedTotal: Counter;
   revertedTotal: Counter;
@@ -30,25 +32,24 @@ let pendingCounts = new Map<string, number>();
 function ensure() {
   if (counters) return counters;
   try {
-    cached = metrics.getMeter("paperclip.outcomes", "1.0.0");
     counters = {
-      verifiedTotal: cached.createCounter("paperclip_outcome_verified_total", {
+      verifiedTotal: meter.createCounter("paperclip_outcome_verified_total", {
         description: "Outcomes that flipped from pending to verified",
       }),
-      revertedTotal: cached.createCounter("paperclip_outcome_reverted_total", {
+      revertedTotal: meter.createCounter("paperclip_outcome_reverted_total", {
         description: "Outcomes that flipped from verified to reverted",
       }),
-      gateBlockedTotal: cached.createCounter("paperclip_outcome_gate_blocked_total", {
+      gateBlockedTotal: meter.createCounter("paperclip_outcome_gate_blocked_total", {
         description: "Issue/plan terminal-state transitions blocked by 422 OutcomeRequiredError",
       }),
-      signalReceivedTotal: cached.createCounter("paperclip_outcome_signal_received_total", {
+      signalReceivedTotal: meter.createCounter("paperclip_outcome_signal_received_total", {
         description: "external_signal webhook POSTs received (verified=true|false)",
       }),
-      verifierErrorTotal: cached.createCounter("paperclip_outcome_verifier_error_total", {
+      verifierErrorTotal: meter.createCounter("paperclip_outcome_verifier_error_total", {
         description: "Verifier errors caught by OutcomesService.tryVerify (logged, not surfaced)",
       }),
     };
-    pendingGauge = cached.createObservableGauge("paperclip_outcome_pending_total", {
+    pendingGauge = meter.createObservableGauge("paperclip_outcome_pending_total", {
       description: "Pending outcomes by kind + target_kind",
     });
     pendingGauge.addCallback((observer) => {
@@ -108,9 +109,69 @@ export function _resetMetrics(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Auto-reopen stubs — Task 20 will replace with real counter.add() calls.
+// Plan 2 counters — 8 new metric streams.
 // ---------------------------------------------------------------------------
 
-export function recordAutoReopen(_l: { kind: string; target_kind: string }): void {}
-export function recordAutoReopenFailed(_l: { kind: string; target_kind: string; reason_class: string }): void {}
-export function recordAutoReopenSuppressed(_l: { reason: string }): void {}
+export const templateAppliedCounter = meter.createCounter(
+  "paperclip_outcome_template_applied_total",
+  { description: "Plan templates applied to plans" },
+);
+export const webhookReceivedCounter = meter.createCounter(
+  "paperclip_outcome_webhook_received_total",
+  { description: "External webhooks received (by source + result)" },
+);
+export const webhookSignatureFailedCounter = meter.createCounter(
+  "paperclip_outcome_webhook_signature_failed_total",
+  { description: "Webhook signature failures (security-critical)" },
+);
+export const playbookAppliedCounter = meter.createCounter(
+  "paperclip_outcome_playbook_applied_total",
+  { description: "Playbooks applied to issues (governance automation)" },
+);
+export const autoReopenCounter = meter.createCounter(
+  "paperclip_outcome_auto_reopen_total",
+  { description: "Auto-reopen on outcome revert" },
+);
+export const autoReopenFailedCounter = meter.createCounter(
+  "paperclip_outcome_auto_reopen_failed_total",
+  { description: "Auto-reopen attempts that errored (best-effort)" },
+);
+export const autoReopenSuppressedCounter = meter.createCounter(
+  "paperclip_outcome_auto_reopen_suppressed_total",
+  { description: "Auto-reopen suppressed (alternative still covered slot)" },
+);
+export const aliasSlotSatisfiedCounter = meter.createCounter(
+  "paperclip_outcome_alias_slot_satisfied_total",
+  { description: "Alias slots satisfied (by primary or alternative)" },
+);
+
+// ---------------------------------------------------------------------------
+// Auto-reopen helpers — replaced from Task-11 stubs with real counter calls.
+// ---------------------------------------------------------------------------
+
+export function recordAutoReopen(labels: { kind: string; target_kind: string }): void {
+  autoReopenCounter.add(1, labels);
+}
+export function recordAutoReopenFailed(labels: { kind: string; target_kind: string; reason_class: string }): void {
+  autoReopenFailedCounter.add(1, labels);
+}
+export function recordAutoReopenSuppressed(labels: { reason: string }): void {
+  autoReopenSuppressedCounter.add(1, labels);
+}
+
+// ---------------------------------------------------------------------------
+// Convenience helpers for new metric streams.
+// ---------------------------------------------------------------------------
+
+export function recordTemplateApplied(labels: { template_id_low_card: string }): void {
+  templateAppliedCounter.add(1, labels);
+}
+export function recordWebhookReceived(labels: { source: string; result: string }): void {
+  webhookReceivedCounter.add(1, labels);
+}
+export function recordWebhookSignatureFailed(labels: { source: string }): void {
+  webhookSignatureFailedCounter.add(1, labels);
+}
+export function recordPlaybookApplied(labels: { playbook_id_low_card: string; added_count_bucket: string }): void {
+  playbookAppliedCounter.add(1, labels);
+}

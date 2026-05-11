@@ -13,6 +13,16 @@ import {
   recordVerifierError,
   updatePendingGauge,
 } from "../metrics.js";
+import {
+  templateAppliedCounter,
+  webhookReceivedCounter,
+  webhookSignatureFailedCounter,
+  playbookAppliedCounter,
+  autoReopenCounter,
+  autoReopenFailedCounter,
+  autoReopenSuppressedCounter,
+  aliasSlotSatisfiedCounter,
+} from "../metrics.js";
 
 afterEach(() => _resetMetrics());
 
@@ -31,5 +41,18 @@ describe("outcomes metrics", () => {
       ["plan_completed|plan", 1],
     ]);
     expect(() => updatePendingGauge(map)).not.toThrow();
+  });
+});
+
+describe("outcomes metrics — Plan 2", () => {
+  it("exposes the new counters", () => {
+    expect(templateAppliedCounter).toBeDefined();
+    expect(webhookReceivedCounter).toBeDefined();
+    expect(webhookSignatureFailedCounter).toBeDefined();
+    expect(playbookAppliedCounter).toBeDefined();
+    expect(autoReopenCounter).toBeDefined();
+    expect(autoReopenFailedCounter).toBeDefined();
+    expect(autoReopenSuppressedCounter).toBeDefined();
+    expect(aliasSlotSatisfiedCounter).toBeDefined();
   });
 });

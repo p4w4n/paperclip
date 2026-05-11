@@ -5,6 +5,16 @@
 //   paperclip.outcome.materialize_contract
 //   paperclip.outcome.try_verify
 //   paperclip.outcome.revert
+//   paperclip.outcome.apply_template    (EO-P2-20)
+//   paperclip.outcome.webhook_github    (EO-P2-20)
+//   paperclip.outcome.apply_playbook    (EO-P2-20)
+//   paperclip.outcome.auto_reopen       (EO-P2-20)
+
+// Plan 2 span name constants.
+export const SPAN_APPLY_TEMPLATE = "paperclip.outcome.apply_template";
+export const SPAN_WEBHOOK_GITHUB = "paperclip.outcome.webhook_github";
+export const SPAN_APPLY_PLAYBOOK = "paperclip.outcome.apply_playbook";
+export const SPAN_AUTO_REOPEN = "paperclip.outcome.auto_reopen";
 
 import { trace, SpanStatusCode, type Span } from "@opentelemetry/api";
 
