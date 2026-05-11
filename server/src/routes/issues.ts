@@ -4,7 +4,7 @@ import multer from "multer";
 import { z } from "zod";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import { activityLog, executionWorkspaces, issueExecutionDecisions, projectWorkspaces } from "@paperclipai/db";
+import { activityLog, executionWorkspaces, issueExecutionDecisions, issues as issuesTable, projectWorkspaces } from "@paperclipai/db";
 import {
   addIssueCommentSchema,
   acceptIssueThreadInteractionSchema,
@@ -2742,21 +2742,32 @@ export function issueRoutes(
       }
     }
 
-    // EO-12 Part A: contract write — materialize requiredOutcomes if provided in the request body.
-    if (Array.isArray(requiredOutcomesInput) && requiredOutcomesInput.length >= 0) {
+    // EO-12 Part A: contract write — materialize requiredOutcomes if provided in the request body
+    // AND persist the JSONB column on the issue row so the gate guard sees a non-empty contract on
+    // subsequent PATCHes. (Fix for EO Bug 1: the column was previously never written, so the gate
+    // check below was permanently inert.)
+    if (Array.isArray(requiredOutcomesInput)) {
       await getOutcomesService().materializeContract(
         { kind: "issue", id: existing.id, companyId: existing.companyId },
         requiredOutcomesInput as Array<{ kind: string; requiredMeta: Record<string, unknown> }>,
       );
+      await db
+        .update(issuesTable)
+        .set({ requiredOutcomes: requiredOutcomesInput as unknown[] })
+        .where(eq(issuesTable.id, existing.id));
     }
 
     // EO-12 Part B: gate check — reject status=done when required outcomes are pending.
+    // Use the EFFECTIVE post-PATCH contract: if the same request also wrote a new contract, that takes
+    // precedence over `existing.requiredOutcomes` (which was read before the PATCH).
     const newStatus = typeof updateFields.status === "string" ? updateFields.status : undefined;
+    const effectiveContract = Array.isArray(requiredOutcomesInput)
+      ? requiredOutcomesInput
+      : (Array.isArray(existing.requiredOutcomes) ? existing.requiredOutcomes : []);
     if (
       newStatus === "done" &&
       existing.status !== "done" &&
-      Array.isArray(existing.requiredOutcomes) &&
-      existing.requiredOutcomes.length > 0
+      effectiveContract.length > 0
     ) {
       const gateResult = await allOutcomesVerified(db, {
         kind: "issue",

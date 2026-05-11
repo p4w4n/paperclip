@@ -635,6 +635,9 @@ describe("verifier — manual_signoff", () => {
     expect(result.verifiedCount).toBe(1);
     expect(db.rows[0].status).toBe("verified");
     expect(db.rows[0].verifiedMeta).toMatchObject({ user_id: "user-42", note: "looks good" });
+    // EO Bug 2: non-uuid userId (e.g. "user-42" or "local-board") MUST NOT be written to the
+    // verified_by_id uuid column. The user_id string lives in verified_meta for audit.
+    expect(db.rows[0].verifiedById).toBeNull();
 
     // Role mismatch case: required_role = 'manager', caller is 'engineer'
     const row2 = pendingManualSignoffOutcome({
@@ -653,6 +656,18 @@ describe("verifier — manual_signoff", () => {
     ).rejects.toThrow(SignoffRoleMismatchError);
 
     expect(db2.rows[0].status).toBe("pending");
+  });
+
+  it("writes a real uuid userId straight through to verified_by_id", async () => {
+    const row = pendingManualSignoffOutcome();
+    const db = makeFakeDb([row]);
+    await verifyManualSignoff(db as any, {
+      outcomeId: "out-ms-1",
+      companyId: "co-1",
+      userId: "11111111-2222-3333-4444-555555555555",
+      userRole: null,
+    });
+    expect(db.rows[0].verifiedById).toBe("11111111-2222-3333-4444-555555555555");
   });
 
   it("returns verifiedCount 0 if outcome doesn't exist or already verified", async () => {

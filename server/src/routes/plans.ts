@@ -145,6 +145,12 @@ export function plansRoutes(db: Db) {
           { kind: "plan", id, companyId: peek.companyId },
           body.requiredOutcomes as Array<{ kind: string; requiredMeta: Record<string, unknown> }>,
         );
+        // Persist the JSONB column so the gate guard at phase-complete sees the contract on
+        // subsequent requests. (Fix for EO Bug 1: the column was previously never written.)
+        await db
+          .update(plans)
+          .set({ requiredOutcomes: body.requiredOutcomes as unknown[] })
+          .where(eq(plans.id, id));
       }
       res.json({ ok: true });
     },
