@@ -18,6 +18,7 @@ import {
   ToggleField,
   HintIcon,
 } from "../components/agent-config-primitives";
+import { GitHubWebhookCard } from "../components/GitHubWebhookCard";
 
 type AgentSnippetInput = {
   onboardingTextUrl: string;
@@ -535,6 +536,14 @@ export function CompanySettings() {
             </Button>
           </div>
         </div>
+      </div>
+
+      {/* Integrations */}
+      <div className="space-y-4" data-testid="company-settings-integrations-section">
+        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          Integrations
+        </div>
+        <GitHubWebhookCard companyId={selectedCompanyId!} />
       </div>
 
       {/* Danger Zone */}
