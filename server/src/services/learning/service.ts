@@ -268,20 +268,51 @@ export function createOrgLearningService(
       assertTenant(ctx, input.companyId);
       const threshold = input.threshold ?? 0.3;
       const limit = input.limit ?? 3;
-      const list = await this.listPlaybooks(ctx, {
-        companyId: input.companyId,
-        status: "active",
-        limit: 200,
-      });
-      const scored = list
-        .map((pb) => {
+
+      // Fetch raw rows so we can read suggestedOutcomes without losing it in the
+      // Playbook domain type (which deliberately omits the DB-only column).
+      const rawRows = await opts.db
+        .select()
+        .from(playbooks)
+        .where(
+          and(
+            eq(playbooks.companyId, input.companyId),
+            eq(playbooks.status, "active"),
+          ),
+        )
+        .orderBy(desc(playbooks.updatedAt))
+        .limit(200);
+
+      const scored: SuggestionResult[] = rawRows
+        .map((row: typeof playbooks.$inferSelect) => {
+          const pb = rowToPlaybook(row);
           const m = matchPlaybookApplicability(input.issueContext, pb);
-          return { playbook: pb, score: m.score, reason: m.reason };
+          return {
+            playbook: pb,
+            score: m.score,
+            reason: m.reason,
+            suggestedOutcomesCount: ((row.suggestedOutcomes as unknown[]) ?? []).length,
+          };
         })
-        .filter((s) => s.score >= threshold)
-        .sort((a, b) => b.score - a.score)
+        .filter((s: SuggestionResult) => s.score >= threshold)
+        .sort((a: SuggestionResult, b: SuggestionResult) => b.score - a.score)
         .slice(0, limit);
+
       return scored;
+    },
+
+    async getSuggestedOutcomesForPlaybook(ctx, playbookId): Promise<unknown[] | null> {
+      const [row] = await opts.db
+        .select({
+          id: playbooks.id,
+          companyId: playbooks.companyId,
+          suggestedOutcomes: playbooks.suggestedOutcomes,
+        })
+        .from(playbooks)
+        .where(eq(playbooks.id, playbookId));
+      if (!row) return null;
+      assertTenant(ctx, row.companyId);
+      return (row.suggestedOutcomes ?? []) as unknown[];
     },
   };
 }

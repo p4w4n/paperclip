@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { createHmac } from "node:crypto";
-import { initializeOutcomesService, getOutcomesService } from "../service.js";
+import { initializeOutcomesService, getOutcomesService, PlaybookNotApplicableError } from "../service.js";
 import { OutcomeRequiredError } from "../types.js";
 import { SignoffRoleMismatchError, SignalAuthError } from "../verifiers/index.js";
 
@@ -467,5 +467,266 @@ describe("revertOutcome — auto-reopen path", () => {
     expect(result.parentReopened).toBe(false);
     // The reverted row itself has status reverted
     expect(db.allRows["outcomes"][0].status).toBe("reverted");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// OutcomesService.applyPlaybookToIssue (EO-P2-12)
+// ---------------------------------------------------------------------------
+//
+// applyPlaybookToIssue accepts an optional `applicabilityScore` param so tests
+// can drive the score directly without needing a live DB + playbook row for
+// matchPlaybookApplicability. When passed, the service skips the DB-based
+// applicability lookup and uses the supplied score instead.
+// (Documented as DONE_WITH_CONCERNS if the real applicability gate matters; see report.)
+
+describe("OutcomesService.applyPlaybookToIssue", () => {
+  // Build a fakeDb that supports issues + outcomes + playbooks tables with
+  // per-table routing, plus the full materializeContract transaction plumbing.
+  function makeApplyDb(opts: {
+    issueRow: Record<string, unknown>;
+    playbookRow: Record<string, unknown>;
+    existingOutcomes?: any[];
+  }) {
+    const store: Record<string, any[]> = {
+      issues: [{ ...opts.issueRow }],
+      playbooks: [{ ...opts.playbookRow }],
+      outcomes: (opts.existingOutcomes ?? []).map((r) => ({ ...r })),
+    };
+
+    function extractEqs(condition: any): Record<string, unknown> {
+      const pairs: Record<string, unknown> = {};
+      if (!condition) return pairs;
+      function resolveValue(v: any): unknown {
+        if (v === null || v === undefined) return v;
+        if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return v;
+        if (typeof v === "object" && "value" in v) return v.value;
+        return undefined;
+      }
+      function isColumnNode(chunk: any): boolean {
+        return chunk !== null && typeof chunk === "object" && typeof chunk.name === "string" && "keyAsName" in chunk;
+      }
+      function walk(chunks: any[]) {
+        for (let i = 0; i < chunks.length; i++) {
+          const chunk = chunks[i];
+          if (!chunk || typeof chunk !== "object") continue;
+          if (isColumnNode(chunk)) {
+            const val = resolveValue(chunks[i + 2]);
+            if (val !== undefined) pairs[chunk.name] = val;
+            continue;
+          }
+          if (Array.isArray(chunk.queryChunks)) walk(chunk.queryChunks);
+        }
+      }
+      if (Array.isArray(condition.queryChunks)) walk(condition.queryChunks);
+      return pairs;
+    }
+
+    const db: any = {
+      allRows: store,
+
+      select(_projection?: any) {
+        return {
+          from(table: any) {
+            const tableName: string = table[Symbol.for("drizzle:Name")] ?? table._.name ?? table.name ?? "";
+            return {
+              where(condition: any): Promise<any[]> {
+                const rows: any[] = store[tableName] ?? [];
+                const filters = extractEqs(condition);
+                return Promise.resolve(
+                  rows.filter((row) =>
+                    Object.entries(filters).every(([k, v]) => {
+                      const camel = k.replace(/_([a-z])/g, (_: string, c: string) => c.toUpperCase());
+                      return row[camel] === v || row[k] === v;
+                    }),
+                  ),
+                );
+              },
+            };
+          },
+        };
+      },
+
+      update(table: any) {
+        const tableName: string = table[Symbol.for("drizzle:Name")] ?? table._.name ?? table.name ?? "";
+        return {
+          set(values: any) {
+            return {
+              where(condition: any) {
+                const applyUpdate = (): any[] => {
+                  const rows: any[] = store[tableName] ?? [];
+                  const filters = extractEqs(condition);
+                  const matched = rows.filter((row) =>
+                    Object.entries(filters).every(([k, v]) => {
+                      const camel = k.replace(/_([a-z])/g, (_: string, c: string) => c.toUpperCase());
+                      return row[camel] === v || row[k] === v;
+                    }),
+                  );
+                  for (const row of matched) Object.assign(row, values);
+                  return matched;
+                };
+                return {
+                  then(resolve: any, reject: any) {
+                    try { resolve(applyUpdate()); } catch (e) { reject(e); }
+                  },
+                  returning(): Promise<any[]> {
+                    return Promise.resolve(applyUpdate());
+                  },
+                };
+              },
+            };
+          },
+        };
+      },
+
+      transaction: async (fn: any) => fn(db),
+    };
+
+    // Add insert support on the db object too (for materializeContract)
+    db.insert = (table: any) => {
+      const tableName: string = table[Symbol.for("drizzle:Name")] ?? table._.name ?? table.name ?? "";
+      return {
+        values(v: any) {
+          const row = { ...v, id: `id-${(store[tableName] ?? []).length}` };
+          (store[tableName] = store[tableName] ?? []).push(row);
+          return { returning: async () => [row] };
+        },
+      };
+    };
+
+    db.delete = (table: any) => {
+      const tableName: string = table[Symbol.for("drizzle:Name")] ?? table._.name ?? table.name ?? "";
+      return {
+        where(condition: any) {
+          const rows: any[] = store[tableName] ?? [];
+          const filters = extractEqs(condition);
+          const idx = rows.findIndex((row) =>
+            Object.entries(filters).every(([k, v]) => {
+              const camel = k.replace(/_([a-z])/g, (_: string, c: string) => c.toUpperCase());
+              return row[camel] === v || row[k] === v;
+            }),
+          );
+          if (idx !== -1) rows.splice(idx, 1);
+          return Promise.resolve();
+        },
+      };
+    };
+
+    return db;
+  }
+
+  const COMPANY_ID = "co-apply-1";
+  const ISSUE_ID = "iss-apply-1";
+  const PLAYBOOK_ID = "pb-apply-1";
+
+  it("merges suggested_outcomes into issue.requiredOutcomes with skip_existing", async () => {
+    const existingOutcome = {
+      id: "out-existing-1",
+      companyId: COMPANY_ID,
+      targetKind: "issue",
+      targetId: ISSUE_ID,
+      kind: "artifact_declared",
+      status: "pending",
+      requiredMeta: { name: "patch", artifact_kind: "code.patch" },
+    };
+    const issueRow = {
+      id: ISSUE_ID,
+      companyId: COMPANY_ID,
+      requiredOutcomes: [
+        { kind: "artifact_declared", requiredMeta: { name: "patch", artifact_kind: "code.patch" } },
+      ],
+    };
+    const playbookRow = {
+      id: PLAYBOOK_ID,
+      companyId: COMPANY_ID,
+      suggestedOutcomes: [
+        { kind: "artifact_declared", requiredMeta: { name: "patch", artifact_kind: "code.patch" } },
+        { kind: "artifact_declared", requiredMeta: { name: "spec", artifact_kind: "doc.markdown" } },
+      ],
+    };
+
+    const db = makeApplyDb({ issueRow, playbookRow, existingOutcomes: [existingOutcome] });
+    const svc = initializeOutcomesService({ db });
+
+    const result = await svc.applyPlaybookToIssue(
+      { callerCompanyId: COMPANY_ID },
+      ISSUE_ID,
+      PLAYBOOK_ID,
+      "skip_existing",
+      1, // applicabilityScore override
+    );
+
+    expect(result.addedOutcomes).toHaveLength(1);
+    expect(result.addedOutcomes[0].name).toBe("spec");
+    expect(result.skippedExisting).toHaveLength(1);
+    expect(result.skippedExisting[0].name).toBe("patch");
+    expect(result.newContractLength).toBe(2); // 1 existing + 1 new
+  });
+
+  it("replace strategy drops existing pending rows and reapplies", async () => {
+    const existingOutcome = {
+      id: "out-existing-2",
+      companyId: COMPANY_ID,
+      targetKind: "issue",
+      targetId: ISSUE_ID,
+      kind: "artifact_declared",
+      status: "pending",
+      requiredMeta: { name: "patch", artifact_kind: "code.patch" },
+    };
+    const issueRow = {
+      id: ISSUE_ID,
+      companyId: COMPANY_ID,
+      requiredOutcomes: [
+        { kind: "artifact_declared", requiredMeta: { name: "patch", artifact_kind: "code.patch" } },
+      ],
+    };
+    const playbookRow = {
+      id: PLAYBOOK_ID,
+      companyId: COMPANY_ID,
+      suggestedOutcomes: [
+        { kind: "artifact_declared", requiredMeta: { name: "patch", artifact_kind: "code.patch" } },
+        { kind: "artifact_declared", requiredMeta: { name: "spec", artifact_kind: "doc.markdown" } },
+      ],
+    };
+
+    const db = makeApplyDb({ issueRow, playbookRow, existingOutcomes: [existingOutcome] });
+    const svc = initializeOutcomesService({ db });
+
+    const result = await svc.applyPlaybookToIssue(
+      { callerCompanyId: COMPANY_ID },
+      ISSUE_ID,
+      PLAYBOOK_ID,
+      "replace",
+      1, // applicabilityScore override
+    );
+
+    // replace: merged = suggested array only (2 entries), skipped = 0
+    expect(result.skippedExisting).toHaveLength(0);
+    expect(result.newContractLength).toBe(2);
+    // both entries are "added" in replace mode
+    expect(result.addedOutcomes).toHaveLength(2);
+  });
+
+  it("throws PlaybookNotApplicableError when applicability score is 0", async () => {
+    const issueRow = { id: ISSUE_ID, companyId: COMPANY_ID, requiredOutcomes: [] };
+    const playbookRow = {
+      id: PLAYBOOK_ID,
+      companyId: COMPANY_ID,
+      suggestedOutcomes: [
+        { kind: "artifact_declared", requiredMeta: { name: "patch", artifact_kind: "code.patch" } },
+      ],
+    };
+    const db = makeApplyDb({ issueRow, playbookRow });
+    const svc = initializeOutcomesService({ db });
+
+    await expect(
+      svc.applyPlaybookToIssue(
+        { callerCompanyId: COMPANY_ID },
+        ISSUE_ID,
+        PLAYBOOK_ID,
+        "skip_existing",
+        0, // score = 0 → not applicable
+      ),
+    ).rejects.toThrow(PlaybookNotApplicableError);
   });
 });

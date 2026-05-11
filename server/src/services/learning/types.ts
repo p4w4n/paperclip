@@ -109,6 +109,8 @@ export interface SuggestionResult {
   playbook: Playbook;
   score: number;
   reason: string;
+  /** Number of entries in playbook.suggestedOutcomes. UI uses this to decide whether to show [Apply]. */
+  suggestedOutcomesCount: number;
 }
 
 export interface OrgLearningServiceContext {
@@ -156,6 +158,10 @@ export interface OrgLearningService {
     ctx: OrgLearningServiceContext,
     input: { companyId: string; issueContext: IssueContext; limit?: number; threshold?: number },
   ): Promise<SuggestionResult[]>;
+  getSuggestedOutcomesForPlaybook(
+    ctx: OrgLearningServiceContext,
+    playbookId: string,
+  ): Promise<unknown[] | null>;
 }
 
 export class LearningTenantMismatchError extends Error {

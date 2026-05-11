@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { outcomes, issues, plans } from "@paperclipai/db";
+import { outcomes, issues, plans, playbooks } from "@paperclipai/db";
 import { OUTCOME_KINDS, validateRequiredMeta, type OutcomeKind } from "@paperclipai/shared";
 import { diffContract } from "./contract.js";
 import { expandContractEntryToRows } from "./alias-resolver.js";
@@ -8,6 +8,8 @@ import { OutcomeRequiredError, type OutcomeTarget, type OutcomeRowLite } from ".
 import { VERIFIERS, type VerifierKind } from "./verifiers/index.js";
 import { verifyManualSignoff, type ManualSignoffInput } from "./verifiers/manual-signoff.js";
 import { ingestExternalSignal, type SignalIngestInput } from "./verifiers/external-signal.js";
+import { mergeSuggestedOutcomes, type MergeStrategy } from "./apply-suggested-outcomes.js";
+import { matchPlaybookApplicability } from "../learning/applicability.js";
 import {
   startMaterializeContractSpan,
   startTryVerifySpan,
@@ -25,6 +27,14 @@ import {
   recordAutoReopenSuppressed,
 } from "./metrics.js";
 import { outcomesEvents } from "./events.js";
+
+export class PlaybookNotApplicableError extends Error {
+  statusCode = 422;
+  constructor(playbookId: string, issueId: string) {
+    super(`Playbook ${playbookId} not applicable to issue ${issueId}`);
+    this.name = "PlaybookNotApplicableError";
+  }
+}
 
 interface OutcomesServiceDeps {
   // postgres-js / drizzle handle. Loose-typed because the ambient db type is
@@ -291,6 +301,111 @@ export class OutcomesService {
       }
     }
     return result;
+  }
+
+  /**
+   * Operator-driven: apply a playbook's suggested_outcomes to an issue.
+   *
+   * @param applicabilityScore - Optional override for the applicability score.
+   *   When provided, skips the live DB-based applicability lookup and uses this
+   *   value directly. Primary use-case: in-process tests that cannot easily stub
+   *   matchPlaybookApplicability because it requires a real Playbook row with
+   *   applicabilityConditions. Pass undefined (or omit) in production to
+   *   perform a real applicability check using the playbook's full DB row.
+   */
+  async applyPlaybookToIssue(
+    ctx: { callerCompanyId: string },
+    issueId: string,
+    playbookId: string,
+    mergeStrategy: MergeStrategy = "skip_existing",
+    applicabilityScore?: number,
+  ): Promise<{
+    addedOutcomes: Array<{ kind: string; name: string }>;
+    skippedExisting: Array<{ kind: string; name: string }>;
+    newContractLength: number;
+  }> {
+    // Load issue + tenant-check.
+    const [issue] = await this.deps.db
+      .select()
+      .from(issues)
+      .where(eq(issues.id, issueId));
+    if (!issue) throw new Error(`issue not found: ${issueId}`);
+    if (issue.companyId !== ctx.callerCompanyId) throw new Error("Outcome tenant mismatch");
+
+    // Load playbook row (needed for applicability check + suggested_outcomes).
+    const [playbookRow] = await this.deps.db
+      .select()
+      .from(playbooks)
+      .where(eq(playbooks.id, playbookId));
+    if (!playbookRow) throw new Error(`playbook not found: ${playbookId}`);
+    if (playbookRow.companyId !== ctx.callerCompanyId) throw new Error("Playbook tenant mismatch");
+
+    // Applicability gate.
+    // If applicabilityScore is provided (test override), use it directly.
+    // Otherwise run matchPlaybookApplicability against the issue title/labels.
+    const score =
+      applicabilityScore !== undefined
+        ? applicabilityScore
+        : matchPlaybookApplicability(
+            {
+              title: (issue as any).title ?? "",
+              labels: (issue as any).labels ?? [],
+              projectId: (issue as any).projectId ?? undefined,
+              assigneeAgentId: (issue as any).assigneeAgentId ?? undefined,
+            },
+            {
+              id: playbookRow.id,
+              companyId: playbookRow.companyId,
+              agentId: playbookRow.agentId,
+              title: playbookRow.title,
+              slug: playbookRow.slug,
+              status: playbookRow.status as any,
+              currentRevisionId: playbookRow.currentRevisionId,
+              currentRevisionNumber: playbookRow.currentRevisionNumber,
+              applicabilityConditions: playbookRow.applicabilityConditions as any,
+              sourceRunIds: playbookRow.sourceRunIds,
+              sourcePlanIds: playbookRow.sourcePlanIds,
+              confidence: playbookRow.confidence,
+              createdAt: playbookRow.createdAt,
+              updatedAt: playbookRow.updatedAt,
+              approvedAt: playbookRow.approvedAt,
+              archivedAt: playbookRow.archivedAt,
+            },
+          ).score;
+
+    if (score === 0) {
+      throw new PlaybookNotApplicableError(playbookId, issueId);
+    }
+
+    const suggested = (playbookRow.suggestedOutcomes ?? []) as Array<{
+      kind: string;
+      requiredMeta: { name: string; [k: string]: unknown };
+    }>;
+
+    const existing = (issue.requiredOutcomes ?? []) as Array<{
+      kind: string;
+      requiredMeta: { name: string; [k: string]: unknown };
+    }>;
+
+    const merge = mergeSuggestedOutcomes(existing as any, suggested as any, mergeStrategy);
+
+    // Materialize into outcomes rows (expands alternatives via EO-P2-10).
+    await this.materializeContract(
+      { kind: "issue", id: issue.id, companyId: issue.companyId },
+      merge.merged as Array<{ kind: string; requiredMeta: Record<string, unknown> }>,
+    );
+
+    // Persist requiredOutcomes column on the issue (EO-P1 lesson: column write must not be omitted).
+    await this.deps.db
+      .update(issues)
+      .set({ requiredOutcomes: merge.merged as unknown[] })
+      .where(eq(issues.id, issue.id));
+
+    return {
+      addedOutcomes: merge.added,
+      skippedExisting: merge.skippedExisting,
+      newContractLength: merge.merged.length,
+    };
   }
 }
 
