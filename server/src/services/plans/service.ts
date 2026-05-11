@@ -51,6 +51,14 @@ import {
   PlanTenantMismatchError,
   type SubmitReviewInput,
 } from "./types.js";
+import {
+  getPlanTemplateService,
+  PlanTemplateNotFoundError,
+} from "../templates/service.js";
+import { getOutcomesService } from "../outcomes/service.js";
+import { projectTemplateToContract } from "../templates/apply-template.js";
+
+export { PlanTemplateNotFoundError };
 
 export interface PlanServiceOpts {
   db: Db;
@@ -82,6 +90,20 @@ export function createPlanService(opts: PlanServiceOpts): PlanService {
   return {
     async createPlan(ctx, input: CreatePlanInput): Promise<PlanRow> {
       assertTenant(ctx, input.companyId);
+
+      // EO-P2-9: look up the template BEFORE the plan insert so a
+      // missing/archived template fails fast without creating an orphan plan row.
+      let templateContract: ReturnType<typeof projectTemplateToContract> | null = null;
+      if (input.templateId) {
+        const tmpl = await getPlanTemplateService().getById(
+          { callerCompanyId: input.companyId },
+          input.templateId,
+        );
+        if (!tmpl) {
+          throw new PlanTemplateNotFoundError(input.templateId);
+        }
+        templateContract = projectTemplateToContract(tmpl);
+      }
 
       return opts.db.transaction(async (tx) => {
         const [plan] = await tx
@@ -155,7 +177,25 @@ export function createPlanService(opts: PlanServiceOpts): PlanService {
           }
         }
 
+        // EO-P2-9: persist requiredOutcomes column inside the same transaction.
+        if (templateContract && templateContract.length > 0) {
+          await tx
+            .update(plans)
+            .set({ requiredOutcomes: templateContract })
+            .where(eq(plans.id, plan.id));
+        }
+
         return rowToPlan(plan);
+      }).then(async (plan: PlanRow) => {
+        // EO-P2-9: materializeContract runs outside the plan transaction
+        // (it manages its own tx). Fire after the plan row is committed.
+        if (templateContract && templateContract.length > 0) {
+          await getOutcomesService().materializeContract(
+            { kind: "plan", id: plan.id, companyId: input.companyId },
+            templateContract as Array<{ kind: string; requiredMeta: Record<string, unknown> }>,
+          );
+        }
+        return plan;
       });
     },
 

@@ -50,6 +50,8 @@ export interface CreatePlanInput {
   phaseAdvancePolicy?: PhaseAdvancePolicy;
   phases?: PhaseDraft[];
   createdByAgentId?: string;
+  /** EO-P2-9: optional template to materialize into the new plan */
+  templateId?: string;
 }
 
 export interface PlanRevisionInput {
