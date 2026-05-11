@@ -101,7 +101,7 @@ import { parseIssueExecutionWorkspaceSettings } from "../services/execution-work
 import type { PluginWorkerManager } from "../services/plugin-worker-manager.js";
 import { allOutcomesVerified } from "../services/outcomes/predicate.js";
 import { OutcomeRequiredError } from "../services/outcomes/types.js";
-import { getOutcomesService } from "../services/outcomes/service.js";
+import { getOutcomesService, PlaybookNotApplicableError } from "../services/outcomes/service.js";
 import { recordGateBlocked } from "../services/outcomes/metrics.js";
 
 const MAX_ISSUE_COMMENT_LIMIT = 500;
@@ -111,6 +111,11 @@ const updateIssueRouteSchema = updateIssueSchema.extend({
     kind: z.string(),
     requiredMeta: z.record(z.unknown()),
   })).optional(),
+});
+
+const applyPlaybookBodySchema = z.object({
+  playbookId: z.string().uuid(),
+  mergeStrategy: z.enum(["skip_existing", "replace"]).default("skip_existing"),
 });
 
 type ParsedExecutionState = NonNullable<ReturnType<typeof parseIssueExecutionState>>;
@@ -4691,6 +4696,39 @@ export function issueRoutes(
 
     res.json({ ok: true });
   });
+
+  // ---------------------------------------------------------------------------
+  // POST /companies/:cid/issues/:id/apply-playbook  (EO-P2-15)
+  // ---------------------------------------------------------------------------
+
+  router.post(
+    "/companies/:cid/issues/:id/apply-playbook",
+    validate(applyPlaybookBodySchema),
+    async (req, res) => {
+      const cid = req.params.cid as string;
+      const id = req.params.id as string;
+      assertCompanyAccess(req, cid);
+      try {
+        const r2 = await getOutcomesService().applyPlaybookToIssue(
+          { callerCompanyId: cid },
+          id,
+          req.body.playbookId,
+          req.body.mergeStrategy,
+        );
+        res.json({
+          issueId: id,
+          addedOutcomes: r2.addedOutcomes,
+          skippedExisting: r2.skippedExisting,
+          newContractLength: r2.newContractLength,
+        });
+      } catch (e) {
+        if (e instanceof PlaybookNotApplicableError) {
+          return res.status(422).json({ error: (e as Error).message });
+        }
+        throw e;
+      }
+    },
+  );
 
   return router;
 }
