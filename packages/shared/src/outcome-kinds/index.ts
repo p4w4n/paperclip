@@ -38,3 +38,5 @@ export function validateRequiredMeta(kind: OutcomeKind, meta: unknown): Required
   if (result.success) return { ok: true };
   return { ok: false, errors: result.error.errors.map((e) => `${e.path.join(".")}: ${e.message}`) };
 }
+
+export { contractEntrySchema, type ContractEntry, type ContractAlternative } from "./contract-entry.js";

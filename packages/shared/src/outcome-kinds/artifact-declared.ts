@@ -7,4 +7,5 @@ export const artifactDeclaredSchema = z.object({
     "chart", "data.table", "web.app",
   ]),
   name_glob: z.string().optional(),
+  auto_reopen_on_revert: z.boolean().optional(),
 });
