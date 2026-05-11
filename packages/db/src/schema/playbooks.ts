@@ -27,6 +27,7 @@ export const playbooks = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
+    suggestedOutcomes: jsonb("suggested_outcomes").$type<unknown[]>().notNull().default([]),
   },
   (table) => ({
     companyStatusIdx: index("playbooks_company_status_idx").on(

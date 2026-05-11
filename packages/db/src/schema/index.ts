@@ -97,3 +97,7 @@ export { pluginWebhookDeliveries } from "./plugin_webhooks.js";
 export { pluginLogs } from "./plugin_logs.js";
 export { outcomes } from "./outcomes.js";
 export type { OutcomeRow, NewOutcomeRow } from "./outcomes.js";
+export { planTemplates } from "./plan_templates.js";
+export type { PlanTemplateRow, NewPlanTemplateRow } from "./plan_templates.js";
+export { githubWebhookDeliveries } from "./github_webhook_deliveries.js";
+export type { GithubWebhookDeliveryRow } from "./github_webhook_deliveries.js";

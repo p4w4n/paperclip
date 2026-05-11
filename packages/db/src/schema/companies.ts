@@ -27,6 +27,7 @@ export const companies = pgTable(
     feedbackDataSharingTermsVersion: text("feedback_data_sharing_terms_version"),
     brandColor: text("brand_color"),
     outcomeSignalSecret: text("outcome_signal_secret"),
+    githubWebhookSecret: text("github_webhook_secret"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
