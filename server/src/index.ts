@@ -757,6 +757,12 @@ export async function startServer(): Promise<StartedServer> {
     void outcomesService.tryVerify("approval_granted", p);
   });
 
+  // PlanTemplateService singleton (EO-P2-13).
+  const { initializePlanTemplateService } = await import(
+    "./services/templates/service.js"
+  );
+  initializePlanTemplateService({ db: db as any });
+
   // EO-17: Memory subscriber — writes procedural entries on outcome state transitions.
   const { attachMemoryOutcomeSubscriber } = await import(
     "./services/memory/outcome-subscriber.js"
