@@ -20,6 +20,7 @@ export interface OutcomeRevertedEvent {
   targetId: string;
   companyId: string;
   reason: string;
+  parentReopened?: boolean;
 }
 
 export function attachMemoryOutcomeSubscriber(memory: MemoryService) {
@@ -56,6 +57,22 @@ export function attachMemoryOutcomeSubscriber(memory: MemoryService) {
         );
       } catch (err) {
         console.warn("[outcomes→memory] reverted ingest failed", { err });
+      }
+
+      // EO-P2-19: additional procedural entry on auto-reopen
+      if (e.parentReopened) {
+        try {
+          await memory.write(
+            { callerCompanyId: e.companyId },
+            {
+              scope: { companyId: e.companyId },
+              kind: "procedural",
+              content: `Auto-reopened ${e.targetKind} ${e.targetId} after outcome revert: kind=${e.kind}, reason=${e.reason}.`,
+            },
+          );
+        } catch (err) {
+          console.warn("[memory] auto-reopen ingest failed", { err });
+        }
       }
     },
   };
