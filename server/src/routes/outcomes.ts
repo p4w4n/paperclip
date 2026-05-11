@@ -21,6 +21,7 @@ import type { Db } from "@paperclipai/db";
 import { outcomes, companies } from "@paperclipai/db";
 import { getOutcomesService } from "../services/outcomes/service.js";
 import { OutcomeRequiredError } from "../services/outcomes/types.js";
+import { groupBySlot, baseNameOf, isSlotSatisfied } from "../services/outcomes/alias-resolver.js";
 import {
   SignalAuthError,
   SignalReplayMismatchError,
@@ -52,7 +53,27 @@ export function outcomesRoutes(db: Db) {
       rows = await db.select().from(outcomes).where(eq(outcomes.companyId, cid));
     }
 
-    res.json({ outcomes: rows });
+    // Normalise rows so alias helpers never see undefined name.
+    const normalised = (rows as any[]).map((r) => ({
+      ...r,
+      requiredMeta: { ...r.requiredMeta, name: r.requiredMeta?.name ?? "" },
+    }));
+    const groups = groupBySlot(normalised);
+    const enriched = normalised.map((r) => {
+      const rawName: string = r.requiredMeta.name;
+      const baseName = baseNameOf(rawName);
+      const slotRows = groups[baseName] ?? [];
+      return {
+        ...r,
+        slot_base_name: baseName,
+        slot_satisfied: isSlotSatisfied(slotRows, baseName),
+        alternatives:
+          rawName === baseName
+            ? slotRows.filter((s: any) => s.requiredMeta.name !== baseName)
+            : [],
+      };
+    });
+    res.json({ outcomes: enriched });
   });
 
   // ---------------------------------------------------------------------------
@@ -181,8 +202,12 @@ export function outcomesRoutes(db: Db) {
 
     const svc = getOutcomesService();
     try {
-      const outcome = await svc.revertOutcome(id, reason);
-      res.json({ outcome });
+      const r2 = await svc.revertOutcome(id, reason);
+      res.json({
+        ...r2,
+        parent_reopened: r2.parentReopened,
+        slot_still_satisfied: r2.slotStillSatisfied,
+      });
     } catch (err) {
       if (err instanceof Error && err.message === "Outcome not in verified state") {
         res.status(409).json({ error: err.message });

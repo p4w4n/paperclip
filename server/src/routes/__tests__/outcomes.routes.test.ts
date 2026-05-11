@@ -561,7 +561,10 @@ describe("POST /companies/:cid/outcomes/:id/revert", () => {
       .send({ reason: "Rollback" })
       .expect(200);
 
-    expect(res.body.outcome).toBeDefined();
+    // Response now spreads the outcome row directly (with parent_reopened + slot_still_satisfied).
+    expect(res.body.id).toBeDefined();
+    expect(typeof res.body.parent_reopened).toBe("boolean");
+    expect(typeof res.body.slot_still_satisfied).toBe("boolean");
   });
 
   it("returns 409 when outcome is not in verified state", async () => {
@@ -625,6 +628,131 @@ describe("POST /companies/:cid/outcomes/_secrets/signal/rotate", () => {
       .post(`/companies/${COMPANY_ID}/outcomes/_secrets/signal/rotate`)
       .send()
       .expect(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /companies/:cid/outcomes — alias context
+// ---------------------------------------------------------------------------
+
+describe("GET /companies/:cid/outcomes — alias context", () => {
+  it("each row includes slot_base_name + slot_satisfied + alternatives[]", async () => {
+    // One slot "QA" with primary + 1 alternative, both pending.
+    const PRIMARY_ID = "out-primary-0000-0000-0000-000000000001";
+    const ALT_ID = "out-alt-0000-0000-0000-0000-000000000002";
+    const db = makeFakeDb({
+      outcomes: [
+        {
+          id: PRIMARY_ID,
+          companyId: COMPANY_ID,
+          targetKind: "issue",
+          targetId: "iss-alias-1",
+          kind: "manual_signoff",
+          status: "pending",
+          requiredMeta: { name: "QA" },
+        },
+        {
+          id: ALT_ID,
+          companyId: COMPANY_ID,
+          targetKind: "issue",
+          targetId: "iss-alias-1",
+          kind: "external_signal",
+          status: "pending",
+          requiredMeta: { name: "QA:alt:0" },
+        },
+      ],
+    });
+    const app = makeApp(db);
+
+    const res = await request(app)
+      .get(`/companies/${COMPANY_ID}/outcomes?target_kind=issue&target_id=iss-alias-1`)
+      .expect(200);
+
+    expect(res.body.outcomes).toHaveLength(2);
+
+    const primary = res.body.outcomes.find((r: any) => r.id === PRIMARY_ID);
+    const alt = res.body.outcomes.find((r: any) => r.id === ALT_ID);
+
+    // Primary row assertions
+    expect(primary).toBeDefined();
+    expect(primary.slot_base_name).toBe("QA");
+    expect(primary.slot_satisfied).toBe(false);
+    expect(Array.isArray(primary.alternatives)).toBe(true);
+    expect(primary.alternatives).toHaveLength(1);
+    expect(primary.alternatives[0].id).toBe(ALT_ID);
+
+    // Alt row assertions
+    expect(alt).toBeDefined();
+    expect(alt.slot_base_name).toBe("QA");
+    expect(alt.slot_satisfied).toBe(false);
+    expect(Array.isArray(alt.alternatives)).toBe(true);
+    expect(alt.alternatives).toHaveLength(0);
+  });
+
+  it("slot_satisfied=true when any sibling is verified", async () => {
+    const PRIMARY_ID = "out-primary-0000-0000-0000-000000000003";
+    const ALT_ID = "out-alt-0000-0000-0000-0000-000000000004";
+    const db = makeFakeDb({
+      outcomes: [
+        {
+          id: PRIMARY_ID,
+          companyId: COMPANY_ID,
+          targetKind: "issue",
+          targetId: "iss-alias-2",
+          kind: "manual_signoff",
+          status: "pending",
+          requiredMeta: { name: "QA" },
+        },
+        {
+          id: ALT_ID,
+          companyId: COMPANY_ID,
+          targetKind: "issue",
+          targetId: "iss-alias-2",
+          kind: "external_signal",
+          status: "verified",
+          requiredMeta: { name: "QA:alt:0" },
+        },
+      ],
+    });
+    const app = makeApp(db);
+
+    const res = await request(app)
+      .get(`/companies/${COMPANY_ID}/outcomes?target_kind=issue&target_id=iss-alias-2`)
+      .expect(200);
+
+    const primary = res.body.outcomes.find((r: any) => r.id === PRIMARY_ID);
+    expect(primary.slot_satisfied).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /companies/:cid/outcomes/:id/revert — alias context
+// ---------------------------------------------------------------------------
+
+describe("POST /companies/:cid/outcomes/:id/revert — alias context", () => {
+  it("response includes parent_reopened + slot_still_satisfied", async () => {
+    const db = makeFakeDb({
+      outcomes: [
+        {
+          id: OUTCOME_ID,
+          companyId: COMPANY_ID,
+          targetKind: "issue",
+          targetId: "iss-revert-alias",
+          kind: "manual_signoff",
+          status: "verified",
+          requiredMeta: { name: "QA" },
+        },
+      ],
+    });
+    const app = makeApp(db);
+
+    const res = await request(app)
+      .post(`/companies/${COMPANY_ID}/outcomes/${OUTCOME_ID}/revert`)
+      .send({ reason: "operator" })
+      .expect(200);
+
+    expect(typeof res.body.parent_reopened).toBe("boolean");
+    expect(typeof res.body.slot_still_satisfied).toBe("boolean");
   });
 });
 
