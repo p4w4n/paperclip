@@ -282,6 +282,53 @@ ok "  outcome satisfied — status=done accepted (HTTP 200)"
 
 echo "[EO] outcome smoke OK"
 
+# ---- EO Plan 2: templates ----
+echo "[EO-P2] create plan_template"
+TPL_ID=$(curl -fsSL -X POST "$BASE/api/companies/$COMPANY_ID/plan-templates" \
+  -H 'content-type: application/json' \
+  -d '{"name":"Strategy Rollout","default_required_outcomes":[
+        {"kind":"manual_signoff","requiredMeta":{"name":"ops-ack"}}
+      ]}' | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+echo "  templateId=$TPL_ID"
+
+echo "[EO-P2] create plan using template"
+PLAN_ID=$(curl -fsSL -X POST "$BASE/api/issues/$ISSUE_ID/plans" \
+  -H 'content-type: application/json' \
+  -d "{\"title\":\"P2 template plan\",\"initialContent\":\"x\",\"templateId\":\"$TPL_ID\"}" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['plan']['id'])")
+echo "  planId=$PLAN_ID"
+
+echo "[EO-P2] assert plan outcomes materialized"
+PENDING=$(curl -fsSL "$BASE/api/companies/$COMPANY_ID/outcomes?target_kind=plan&target_id=$PLAN_ID" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['outcomes']))")
+[ "$PENDING" = "1" ] || { echo "[EO-P2] expected 1 outcome, got $PENDING"; exit 1; }
+
+# ---- EO Plan 2: GitHub webhook ----
+echo "[EO-P2] rotate github webhook secret"
+SECRET=$(curl -fsSL -X POST "$BASE/api/companies/$COMPANY_ID/webhooks/github/_secret/rotate" | python3 -c "import sys,json; print(json.load(sys.stdin)['secret'])")
+
+echo "[EO-P2] POST signed pull_request.closed+merged webhook"
+PAYLOAD='{"action":"closed","pull_request":{"merged":true,"number":1,"title":"LAK-1 fix","body":"","head":{"ref":"x"},"html_url":"x"}}'
+SIG=$(echo -n "$PAYLOAD" | openssl dgst -sha256 -hmac "$SECRET" -binary | xxd -p -c 256)
+curl -fsSL -X POST "$BASE/api/companies/$COMPANY_ID/webhooks/github" \
+  -H 'content-type: application/json' \
+  -H "X-GitHub-Event: pull_request" -H "X-GitHub-Delivery: smoke-$(date +%s)" \
+  -H "X-Hub-Signature-256: sha256=$SIG" \
+  -d "$PAYLOAD"
+
+# ---- EO Plan 2: alias slot ----
+echo "[EO-P2] set issue contract with alias slot"
+curl -fsSL -X PATCH "$BASE/api/issues/$ISSUE_ID" \
+  -H 'content-type: application/json' \
+  -d '{"requiredOutcomes":[{"kind":"manual_signoff","requiredMeta":{"name":"alias-test"},"alternatives":[{"kind":"manual_signoff","requiredMeta":{"required_role":"backup"}}]}]}'
+
+echo "[EO-P2] verify alternative — expect slot satisfied"
+ALT_ID=$(curl -fsSL "$BASE/api/companies/$COMPANY_ID/outcomes?target_kind=issue&target_id=$ISSUE_ID" \
+  | python3 -c "import sys,json; outcomes=json.load(sys.stdin)['outcomes']; print([o['id'] for o in outcomes if o['required_meta'].get('name')=='alias-test:alt:0'][0])")
+curl -fsSL -X POST "$BASE/api/companies/$COMPANY_ID/outcomes/$ALT_ID/signoff" \
+  -H 'content-type: application/json' -d '{}'
+
+echo "[EO-P2] smoke OK"
+
 # ─── Summary ─────────────────────────────────────────────────
 log "─── e2e PASSED ───"
 log "company=$COMPANY_ID agent=$AGENT_ID issue=$ISSUE_ID plan=$PLAN_ID playbook=$PB_ID work_item=$WQ_ID"

@@ -305,6 +305,8 @@ Five new substrates land alongside the core systems above. Each is shipped as a 
 
 **🔒 Enforced Outcomes** — Opt-in outcome contracts on issues + plans, 7 typed kinds verified via in-process pub/sub over the four landed substrates. Hard gate when required, no-op when not.
 
+Plan 2 extends contracts with: reusable **plan templates** that materialize `default_required_outcomes` at plan creation; a per-company **GitHub PR-merged webhook** adapter (HMAC-signed, audited) that delegates to the existing `external_signal` verifier; an **apply-playbook** endpoint that merges `playbooks.suggested_outcomes` into an issue contract (skip-existing or replace); **OR-of-outcomes aliases** materialized as `:alt:N` sibling rows so any satisfying branch clears the slot; and a per-kind opt-in **`auto_reopen_on_revert`** flag with slot-recheck that suppresses spurious reopens when an alias alternative is already satisfied.
+
 </td>
 </tr>
 <tr>
