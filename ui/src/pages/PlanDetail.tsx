@@ -18,6 +18,7 @@ import { ReviewSurface } from "@/features/issues/plan-tab/ReviewSurface";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { OutcomesTab } from "../components/OutcomesTab";
 import { useCompany } from "../context/CompanyContext";
+import { PlanTemplatePicker } from "@/components/PlanTemplatePicker";
 
 export function PlanDetail() {
   const { planId } = useParams<{ planId: string }>();
@@ -27,6 +28,7 @@ export function PlanDetail() {
   const [busy, setBusy] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState("phases");
   const [pendingOutcomes, setPendingOutcomes] = useState(0);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
 
   const planQ = useQuery({
     queryKey: ["plan", planId],
@@ -80,6 +82,15 @@ export function PlanDetail() {
   return (
     <div className="space-y-4 p-4">
       <PlanHeader plan={plan} />
+
+      <div className="flex items-center gap-3">
+        <span className="text-xs text-muted-foreground">Template:</span>
+        <PlanTemplatePicker
+          companyId={companyId}
+          value={selectedTemplateId}
+          onChange={setSelectedTemplateId}
+        />
+      </div>
 
       <section>
         <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">

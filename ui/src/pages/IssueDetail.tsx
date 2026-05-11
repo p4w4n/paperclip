@@ -94,6 +94,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { WorkProductsTab } from "@/features/issues/work-products/WorkProductsTab";
 import { PlanTab } from "@/features/issues/plan-tab/PlanTab";
 import { OutcomesTab } from "../components/OutcomesTab";
+import { applyPlaybookToIssue } from "@/api/plan-templates";
+import { listPlaybooks } from "@/api/learning";
 import {
   Dialog,
   DialogContent,
@@ -3911,7 +3913,10 @@ export function IssueDetail() {
 
         <TabsContent value="plan">
           {detailTab === "plan" ? (
-            <PlanTab issueId={issue.id} planId={null} />
+            <div className="space-y-2">
+              <PlanTab issueId={issue.id} planId={null} />
+              <ApplyPlaybookPanel issueId={issue.id} companyId={issue.companyId} />
+            </div>
           ) : null}
         </TabsContent>
 
@@ -4112,5 +4117,84 @@ export function IssueDetail() {
       </Sheet>
       <ScrollToBottom />
     </div>
+  );
+}
+
+// --- Apply-playbook panel (EO-P2-17) ---
+function ApplyPlaybookPanel({ issueId, companyId }: { issueId: string; companyId: string }) {
+  const [playbooks, setPlaybooks] = useState<import("@/api/learning").PlaybookRow[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [mergeStrategy, setMergeStrategy] = useState<"merge" | "replace">("merge");
+  const [result, setResult] = useState<{ playbookId: string; addedCount: number; skippedCount: number } | null>(null);
+
+  useEffect(() => {
+    listPlaybooks(companyId, { status: "active" })
+      .then((r) => setPlaybooks(r.playbooks))
+      .catch(() => setPlaybooks([]));
+  }, [companyId]);
+
+  const onApply = async (playbookId: string) => {
+    setBusy(playbookId);
+    setResult(null);
+    try {
+      const res = await applyPlaybookToIssue(companyId, issueId, playbookId, mergeStrategy);
+      setResult({ playbookId, ...res });
+    } catch {
+      // ignore — surface nothing for now
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  if (playbooks.length === 0) return null;
+
+  return (
+    <section className="mt-4">
+      <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        Apply playbook
+      </h3>
+      <div className="mb-2 flex items-center gap-3 text-xs">
+        <span className="text-muted-foreground">Merge strategy:</span>
+        <label className="flex items-center gap-1">
+          <input
+            type="radio"
+            name="mergeStrategy"
+            value="merge"
+            checked={mergeStrategy === "merge"}
+            onChange={() => setMergeStrategy("merge")}
+          />
+          Merge
+        </label>
+        <label className="flex items-center gap-1">
+          <input
+            type="radio"
+            name="mergeStrategy"
+            value="replace"
+            checked={mergeStrategy === "replace"}
+            onChange={() => setMergeStrategy("replace")}
+          />
+          Replace
+        </label>
+      </div>
+      <ul className="space-y-1">
+        {playbooks.map((pb) => (
+          <li key={pb.id} className="flex items-center gap-2 rounded border bg-card p-2 text-sm">
+            <span className="flex-1 font-medium">{pb.title}</span>
+            {result?.playbookId === pb.id && (
+              <span className="text-xs text-muted-foreground">
+                +{result.addedCount} outcomes · {result.skippedCount} skipped
+              </span>
+            )}
+            <button
+              className="rounded bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
+              onClick={() => onApply(pb.id)}
+              disabled={busy === pb.id}
+            >
+              {busy === pb.id ? "Applying…" : "Apply"}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
