@@ -1,8 +1,9 @@
 import { and, eq } from "drizzle-orm";
-import { outcomes } from "@paperclipai/db";
+import { outcomes, issues, plans } from "@paperclipai/db";
 import { OUTCOME_KINDS, validateRequiredMeta, type OutcomeKind } from "@paperclipai/shared";
 import { diffContract } from "./contract.js";
 import { expandContractEntryToRows } from "./alias-resolver.js";
+import { shouldReopenParent } from "./reopen-on-revert.js";
 import { OutcomeRequiredError, type OutcomeTarget, type OutcomeRowLite } from "./types.js";
 import { VERIFIERS, type VerifierKind } from "./verifiers/index.js";
 import { verifyManualSignoff, type ManualSignoffInput } from "./verifiers/manual-signoff.js";
@@ -19,6 +20,9 @@ import {
   recordReverted,
   recordVerifierError,
   recordSignalReceived,
+  recordAutoReopen,
+  recordAutoReopenFailed,
+  recordAutoReopenSuppressed,
 } from "./metrics.js";
 import { outcomesEvents } from "./events.js";
 
@@ -118,7 +122,10 @@ export class OutcomesService {
       ));
   }
 
-  async revertOutcome(outcomeId: string, reason: string): Promise<OutcomeRowLite> {
+  async revertOutcome(outcomeId: string, reason: string): Promise<OutcomeRowLite & {
+    parentReopened: boolean;
+    slotStillSatisfied: boolean;
+  }> {
     const span = startRevertSpan(outcomeId);
     try {
       const result = await this.deps.db
@@ -128,20 +135,67 @@ export class OutcomesService {
         .returning();
       if (result.length === 0) throw new Error("Outcome not in verified state");
 
-      const row: OutcomeRowLite = result[0];
+      const reverted: OutcomeRowLite = result[0];
 
-      // Increment metric + emit event.
-      recordReverted(row.kind, "operator");
+      // Increment metric.
+      recordReverted(reverted.kind, "operator");
+
+      // EO-P2-11: After successful revert, evaluate slot + reopen (best-effort).
+      let parentReopened = false;
+      let slotStillSatisfied = false;
+      try {
+        // Load sibling rows for the same target.
+        const allSiblings = await this.deps.db
+          .select()
+          .from(outcomes)
+          .where(and(
+            eq(outcomes.companyId, (reverted as any).companyId),
+            eq(outcomes.targetKind, (reverted as any).targetKind),
+            eq(outcomes.targetId, (reverted as any).targetId),
+          ));
+        const siblingsExceptSelf = allSiblings.filter((s: any) => s.id !== reverted.id);
+
+        const decision = shouldReopenParent(reverted as any, siblingsExceptSelf as any);
+        if (decision.reopen) {
+          if ((reverted as any).targetKind === "issue") {
+            await this.deps.db
+              .update(issues)
+              .set({ status: "in_progress", completedAt: null, updatedAt: new Date() })
+              .where(eq(issues.id, (reverted as any).targetId));
+          } else {
+            await this.deps.db
+              .update(plans)
+              .set({ status: "in_progress", completedAt: null, updatedAt: new Date() })
+              .where(eq(plans.id, (reverted as any).targetId));
+          }
+          parentReopened = true;
+          recordAutoReopen({ kind: reverted.kind, target_kind: (reverted as any).targetKind });
+        } else if ((decision as any).reason === "alt_covers") {
+          slotStillSatisfied = true;
+          recordAutoReopenSuppressed({ reason: "alt_covers" });
+        }
+      } catch (err) {
+        recordAutoReopenFailed({
+          kind: reverted.kind,
+          target_kind: (reverted as any).targetKind,
+          reason_class: "exception",
+        });
+        console.error("[outcomes] auto-reopen failed (best-effort)", { outcomeId, err });
+        // Best-effort: revert still succeeds.
+      }
+
       outcomesEvents.emit("reverted", {
-        kind: row.kind,
-        targetKind: (row as any).targetKind ?? "unknown",
-        targetId: (row as any).targetId ?? outcomeId,
-        companyId: (row as any).companyId ?? "",
+        outcomeId: reverted.id,
+        kind: reverted.kind,
+        targetKind: (reverted as any).targetKind ?? "unknown",
+        targetId: (reverted as any).targetId ?? outcomeId,
+        companyId: (reverted as any).companyId ?? "",
         reason,
+        parentReopened,
       });
 
       endSpanOk(span);
-      return row;
+      return { ...reverted, parentReopened, slotStillSatisfied };
     } catch (err) {
       endSpanError(span, err);
       throw err;

@@ -14,11 +14,13 @@ export interface OutcomesEventMap {
     verifiedMeta?: unknown;
   };
   reverted: {
+    outcomeId: string;
     kind: string;
     targetKind: string;
     targetId: string;
     companyId: string;
     reason: string;
+    parentReopened: boolean;
   };
 }
 

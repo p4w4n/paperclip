@@ -106,3 +106,11 @@ export function updatePendingGauge(map: Map<string, number>): void {
 export function _resetMetrics(): void {
   pendingCounts = new Map();
 }
+
+// ---------------------------------------------------------------------------
+// Auto-reopen stubs — Task 20 will replace with real counter.add() calls.
+// ---------------------------------------------------------------------------
+
+export function recordAutoReopen(_l: { kind: string; target_kind: string }): void {}
+export function recordAutoReopenFailed(_l: { kind: string; target_kind: string; reason_class: string }): void {}
+export function recordAutoReopenSuppressed(_l: { reason: string }): void {}

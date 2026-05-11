@@ -172,22 +172,34 @@ function makeMultiTableFakeDbSvc(tableRows: Record<string, any[]>) {
         set(values: any) {
           return {
             where(condition: any) {
+              const applyUpdate = (): any[] => {
+                const rows: any[] = store[tableName] ?? [];
+                const filters = extractEqsSvc(condition);
+                const matched = rows.filter((row) =>
+                  Object.entries(filters).every(([k, v]) => {
+                    const camel = k.replace(/_([a-z])/g, (_: string, c: string) =>
+                      c.toUpperCase(),
+                    );
+                    return row[camel] === v || row[k] === v;
+                  }),
+                );
+                for (const row of matched) {
+                  Object.assign(row, values);
+                }
+                return matched;
+              };
+              // Make the returned object both thenable (for await without .returning())
+              // and have a .returning() method (for callers that chain it).
               return {
-                returning(): Promise<any[]> {
-                  const rows: any[] = store[tableName] ?? [];
-                  const filters = extractEqsSvc(condition);
-                  const matched = rows.filter((row) =>
-                    Object.entries(filters).every(([k, v]) => {
-                      const camel = k.replace(/_([a-z])/g, (_: string, c: string) =>
-                        c.toUpperCase(),
-                      );
-                      return row[camel] === v || row[k] === v;
-                    }),
-                  );
-                  for (const row of matched) {
-                    Object.assign(row, values);
+                then(resolve: any, reject: any) {
+                  try {
+                    resolve(applyUpdate());
+                  } catch (e) {
+                    reject(e);
                   }
-                  return Promise.resolve(matched);
+                },
+                returning(): Promise<any[]> {
+                  return Promise.resolve(applyUpdate());
                 },
               };
             },
@@ -320,5 +332,140 @@ describe("OutcomesService — ingestSignal", () => {
         idempotencyKey: "svc-idem-bad",
       }),
     ).rejects.toThrow(SignalAuthError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// OutcomesService.revertOutcome — auto-reopen path (EO-P2-11)
+// ---------------------------------------------------------------------------
+
+describe("revertOutcome — auto-reopen path", () => {
+  it("reopens parent issue when auto_reopen_on_revert flag is true and no sibling covers slot", async () => {
+    const outcomeRow = {
+      id: "out-revert-1",
+      companyId: "co-r",
+      kind: "artifact_declared",
+      status: "verified",
+      targetKind: "issue",
+      targetId: "iss-r-1",
+      requiredMeta: { name: "patch", artifact_kind: "code.patch", auto_reopen_on_revert: true },
+      revertedAt: null,
+      revertedReason: null,
+    };
+    const issueRow = { id: "iss-r-1", companyId: "co-r", status: "done", completedAt: new Date() };
+    const db = makeMultiTableFakeDbSvc({ outcomes: [outcomeRow], issues: [issueRow] });
+    const svc = initializeOutcomesService({ db: db as any });
+    const result = await svc.revertOutcome("out-revert-1", "test-reason");
+
+    expect(result.parentReopened).toBe(true);
+    expect(result.slotStillSatisfied).toBe(false);
+    expect(db.allRows["issues"][0].status).toBe("in_progress");
+    expect(db.allRows["issues"][0].completedAt).toBeNull();
+  });
+
+  it("does NOT reopen when an alternative still covers the slot", async () => {
+    const primaryRow = {
+      id: "out-revert-2",
+      companyId: "co-r",
+      kind: "artifact_declared",
+      status: "verified",
+      targetKind: "issue",
+      targetId: "iss-r-2",
+      requiredMeta: { name: "patch", artifact_kind: "code.patch", auto_reopen_on_revert: true },
+      revertedAt: null,
+      revertedReason: null,
+    };
+    const altRow = {
+      id: "out-revert-2-alt",
+      companyId: "co-r",
+      kind: "artifact_declared",
+      status: "verified",
+      targetKind: "issue",
+      targetId: "iss-r-2",
+      requiredMeta: { name: "patch:alt:0", artifact_kind: "code.patch" },
+    };
+    const issueRow = { id: "iss-r-2", companyId: "co-r", status: "done", completedAt: new Date() };
+    const db = makeMultiTableFakeDbSvc({ outcomes: [primaryRow, altRow], issues: [issueRow] });
+    const svc = initializeOutcomesService({ db: db as any });
+    const result = await svc.revertOutcome("out-revert-2", "test-reason");
+
+    expect(result.parentReopened).toBe(false);
+    expect(result.slotStillSatisfied).toBe(true);
+    // Issue stays done because alt covers the slot
+    expect(db.allRows["issues"][0].status).toBe("done");
+  });
+
+  it("does NOT reopen when flag is false", async () => {
+    const outcomeRow = {
+      id: "out-revert-3",
+      companyId: "co-r",
+      kind: "artifact_declared",
+      status: "verified",
+      targetKind: "issue",
+      targetId: "iss-r-3",
+      requiredMeta: { name: "patch", artifact_kind: "code.patch" }, // no auto_reopen_on_revert
+      revertedAt: null,
+      revertedReason: null,
+    };
+    const issueRow = { id: "iss-r-3", companyId: "co-r", status: "done", completedAt: new Date() };
+    const db = makeMultiTableFakeDbSvc({ outcomes: [outcomeRow], issues: [issueRow] });
+    const svc = initializeOutcomesService({ db: db as any });
+    const result = await svc.revertOutcome("out-revert-3", "test-reason");
+
+    expect(result.parentReopened).toBe(false);
+    expect(result.slotStillSatisfied).toBe(false);
+    expect(db.allRows["issues"][0].status).toBe("done");
+  });
+
+  it("revert succeeds even if reopen fails (best-effort)", async () => {
+    const outcomeRow = {
+      id: "out-revert-4",
+      companyId: "co-r",
+      kind: "artifact_declared",
+      status: "verified",
+      targetKind: "issue",
+      targetId: "iss-r-4",
+      requiredMeta: { name: "patch", artifact_kind: "code.patch", auto_reopen_on_revert: true },
+      revertedAt: null,
+      revertedReason: null,
+    };
+    const db = makeMultiTableFakeDbSvc({ outcomes: [outcomeRow], issues: [] });
+
+    // Intercept update so that the issues table update rejects (simulates a DB failure in the
+    // parent-reopen path). The outcomes update must still use .returning() per revertOutcome.
+    const origUpdate = db.update.bind(db);
+    db.update = (table: any) => {
+      const tableName: string =
+        table[Symbol.for("drizzle:Name")] ?? table._.name ?? table.name ?? "";
+      if (tableName === "issues") {
+        // Return a thenable that rejects immediately.
+        return {
+          set(_values: any) {
+            return {
+              where(_condition: any) {
+                return {
+                  then(resolve: any, reject: any) {
+                    reject(new Error("db failure in parent update"));
+                  },
+                  returning(): Promise<any[]> {
+                    return Promise.reject(new Error("db failure in parent update"));
+                  },
+                };
+              },
+            };
+          },
+        };
+      }
+      return origUpdate(table);
+    };
+
+    const svc = initializeOutcomesService({ db: db as any });
+    const result = await svc.revertOutcome("out-revert-4", "test-reason");
+
+    // Revert itself succeeded
+    expect(result.id).toBe("out-revert-4");
+    expect(result.parentReopened).toBe(false);
+    // The reverted row itself has status reverted
+    expect(db.allRows["outcomes"][0].status).toBe("reverted");
   });
 });
