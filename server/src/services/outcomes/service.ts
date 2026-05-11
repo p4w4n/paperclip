@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { outcomes } from "@paperclipai/db";
 import { OUTCOME_KINDS, validateRequiredMeta, type OutcomeKind } from "@paperclipai/shared";
 import { diffContract } from "./contract.js";
+import { expandContractEntryToRows } from "./alias-resolver.js";
 import { OutcomeRequiredError, type OutcomeTarget, type OutcomeRowLite } from "./types.js";
 import { VERIFIERS, type VerifierKind } from "./verifiers/index.js";
 import { verifyManualSignoff, type ManualSignoffInput } from "./verifiers/manual-signoff.js";
@@ -56,20 +57,30 @@ export class OutcomesService {
             eq(outcomes.targetId, target.id),
           ));
 
+        // Expand each desired entry (primary + alternatives) before diffing so the
+        // diff operates on individual rows keyed by (kind, name). Sibling alias rows
+        // have distinct names by construction, so no collisions occur.
+        const expandedDesired = desired.flatMap((d) =>
+          expandContractEntryToRows(d as any).map((row) => ({
+            kind: row.kind,
+            requiredMeta: row.requiredMeta as { name: string; [k: string]: unknown },
+          })),
+        );
+
         const diff = diffContract(
           existing.map((e) => ({ id: e.id, kind: e.kind, requiredMeta: e.requiredMeta, status: e.status })),
-          desired.map((d) => ({ kind: d.kind, requiredMeta: d.requiredMeta as { name: string } })),
+          expandedDesired,
         );
 
         let inserted = 0;
-        for (const entry of diff.toInsert) {
+        for (const row of diff.toInsert) {
           await tx.insert(outcomes).values({
             companyId: target.companyId,
             targetKind: target.kind,
             targetId: target.id,
-            kind: entry.kind,
+            kind: row.kind,
             status: "pending",
-            requiredMeta: entry.requiredMeta,
+            requiredMeta: row.requiredMeta,
           });
           inserted++;
         }

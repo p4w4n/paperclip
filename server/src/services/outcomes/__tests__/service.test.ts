@@ -41,6 +41,32 @@ describe("OutcomesService — materializeContract", () => {
   });
 });
 
+describe("materializeContract — alternatives", () => {
+  it("expands one entry with N alternatives into N+1 pending rows", async () => {
+    const fakeDb = makeFakeDb();
+    const altSvc = initializeOutcomesService({ db: fakeDb as any });
+
+    await altSvc.materializeContract(
+      { kind: "issue", id: "iss-alt-1", companyId: "co-1" },
+      [{
+        kind: "artifact_declared",
+        requiredMeta: { name: "patch", artifact_kind: "code.patch" },
+        alternatives: [
+          { kind: "artifact_declared", requiredMeta: { artifact_kind: "code.patch" } },
+          { kind: "artifact_declared", requiredMeta: { artifact_kind: "code.patch" } },
+        ],
+      } as any],
+    );
+
+    // Should have 3 rows: "patch", "patch:alt:0", "patch:alt:1"
+    expect(fakeDb.rows).toHaveLength(3);
+    const names = fakeDb.rows.map((r: any) => r.requiredMeta.name);
+    expect(names).toContain("patch");
+    expect(names).toContain("patch:alt:0");
+    expect(names).toContain("patch:alt:1");
+  });
+});
+
 describe("OutcomeRequiredError", () => {
   it("renders a 422-shaped body", () => {
     const e = new OutcomeRequiredError({
