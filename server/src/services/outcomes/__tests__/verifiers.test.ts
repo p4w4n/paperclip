@@ -834,4 +834,47 @@ describe("verifier — external_signal", () => {
       }),
     ).rejects.toThrow(SignalAuthError);
   });
+
+  it("skipHmacVerify=true: bypasses HMAC and still verifies the outcome", async () => {
+    // rawBody is arbitrary; signature is intentionally wrong — HMAC must be skipped.
+    const rawBody = JSON.stringify({ event: "done" });
+    const wrongSig = "sha256=0000000000000000000000000000000000000000000000000000000000000000";
+    const db = makeMultiTableFakeDbForSignal(
+      pendingExternalSignalOutcome(),
+      companyWithSecret(), // outcomeSignalSecret != the wrong sig above
+    );
+
+    const result = await ingestExternalSignal(db as any, {
+      outcomeId: "out-es-1",
+      companyId: "co-1",
+      rawBody,
+      signature: wrongSig,
+      idempotencyKey: "idem-key-skip",
+      skipHmacVerify: true,
+    });
+
+    expect(result.verified).toBe(true);
+    expect(result.replay).toBe(false);
+    expect(db.allRows["outcomes"][0].status).toBe("verified");
+  });
+
+  it("skipHmacVerify defaults to false: bad signature still throws SignalAuthError", async () => {
+    const rawBody = JSON.stringify({ event: "done" });
+    const badSig = "sha256=0000000000000000000000000000000000000000000000000000000000000000";
+    const db = makeMultiTableFakeDbForSignal(
+      pendingExternalSignalOutcome(),
+      companyWithSecret(),
+    );
+
+    // Omitting skipHmacVerify (defaults to falsy) — must throw on bad sig.
+    await expect(
+      ingestExternalSignal(db as any, {
+        outcomeId: "out-es-1",
+        companyId: "co-1",
+        rawBody,
+        signature: badSig,
+        idempotencyKey: "idem-key-nodefault",
+      }),
+    ).rejects.toThrow(SignalAuthError);
+  });
 });

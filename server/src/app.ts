@@ -31,6 +31,7 @@ import { plansArtifactsRoutes } from "./routes/plans-artifacts.js";
 import { learningRoutes } from "./routes/learning.js";
 import { outcomesRoutes } from "./routes/outcomes.js";
 import { planTemplatesRoutes } from "./routes/plan-templates.js";
+import { webhooksRoutes } from "./routes/webhooks.js";
 import { dashboardRoutes } from "./routes/dashboard.js";
 import { userProfileRoutes } from "./routes/user-profiles.js";
 import { sidebarBadgeRoutes } from "./routes/sidebar-badges.js";
@@ -221,6 +222,7 @@ export async function createApp(
   api.use(learningRoutes(db));
   api.use(outcomesRoutes(db));
   api.use(planTemplatesRoutes(db));
+  api.use(webhooksRoutes(db));
   api.use(dashboardRoutes(db));
   api.use(userProfileRoutes(db));
   api.use(sidebarBadgeRoutes(db));

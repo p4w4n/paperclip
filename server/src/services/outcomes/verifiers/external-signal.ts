@@ -25,28 +25,38 @@ export interface SignalIngestInput {
   rawBody: string;
   signature: string;
   idempotencyKey: string;
+  /**
+   * EO-P2-14: When true, skip the HMAC verification step. The CALLER must
+   * have verified the signature against the appropriate per-integration
+   * secret (e.g., GitHub adapter verifies against `companies.github_webhook_secret`
+   * before delegating). Used to compose webhook adapters on top of the
+   * generic external_signal verifier without forcing them to share a secret.
+   */
+  skipHmacVerify?: boolean;
 }
 
 export async function ingestExternalSignal(
   db: any,
   input: SignalIngestInput,
 ): Promise<{ verified: boolean; replay: boolean }> {
-  const cos = await db
-    .select()
-    .from(companies)
-    .where(eq(companies.id, input.companyId));
+  if (!input.skipHmacVerify) {
+    const cos = await db
+      .select()
+      .from(companies)
+      .where(eq(companies.id, input.companyId));
 
-  const secret = cos[0]?.outcomeSignalSecret;
-  if (!secret) throw new SignalAuthError("signal secret not provisioned");
+    const secret = cos[0]?.outcomeSignalSecret;
+    if (!secret) throw new SignalAuthError("signal secret not provisioned");
 
-  if (
-    !verifyHmacSignature({
-      secret,
-      rawBody: input.rawBody,
-      providedSig: input.signature,
-    })
-  ) {
-    throw new SignalAuthError("hmac mismatch");
+    if (
+      !verifyHmacSignature({
+        secret,
+        rawBody: input.rawBody,
+        providedSig: input.signature,
+      })
+    ) {
+      throw new SignalAuthError("hmac mismatch");
+    }
   }
 
   const rows = await db
