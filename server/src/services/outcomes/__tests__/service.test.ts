@@ -700,11 +700,14 @@ describe("OutcomesService.applyPlaybookToIssue", () => {
       1, // applicabilityScore override
     );
 
-    // replace: merged = suggested array only (2 entries), skipped = 0
-    expect(result.skippedExisting).toHaveLength(0);
+    // replace: merged = suggested array only (2 entries)
     expect(result.newContractLength).toBe(2);
-    // both entries are "added" in replace mode
-    expect(result.addedOutcomes).toHaveLength(2);
+    // "artifact_declared/patch" already existed — goes to skippedExisting (replacedExisting, back-compat)
+    expect(result.skippedExisting).toHaveLength(1);
+    expect(result.skippedExisting[0].name).toBe("patch");
+    // "artifact_declared/spec" is net-new — the only truly added entry
+    expect(result.addedOutcomes).toHaveLength(1);
+    expect(result.addedOutcomes[0].name).toBe("spec");
   });
 
   it("throws PlaybookNotApplicableError when applicability score is 0", async () => {

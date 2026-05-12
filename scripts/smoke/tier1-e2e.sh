@@ -323,7 +323,7 @@ curl -fsSL -X PATCH "$BASE/api/issues/$ISSUE_ID" \
 
 echo "[EO-P2] verify alternative — expect slot satisfied"
 ALT_ID=$(curl -fsSL "$BASE/api/companies/$COMPANY_ID/outcomes?target_kind=issue&target_id=$ISSUE_ID" \
-  | python3 -c "import sys,json; outcomes=json.load(sys.stdin)['outcomes']; print([o['id'] for o in outcomes if o['required_meta'].get('name')=='alias-test:alt:0'][0])")
+  | python3 -c "import sys,json; outcomes=json.load(sys.stdin)['outcomes']; print([o['id'] for o in outcomes if o['requiredMeta'].get('name')=='alias-test:alt:0'][0])")
 curl -fsSL -X POST "$BASE/api/companies/$COMPANY_ID/outcomes/$ALT_ID/signoff" \
   -H 'content-type: application/json' -d '{}'
 

@@ -26,10 +26,23 @@ export function mergeSuggestedOutcomes(
   strategy: MergeStrategy,
 ): MergeResult {
   if (strategy === "replace") {
+    // Partition suggested against existing by (kind, name). Net-new entries go
+    // to `added`; entries that already existed go to `skippedExisting` (field
+    // name reused for response back-compat — semantically "replacedExisting").
+    const existingKeys = new Set(existing.map(keyOf));
+    const added: Array<{ kind: string; name: string }> = [];
+    const replacedExisting: Array<{ kind: string; name: string }> = [];
+    for (const entry of suggested) {
+      if (existingKeys.has(keyOf(entry))) {
+        replacedExisting.push({ kind: entry.kind, name: nameOf(entry) });
+      } else {
+        added.push({ kind: entry.kind, name: nameOf(entry) });
+      }
+    }
     return {
       merged: suggested,
-      added: suggested.map((e) => ({ kind: e.kind, name: nameOf(e) })),
-      skippedExisting: [],
+      added,
+      skippedExisting: replacedExisting, // "replacedExisting" — kept for response back-compat
     };
   }
 
